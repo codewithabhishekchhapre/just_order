@@ -3258,6 +3258,7 @@ export async function createRestaurantByAdmin(body) {
         openingTime: normalizedOpeningTime,
         closingTime: normalizedClosingTime,
         openDays: Array.isArray(body.openDays) ? body.openDays : [],
+        dayTimings: Array.isArray(body.dayTimings) ? body.dayTimings : [],
         panNumber: toStr(body.panNumber),
         nameOnPan: toStr(body.nameOnPan),
         gstRegistered: Boolean(body.gstRegistered),
