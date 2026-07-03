@@ -26,6 +26,9 @@ const RestaurantNotifications= lazy(() => import("@food/pages/restaurant/Notific
 const OrderDetails           = lazy(() => import("@food/pages/restaurant/OrderDetails"))
 const TermsAndConditionsPage = lazy(() => import("@food/pages/restaurant/TermsAndConditionsPage"))
 const PrivacyPolicyPage      = lazy(() => import("@food/pages/restaurant/PrivacyPolicyPage"))
+const RefundPolicyPage       = lazy(() => import("@food/pages/restaurant/RefundPolicyPage"))
+const ShippingPolicyPage     = lazy(() => import("@food/pages/restaurant/ShippingPolicyPage"))
+const CancellationPolicyPage = lazy(() => import("@food/pages/restaurant/CancellationPolicyPage"))
 const MenuCategoriesPage     = lazy(() => import("@food/pages/restaurant/MenuCategoriesPage"))
 const CreateCouponsPage      = lazy(() => import("@food/pages/restaurant/CreateCouponsPage"))
 const RestaurantStatus       = lazy(() => import("@food/pages/restaurant/RestaurantStatus"))
@@ -88,6 +91,9 @@ export default function RestaurantRouter() {
           <Route path="onboarding"     element={<RestaurantOnboarding />} />
           <Route path="terms"          element={<TermsAndConditionsPage />} />
           <Route path="privacy"        element={<PrivacyPolicyPage />} />
+          <Route path="refund"         element={<RefundPolicyPage />} />
+          <Route path="shipping"       element={<ShippingPolicyPage />} />
+          <Route path="cancellation"   element={<CancellationPolicyPage />} />
 
           {/* ── Protected routes — all wrapped in RestaurantLayout ── */}
           <Route element={<Guard><RestaurantLayout /></Guard>}>

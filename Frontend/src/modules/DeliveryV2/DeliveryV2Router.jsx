@@ -36,6 +36,9 @@ import { PocketDetailsV2 } from './pages/pocket/PocketDetailsV2';
 import { ProfileDetailsV2 } from './pages/profile/ProfileDetailsV2';
 import TermsAndConditionsV2 from './pages/TermsAndConditionsV2';
 import PrivacyPolicyV2 from './pages/PrivacyPolicyV2';
+import RefundPolicyV2 from './pages/RefundPolicyV2';
+import ShippingPolicyV2 from './pages/ShippingPolicyV2';
+import CancellationPolicyV2 from './pages/CancellationPolicyV2';
 import NotificationsV2 from './pages/NotificationsV2';
 import SubscriptionV2 from './pages/SubscriptionV2';
 
@@ -91,6 +94,9 @@ const DeliveryV2Router = () => {
         <Route path="/help/id-card" element={<ProtectedRoute><ShowIdCardV2 /></ProtectedRoute>} />
         <Route path="/profile/terms" element={<ProtectedRoute><TermsAndConditionsV2 /></ProtectedRoute>} />
         <Route path="/profile/privacy" element={<ProtectedRoute><PrivacyPolicyV2 /></ProtectedRoute>} />
+        <Route path="/profile/refund" element={<ProtectedRoute><RefundPolicyV2 /></ProtectedRoute>} />
+        <Route path="/profile/shipping" element={<ProtectedRoute><ShippingPolicyV2 /></ProtectedRoute>} />
+        <Route path="/profile/cancellation" element={<ProtectedRoute><CancellationPolicyV2 /></ProtectedRoute>} />
         
         {/* Financial Deep-Pages */}
         <Route path="/pocket/payout" element={<ProtectedRoute><PayoutV2 /></ProtectedRoute>} />
