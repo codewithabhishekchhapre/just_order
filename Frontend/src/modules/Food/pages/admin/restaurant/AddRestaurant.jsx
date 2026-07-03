@@ -154,6 +154,13 @@ const clearAllFilesFromDB = async () => {
   }
 }
 
+const defaultDayTimings = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(day => ({
+  day,
+  openingTime: "09:00",
+  closingTime: "23:59",
+  isOpen: true
+}));
+
 export default function AddRestaurant() {
   const navigate = useNavigate()
   const [step, setStep] = useState(1)
@@ -196,6 +203,7 @@ export default function AddRestaurant() {
     openingTime: "",
     closingTime: "",
     openDays: [],
+    dayTimings: defaultDayTimings,
   })
 
   // Step 3: Documents
@@ -251,7 +259,12 @@ export default function AddRestaurant() {
             setStep1((prev) => ({ ...prev, ...parsed.step1, location: { ...prev.location, ...(parsed.step1.location || {}) } }))
           }
           if (parsed?.step2 && !cancelled) {
-            setStep2((prev) => ({ ...prev, ...parsed.step2 }))
+            setStep2({
+              ...parsed.step2,
+              menuImages: [],
+              profileImage: null,
+              dayTimings: Array.isArray(parsed.step2.dayTimings) && parsed.step2.dayTimings.length > 0 ? parsed.step2.dayTimings : defaultDayTimings
+            })
           }
           if (parsed?.step3 && !cancelled) {
             setStep3((prev) => ({ ...prev, ...parsed.step3 }))
@@ -437,18 +450,8 @@ export default function AddRestaurant() {
     if (!step2.profileImage) errors.push("Restaurant profile image is required")
     if (!step2.cuisines || step2.cuisines.length === 0) errors.push("Please select at least one cuisine")
     if (!step2.estimatedDeliveryTime?.trim()) errors.push("Estimated delivery time is required")
-    if (!step2.openingTime?.trim()) errors.push("Opening time is required")
-    if (!step2.closingTime?.trim()) errors.push("Closing time is required")
-    const openingMinutes = timeStringToMinutes(step2.openingTime)
-    const closingMinutes = timeStringToMinutes(step2.closingTime)
-    if (openingMinutes !== null && closingMinutes !== null) {
-      if (openingMinutes === closingMinutes) {
-        errors.push("Opening time and closing time cannot be same")
-      } else if (closingMinutes < openingMinutes) {
-        errors.push("Closing time cannot be less than opening time")
-      }
-    }
-    if (!step2.openDays || step2.openDays.length === 0) errors.push("Please select at least one open day")
+    const isAnyDayOpen = step2.dayTimings.some(d => d.isOpen)
+    if (!isAnyDayOpen) errors.push("Please select at least one open day")
     return errors
   }
 
@@ -584,6 +587,7 @@ export default function AddRestaurant() {
         openingTime: step2.openingTime,
         closingTime: step2.closingTime,
         openDays: step2.openDays,
+        dayTimings: step2.dayTimings,
         // Step 3
         panNumber: step3.panNumber,
         nameOnPan: step3.nameOnPan,
@@ -1201,58 +1205,58 @@ export default function AddRestaurant() {
         </div>
 
         <div className="space-y-3">
-          <Label className="text-xs text-gray-700">Outlet timings*</Label>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <Label className="text-xs text-gray-700 mb-1 block">Opening time</Label>
-              <Input
-                type="time"
-                value={step2.openingTime || ""}
-                onChange={(e) => {
-                  const nextOpening = e.target.value
-                  const closingMinutes = timeStringToMinutes(step2.closingTime)
-                  const openingMinutes = timeStringToMinutes(nextOpening)
-                  if (openingMinutes !== null && closingMinutes !== null) {
-                    if (openingMinutes === closingMinutes) {
-                      toast.error("Opening time and closing time cannot be same")
-                      return
-                    }
-                    if (closingMinutes < openingMinutes) {
-                      toast.error("Closing time cannot be less than opening time")
-                      return
-                    }
-                  }
-                  setStep2({ ...step2, openingTime: nextOpening })
-                }}
-                autoComplete="off"
-                className="bg-white text-sm"
-              />
-            </div>
-            <div>
-              <Label className="text-xs text-gray-700 mb-1 block">Closing time</Label>
-              <Input
-                type="time"
-                value={step2.closingTime || ""}
-                onChange={(e) => {
-                  const nextClosing = e.target.value
-                  const openingMinutes = timeStringToMinutes(step2.openingTime)
-                  const closingMinutes = timeStringToMinutes(nextClosing)
-                  if (openingMinutes !== null && closingMinutes !== null) {
-                    if (openingMinutes === closingMinutes) {
-                      toast.error("Opening time and closing time cannot be same")
-                      return
-                    }
-                    if (closingMinutes < openingMinutes) {
-                      toast.error("Closing time cannot be less than opening time")
-                      return
-                    }
-                  }
-                  setStep2({ ...step2, closingTime: nextClosing })
-                }}
-                autoComplete="off"
-                className="bg-white text-sm"
-              />
-            </div>
+          <Label className="text-xs font-bold text-gray-700 dark:text-gray-300">Delivery Timings</Label>
+          <div className="space-y-4">
+            {(step2.dayTimings || []).map((dt, index) => (
+              <div key={dt.day} className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 border border-gray-200 dark:border-gray-800 rounded-xl bg-gray-50/40 dark:bg-gray-950/40">
+                <div className="flex items-center gap-2 sm:w-1/4">
+                  <input
+                    type="checkbox"
+                    checked={dt.isOpen}
+                    onChange={(e) => {
+                      const newTimings = [...step2.dayTimings];
+                      newTimings[index].isOpen = e.target.checked;
+                      setStep2({ ...step2, dayTimings: newTimings });
+                    }}
+                    className="w-4 h-4 text-[#FF6A00] rounded focus:ring-[#FF6A00]"
+                  />
+                  <span className="text-sm font-semibold text-gray-900 dark:text-white w-10">{dt.day}</span>
+                  <span className={`text-xs ${dt.isOpen ? "text-green-600" : "text-gray-400"} font-medium ml-2`}>
+                    {dt.isOpen ? "Open" : "Closed"}
+                  </span>
+                </div>
+                {dt.isOpen && (
+                  <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-xs text-gray-700 mb-1 block">Opening time</Label>
+                      <Input
+                        type="time"
+                        value={dt.openingTime || ""}
+                        onChange={(e) => {
+                          const newTimings = [...step2.dayTimings];
+                          newTimings[index].openingTime = e.target.value;
+                          setStep2({ ...step2, dayTimings: newTimings });
+                        }}
+                        className="bg-white text-sm"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-gray-700 mb-1 block">Closing time</Label>
+                      <Input
+                        type="time"
+                        value={dt.closingTime || ""}
+                        onChange={(e) => {
+                          const newTimings = [...step2.dayTimings];
+                          newTimings[index].closingTime = e.target.value;
+                          setStep2({ ...step2, dayTimings: newTimings });
+                        }}
+                        className="bg-white text-sm"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         </div>
 
@@ -1265,34 +1269,6 @@ export default function AddRestaurant() {
             className="mt-1 bg-white text-sm"
             placeholder="e.g., 25-30 mins"
           />
-        </div>
-
-        <div className="space-y-2">
-          <Label className="text-xs text-gray-700 flex items-center gap-1.5">
-            <Calendar className="w-3.5 h-3.5 text-gray-800" />
-            <span>Open days*</span>
-          </Label>
-          <div className="mt-1 grid grid-cols-7 gap-1.5 sm:gap-2">
-            {daysOfWeek.map((day) => {
-              const active = step2.openDays.includes(day)
-              return (
-                <button
-                  key={day}
-                  type="button"
-                  onClick={() => {
-                    setStep2((prev) => {
-                      const exists = prev.openDays.includes(day)
-                      if (exists) return { ...prev, openDays: prev.openDays.filter((d) => d !== day) }
-                      return { ...prev, openDays: [...prev.openDays, day] }
-                    })
-                  }}
-                  className={`aspect-square flex items-center justify-center rounded-md text-[11px] font-medium ${active ? "bg-black text-white" : "bg-gray-100 text-gray-800"}`}
-                >
-                  {day.charAt(0)}
-                </button>
-              )
-            })}
-          </div>
         </div>
       </section>
     </div>

@@ -26,6 +26,7 @@ import ReusableImageLibraryModal from "@food/components/ReusableImageLibraryModa
 import Cropper from "react-easy-crop"
 import { isFlutterBridgeAvailable } from "@food/utils/imageUploadUtils"
 import { getFoodVariants } from "@food/utils/foodVariants"
+import { compressImage } from "@shared/utils/imageCompression"
 const debugLog = (...args) => { }
 const debugWarn = (...args) => { }
 const debugError = (...args) => { }
@@ -48,6 +49,7 @@ const createVariantDraft = (variant = {}) => ({
   name: String(variant?.name || ""),
   price: variant?.price != null ? String(variant.price) : "",
   otherPrice: variant?.otherPrice != null ? String(variant.otherPrice) : "",
+  unit: String(variant?.unit || ""),
 })
 
 export default function ItemDetailsPage() {
@@ -499,22 +501,15 @@ export default function ItemDetailsPage() {
   ]
 
   const handleSelectLibraryImage = (selectedMedia) => {
-    if (images.includes(selectedMedia.url)) {
-      toast.error("This image is already added");
-      setIsLibraryOpen(false);
-      return;
-    }
-    setImages((prev) => [...prev, selectedMedia.url]);
+    setImages([selectedMedia.url]);
+    setImageFiles(new Map());
     setIsLibraryOpen(false);
     toast.success("Image selected from library");
   };
 
   const handleSelectSuggestedImage = (url) => {
-    if (images.includes(url)) {
-      toast.error("This image is already added");
-      return;
-    }
-    setImages((prev) => [...prev, url]);
+    setImages([url]);
+    setImageFiles(new Map());
     toast.success("Image selected from suggestions");
   };
 
@@ -539,22 +534,25 @@ export default function ItemDetailsPage() {
 
   const handleCropSave = async () => {
     try {
-      const croppedImage = await getCroppedImg(imageToCrop, croppedAreaPixels)
+      const croppedBlob = await getCroppedImg(imageToCrop, croppedAreaPixels)
       
-      // Multiple-image mode: append the cropped preview URL
-      const previewUrl = URL.createObjectURL(croppedImage)
+      // Convert blob to file for compression
+      const imageFile = new File([croppedBlob], 'cropped-image.jpg', { type: 'image/jpeg' })
+      
+      // Compress the image
+      const compressedImage = await compressImage(imageFile)
+      
+      // Multiple-image mode: append the cropped preview URL -> Single-image mode: replace
+      const previewUrl = URL.createObjectURL(compressedImage)
 
-      setImageFiles((prev) => {
-        const next = new Map(prev)
-        next.set(previewUrl, croppedImage)
+      setImageFiles(() => {
+        const next = new Map()
+        next.set(previewUrl, compressedImage)
         return next
       })
 
-      setImages((prev) => {
-        const next = [...prev, previewUrl]
-        setCurrentImageIndex(next.length - 1)
-        return next
-      })
+      setImages([previewUrl])
+      setCurrentImageIndex(0)
 
       setIsCropping(false)
       setImageToCrop(null)
@@ -832,7 +830,7 @@ export default function ItemDetailsPage() {
           persistedId: String(variant.persistedId || "").trim(),
           name: String(variant.name || "").trim(),
           price: Number(variant.price),
-          otherPrice: Number(variant.otherPrice) || 0,
+          unit: String(variant.unit || "").trim(),
         }))
         .filter((variant) => variant.name || variant.persistedId || variant.price)
 
@@ -860,7 +858,7 @@ export default function ItemDetailsPage() {
         ...(variant.persistedId ? { _id: variant.persistedId } : {}),
         name: variant.name,
         price: variant.price,
-        otherPrice: Number(variant.otherPrice) || 0,
+        unit: variant.unit,
       }))
 
       // Create/update FoodItem in DB (single call per explicit Save; no autosave spam)
@@ -870,7 +868,6 @@ export default function ItemDetailsPage() {
           name: itemName.trim(),
           description: itemDescription.trim(),
           price: parsedBasePrice,
-          otherPrice: Number(otherPrice) || 0,
           variants: variantPayload,
           image: allImageUrls.length > 0 ? allImageUrls[0] : "",
           images: allImageUrls,
@@ -894,7 +891,6 @@ export default function ItemDetailsPage() {
           name: itemName.trim(),
           description: itemDescription.trim(),
           price: parsedBasePrice,
-          otherPrice: Number(otherPrice) || 0,
           variants: variantPayload,
           image: allImageUrls.length > 0 ? allImageUrls[0] : "",
           images: allImageUrls,
@@ -1141,7 +1137,7 @@ export default function ItemDetailsPage() {
               <div className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center">
                 <Plus className="w-4 h-4" />
               </div>
-              <span>Add Image</span>
+              <span>{images.length > 0 ? "Replace Image" : "Add Image"}</span>
             </button>
             <button
               type="button"
@@ -1151,7 +1147,7 @@ export default function ItemDetailsPage() {
               <div className="w-5 h-5 rounded-full bg-gray-100 flex items-center justify-center">
                 <Plus className="w-4 h-4 text-gray-600" />
               </div>
-              <span>Choose from Library</span>
+              <span>{images.length > 0 ? "Replace from Library" : "Choose from Library"}</span>
             </button>
           </div>
         </div>
@@ -1294,7 +1290,6 @@ export default function ItemDetailsPage() {
             </label>
             <div className="space-y-3">
               {variants.length === 0 ? (
-                <div className="space-y-3">
                   <div className="relative">
                     <label className="block text-xs text-gray-600 mb-1">Base price</label>
                     <div className="relative">
@@ -1321,27 +1316,6 @@ export default function ItemDetailsPage() {
                       <button className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-gray-100">
                         <EditIcon className="w-4 h-4 text-gray-500" />
                       </button>
-                    </div>
-                  </div>
-
-                  <div className="relative">
-                    <label className="block text-xs text-gray-600 mb-1">Other platform price (Optional)</label>
-                    <div className="relative">
-                      <input
-                        type="text"
-                        value={otherPrice}
-                        onChange={(e) => {
-                          const value = e.target.value.replace(/[\u20B9\s,]/g, '').replace(/[^0-9.]/g, '')
-                          const parts = value.split('.')
-                          const cleanedValue = parts.length > 2
-                            ? parts[0] + '.' + parts.slice(1).join('')
-                            : value
-                          setOtherPrice(cleanedValue)
-                        }}
-                        placeholder="Enter other platform price"
-                        className="w-full pl-8 pr-12 py-3 border border-gray-300 rounded-lg text-sm text-gray-900 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#FF6A00] focus:border-transparent"
-                      />
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-600">{"\u20B9"}</span>
                     </div>
                   </div>
                 </div>
@@ -1371,7 +1345,7 @@ export default function ItemDetailsPage() {
                   <div className="space-y-3">
                     {variants.map((variant, index) => (
                       <div key={variant.localId} className="grid grid-cols-[1fr_auto] gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                           <div>
                             <label className="block text-xs text-gray-600 mb-1">Variant name</label>
                             <input
@@ -1403,24 +1377,25 @@ export default function ItemDetailsPage() {
                             </div>
                           </div>
                           <div>
-                            <label className="block text-xs text-gray-600 mb-1">Other price</label>
-                            <div className="relative">
-                              <input
-                                type="text"
-                                value={variant.otherPrice}
-                                onChange={(e) => {
-                                  const value = e.target.value.replace(/[\u20B9\s,]/g, '').replace(/[^0-9.]/g, '')
-                                  const parts = value.split('.')
-                                  const cleanedValue = parts.length > 2
-                                    ? parts[0] + '.' + parts.slice(1).join('')
-                                    : value
-                                  handleVariantChange(variant.localId, "otherPrice", cleanedValue)
-                                }}
-                                placeholder="Other"
-                                className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#FF6A00] focus:border-transparent"
-                              />
-                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-600">{"\u20B9"}</span>
-                            </div>
+                            <label className="block text-xs text-gray-600 mb-1">Unit</label>
+                            <select
+                              value={variant.unit}
+                              onChange={(e) => handleVariantChange(variant.localId, "unit", e.target.value)}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#FF6A00] focus:border-transparent appearance-none"
+                            >
+                              <option value="">Select unit</option>
+                              <option value="piece">Piece</option>
+                              <option value="plate">Plate</option>
+                              <option value="portion">Portion</option>
+                              <option value="kg">Kg</option>
+                              <option value="grams">Grams</option>
+                              <option value="ml">ml</option>
+                              <option value="liters">Liters</option>
+                              <option value="bowl">Bowl</option>
+                              <option value="cup">Cup</option>
+                              <option value="slice">Slice</option>
+                              <option value="pack">Pack</option>
+                            </select>
                           </div>
                         </div>
                         <button

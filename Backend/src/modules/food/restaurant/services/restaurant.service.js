@@ -194,6 +194,7 @@ const toRestaurantProfile = (doc) => {
         openingTime: normalizeRestaurantTime(doc.openingTime) || null,
         closingTime: normalizeRestaurantTime(doc.closingTime) || null,
         openDays: Array.isArray(doc.openDays) ? doc.openDays : [],
+        dayTimings: Array.isArray(doc.dayTimings) ? doc.dayTimings : [],
         estimatedDeliveryTime: doc.estimatedDeliveryTime || '',
         featuredDish: doc.featuredDish || '',
         featuredPrice: doc.featuredPrice ?? null,
@@ -624,7 +625,6 @@ export const getOnboardingDraftByPhone = async (phone) => {
     if (!ownerPhoneLast10) return null;
 
     const doc = await FoodRestaurant.findOne({
-        status: 'onboarding',
         $or: [
             { ownerPhoneDigits },
             ...(ownerPhoneLast10 ? [{ ownerPhoneLast10 }] : [])
@@ -838,6 +838,7 @@ export const saveOnboardingStep = async (stepNum, payload, files) => {
                     : (typeof payload.openDays === 'string'
                         ? payload.openDays.split(',').map((d) => d.trim()).filter(Boolean)
                         : []),
+                dayTimings: payload.dayTimings || [],
                 onboardingStep: 3,
                 ...images
             });
@@ -1050,6 +1051,7 @@ export const registerRestaurant = async (payload, files, authUserId) => {
             openingTime: normalizedOpeningTime || undefined,
             closingTime: normalizedClosingTime || undefined,
             openDays: openDays || [],
+            dayTimings: payload.dayTimings || [],
             estimatedDeliveryTime: estimatedDeliveryTimeText || undefined,
             estimatedDeliveryTimeMinutes: estimatedDeliveryTimeMinutes ?? undefined,
             panNumber,

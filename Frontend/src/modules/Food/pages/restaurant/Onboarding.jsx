@@ -141,6 +141,7 @@ const buildOnboardingStepFormData = (stepNum, { step1, step2, step3 }) => {
     formData.append("openingTime", normalizeTimeValue(step2.openingTime) || "")
     formData.append("closingTime", normalizeTimeValue(step2.closingTime) || "")
     formData.append("openDays", (step2.openDays || []).join(","))
+    formData.append("dayTimings", JSON.stringify(step2.dayTimings || []))
 
     const menuFiles = (step2.menuImages || []).filter((f) => isUploadableFile(f))
     menuFiles.forEach((file) => formData.append("menuImages", file))
@@ -754,6 +755,13 @@ export default function RestaurantOnboarding() {
     }
   })
 
+  const defaultDayTimings = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(day => ({
+    day,
+    openingTime: "09:00",
+    closingTime: "23:59",
+    isOpen: true
+  }));
+
   const [step2, setStep2] = useState({
     menuImages: [],
     profileImage: null,
@@ -761,6 +769,7 @@ export default function RestaurantOnboarding() {
     openingTime: "",
     closingTime: "21:00",
     openDays: [],
+    dayTimings: defaultDayTimings,
   })
 
   const [step3, setStep3] = useState({
@@ -985,6 +994,7 @@ export default function RestaurantOnboarding() {
           openingTime: "",
           closingTime: "21:00",
           openDays: [],
+          dayTimings: defaultDayTimings,
         }
 
         let initialStep3 = {
@@ -1058,6 +1068,9 @@ export default function RestaurantOnboarding() {
             openingTime: normalizeTimeValue(serverData.openingTime),
             closingTime: normalizeTimeValue(serverData.closingTime),
             openDays: serverData.openDays || [],
+            dayTimings: Array.isArray(serverData.dayTimings) && serverData.dayTimings.length > 0 
+              ? serverData.dayTimings 
+              : defaultDayTimings,
           }
 
           initialStep3 = {
@@ -1090,7 +1103,7 @@ export default function RestaurantOnboarding() {
         }
 
         // 3. Overlay Local Progress from localStorage / IndexedDB
-        const localData = loadOnboardingFromLocalStorage()
+        const localData = null; // loadOnboardingFromLocalStorage() disabled
         if (localData) {
           if (localData.step1) {
             const serverStep1 = { ...initialStep1 }
@@ -1363,7 +1376,7 @@ export default function RestaurantOnboarding() {
     let active = true
 
       ; (async () => {
-        await saveOnboardingToLocalStorage(step1, step2, step3, step4, step)
+        // await saveOnboardingToLocalStorage(step1, step2, step3, step4, step) // Disabled
         if (!active) return
       })()
 
@@ -1435,9 +1448,6 @@ export default function RestaurantOnboarding() {
     if (!step1.zoneId?.trim()) {
       errors.push("Service zone is required")
     }
-    if (!step1.location?.addressLine1?.trim()) {
-      errors.push("Building/Floor/Street address is required")
-    }
     if (!step1.location?.area?.trim()) {
       errors.push("Area/Sector/Locality is required")
     }
@@ -1502,14 +1512,32 @@ export default function RestaurantOnboarding() {
       }
     }
 
-    if (!step2.openingTime?.trim()) {
-      errors.push("Opening time is required")
-    }
-    if (!step2.closingTime?.trim()) {
-      errors.push("Closing time is required")
-    }
-    if (!step2.openDays || step2.openDays.length === 0) {
-      errors.push("Please select at least one open day")
+    let hasOpenDay = false;
+    (step2.dayTimings || []).forEach((dt) => {
+      if (dt.isOpen) {
+        hasOpenDay = true;
+        if (!dt.openingTime?.trim()) {
+          errors.push(`Opening time is required for ${dt.day}`);
+        }
+        if (!dt.closingTime?.trim()) {
+          errors.push(`Closing time is required for ${dt.day}`);
+        }
+        // Basic check for time logic
+        if (dt.openingTime && dt.closingTime) {
+          const parseTime = (t) => {
+            const [h, m] = t.split(":").map(Number)
+            return h * 60 + m
+          }
+          const op = parseTime(dt.openingTime)
+          const cl = parseTime(dt.closingTime)
+          if (op === cl) errors.push(`Opening and closing time cannot be the same for ${dt.day}`);
+          if (cl < op) errors.push(`Closing time cannot be before opening time for ${dt.day}`);
+        }
+      }
+    });
+
+    if (!hasOpenDay) {
+      errors.push("Please set at least one day as open");
     }
 
     return errors
@@ -1681,6 +1709,7 @@ export default function RestaurantOnboarding() {
       openingTime: pickNonEmpty(step2.openingTime, draft?.openingTime),
       closingTime: pickNonEmpty(step2.closingTime, draft?.closingTime),
       openDays: (step2.openDays?.length ? step2.openDays : draft?.openDays) || [],
+      dayTimings: step2.dayTimings || draft?.dayTimings || defaultDayTimings,
       menuImages: (step2.menuImages?.length ? step2.menuImages : draft?.menuImages) || [],
       profileImage: step2.profileImage || draft?.profileImage || null,
     }
@@ -1884,11 +1913,11 @@ export default function RestaurantOnboarding() {
         formData.append("longitude", String(mergedStep1.location?.longitude || ""))
         formData.append("ref", mergedStep1.ref || "")
 
-        // Step 2
         formData.append("cuisines", (mergedStep2.cuisines || []).join(","))
         formData.append("openingTime", normalizeTimeValue(mergedStep2.openingTime) || "")
         formData.append("closingTime", normalizeTimeValue(mergedStep2.closingTime) || "")
         formData.append("openDays", (mergedStep2.openDays || []).join(","))
+        formData.append("dayTimings", JSON.stringify(mergedStep2.dayTimings || []))
 
         const menuFiles = (mergedStep2.menuImages || []).filter((f) => isUploadableFile(f))
         const hasExistingMenuImages = (mergedStep2.menuImages || []).some(hasValidMenuImageAsset)
@@ -2822,51 +2851,49 @@ export default function RestaurantOnboarding() {
         {/* Timings */}
         <div className="space-y-3">
           <Label className="text-xs font-bold text-gray-700 dark:text-gray-300">Delivery Timings</Label>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <TimeSelector
-              label="Opening Time"
-              value={step2.openingTime || ""}
-              onChange={(val) =>
-                setStep2((prev) => ({ ...prev, openingTime: normalizeTimeValue(val) || "" }))
-              }
-            />
-            <TimeSelector
-              label="Closing Time"
-              value={step2.closingTime || ""}
-              onChange={(val) =>
-                setStep2((prev) => ({ ...prev, closingTime: normalizeTimeValue(val) || "" }))
-              }
-            />
-          </div>
-        </div>
-
-        {/* Open days */}
-        <div className="space-y-2.5 pt-3">
-          <Label className="text-xs font-bold text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
-            <CalendarIcon className="w-3.5 h-3.5 text-gray-500" />
-            <span>Open Days</span>
-          </Label>
-          <p className="text-[11px] text-gray-500 dark:text-gray-500">
-            Select the days your restaurant accepts delivery orders.
-          </p>
-          <div className="mt-2.5 flex flex-wrap gap-2">
-            {daysOfWeek.map((day) => {
-              const active = step2.openDays.includes(day)
-              return (
-                <button
-                  key={day}
-                  type="button"
-                  onClick={() => toggleDay(day)}
-                  className={`px-4 py-2.5 rounded-xl text-xs font-extrabold transition-all duration-300 border ${
-                    active 
-                      ? "bg-gray-950 dark:bg-white text-white dark:text-gray-900 border-transparent shadow-sm scale-102" 
-                      : "bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-850"
-                  }`}
-                >
-                  {day}
-                </button>
-              )
-            })}
+          <div className="space-y-4">
+            {(step2.dayTimings || []).map((dt, index) => (
+              <div key={dt.day} className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 border border-gray-200 dark:border-gray-800 rounded-xl bg-gray-50/40 dark:bg-gray-950/40">
+                <div className="flex items-center gap-2 sm:w-1/4">
+                  <input
+                    type="checkbox"
+                    checked={dt.isOpen}
+                    onChange={(e) => {
+                      const newTimings = [...step2.dayTimings];
+                      newTimings[index].isOpen = e.target.checked;
+                      setStep2({ ...step2, dayTimings: newTimings });
+                    }}
+                    className="w-4 h-4 text-[#FF6A00] rounded focus:ring-[#FF6A00]"
+                  />
+                  <span className="text-sm font-semibold text-gray-900 dark:text-white w-10">{dt.day}</span>
+                  <span className={`text-xs ${dt.isOpen ? "text-green-600" : "text-gray-400"} font-medium ml-2`}>
+                    {dt.isOpen ? "Open" : "Closed"}
+                  </span>
+                </div>
+                {dt.isOpen && (
+                  <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <TimeSelector
+                      label="Opening Time"
+                      value={dt.openingTime || ""}
+                      onChange={(val) => {
+                        const newTimings = [...step2.dayTimings];
+                        newTimings[index].openingTime = normalizeTimeValue(val) || "";
+                        setStep2({ ...step2, dayTimings: newTimings });
+                      }}
+                    />
+                    <TimeSelector
+                      label="Closing Time"
+                      value={dt.closingTime || ""}
+                      onChange={(val) => {
+                        const newTimings = [...step2.dayTimings];
+                        newTimings[index].closingTime = normalizeTimeValue(val) || "";
+                        setStep2({ ...step2, dayTimings: newTimings });
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       </section>

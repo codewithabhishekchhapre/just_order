@@ -256,14 +256,19 @@ export default function RestaurantNavbar({
   useEffect(() => {
     const updateStatus = () => {
       try {
-        const savedStatus = localStorage.getItem('restaurant_online_status')
-        if (savedStatus !== null) {
-          const isOnline = JSON.parse(savedStatus)
+        if (restaurantData && restaurantData.isAcceptingOrders !== undefined) {
+          const isOnline = Boolean(restaurantData.isAcceptingOrders)
           setStatus(isOnline ? "Online" : "Offline")
+          localStorage.setItem('restaurant_online_status', JSON.stringify(isOnline))
         } else {
-          // If not stored yet, fallback to backend value (when available).
-          const isOnline = Boolean(restaurantData?.isAcceptingOrders)
-          setStatus(isOnline ? "Online" : "Offline")
+          const savedStatus = localStorage.getItem('restaurant_online_status')
+          if (savedStatus !== null) {
+            const isOnline = JSON.parse(savedStatus)
+            setStatus(isOnline ? "Online" : "Offline")
+          } else {
+            const isOnline = Boolean(restaurantData?.isAcceptingOrders)
+            setStatus(isOnline ? "Online" : "Offline")
+          }
         }
       } catch (error) {
         debugError("Error loading restaurant status:", error)

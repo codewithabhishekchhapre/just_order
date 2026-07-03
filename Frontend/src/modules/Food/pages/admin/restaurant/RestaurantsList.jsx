@@ -2084,31 +2084,53 @@ export default function RestaurantsList() {
                     <div>
                       <h4 className="text-lg font-semibold text-slate-900 mb-4">Timings & Status</h4>
                       <div className="space-y-3">
-                        {(openingTimeVal || closingTimeVal) && (
-                          <div className="flex items-center gap-3">
-                            <Clock className="w-5 h-5 text-slate-400" />
-                            <div>
-                              <p className="text-xs text-slate-500">Opening / Closing</p>
-                              <p className="text-sm font-medium text-slate-900">
-                                {formatTime12Hour(openingTimeVal)} – {formatTime12Hour(closingTimeVal)}
-                              </p>
-                            </div>
-                          </div>
-                        )}
-                        {estimatedDeliveryTimeVal && (
-                          <div>
-                            <p className="text-xs text-slate-500 mb-1">Estimated Delivery Time</p>
-                            <p className="text-sm font-medium text-slate-900">{estimatedDeliveryTimeVal}</p>
-                          </div>
-                        )}
-                        {openDaysVal && (
-                          <div>
-                            <p className="text-xs text-slate-500 mb-1">Open Days</p>
-                            <div className="flex flex-wrap gap-2">
-                              {openDaysVal.map((day, idx) => (
-                                <span key={idx} className="px-2 py-1 bg-slate-100 text-slate-700 rounded text-xs font-medium capitalize">{day}</span>
+                        {r?.dayTimings && Array.isArray(r.dayTimings) && r.dayTimings.length > 0 ? (
+                          <div className="mb-4">
+                            <p className="text-xs text-slate-500 mb-2">Weekly Timings</p>
+                            <div className="space-y-2">
+                              {r.dayTimings.map((dt, idx) => (
+                                <div key={idx} className="flex items-center justify-between p-2 bg-slate-50 rounded border border-slate-100">
+                                  <span className="text-sm font-medium text-slate-700 w-16">{dt.day}</span>
+                                  {dt.isOpen ? (
+                                    <span className="text-sm text-slate-900">
+                                      {formatTime12Hour(dt.openingTime)} - {formatTime12Hour(dt.closingTime)}
+                                    </span>
+                                  ) : (
+                                    <span className="text-sm text-red-500 font-medium">Closed</span>
+                                  )}
+                                </div>
                               ))}
                             </div>
+                          </div>
+                        ) : (
+                          <>
+                            {(openingTimeVal || closingTimeVal) && (
+                              <div className="flex items-center gap-3 mb-3">
+                                <Clock className="w-5 h-5 text-slate-400" />
+                                <div>
+                                  <p className="text-xs text-slate-500">Opening / Closing</p>
+                                  <p className="text-sm font-medium text-slate-900">
+                                    {formatTime12Hour(openingTimeVal)} – {formatTime12Hour(closingTimeVal)}
+                                  </p>
+                                </div>
+                              </div>
+                            )}
+                            {openDaysVal && (
+                              <div className="mb-3">
+                                <p className="text-xs text-slate-500 mb-1">Open Days</p>
+                                <div className="flex flex-wrap gap-2">
+                                  {openDaysVal.map((day, idx) => (
+                                    <span key={idx} className="px-2 py-1 bg-slate-100 text-slate-700 rounded text-xs font-medium capitalize">{day}</span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        )}
+                        {estimatedDeliveryTimeVal && (
+                          <div className="mb-3">
+                            <p className="text-xs text-slate-500 mb-1">Estimated Delivery Time</p>
+                            <p className="text-sm font-medium text-slate-900">{estimatedDeliveryTimeVal}</p>
                           </div>
                         )}
                         <div>

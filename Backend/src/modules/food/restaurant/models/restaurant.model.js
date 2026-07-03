@@ -124,6 +124,15 @@ const restaurantSchema = new mongoose.Schema(
     openDays: {
       type: [String],
       default: [],
+    },
+    dayTimings: {
+      type: [{
+        day: { type: String, enum: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] },
+        openingTime: String,
+        closingTime: String,
+        isOpen: { type: Boolean, default: true }
+      }],
+      default: []
     } /**
      * Operational toggle controlled by restaurant dashboard.
      * When false, restaurant is shown as offline / not accepting orders even within open hours.

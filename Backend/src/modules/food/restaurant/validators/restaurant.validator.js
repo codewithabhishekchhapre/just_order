@@ -53,6 +53,22 @@ const timeToMinutes = (value) => {
     return h * 60 + m;
 };
 
+const dayTimingSchema = z.object({
+    day: z.enum(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]),
+    openingTime: z.string().optional(),
+    closingTime: z.string().optional(),
+    isOpen: z.boolean().default(true)
+});
+
+const dayTimingsArraySchema = z.union([z.string(), z.array(dayTimingSchema)])
+    .optional()
+    .transform((val) => {
+        if (typeof val === 'string') {
+            try { return JSON.parse(val); } catch (e) { return []; }
+        }
+        return val || [];
+    });
+
 const restaurantRegisterSchema = z.object({
     restaurantName: z.string().optional().or(z.literal('')),
     ownerName: z.string().optional().or(z.literal('')),
@@ -81,6 +97,7 @@ const restaurantRegisterSchema = z.object({
     openingTime: z.string().optional(),
     closingTime: z.string().optional(),
     estimatedDeliveryTime: z.string().optional(),
+    dayTimings: dayTimingsArraySchema,
     openDays: z
         .union([z.string(), z.array(z.string())])
         .optional()
@@ -123,14 +140,31 @@ export const validateRestaurantRegisterDto = (body) => {
     }
 
     const data = result.data;
-    const openingMinutes = timeToMinutes(data.openingTime);
-    const closingMinutes = timeToMinutes(data.closingTime);
-    if (openingMinutes !== null && closingMinutes !== null) {
-        if (openingMinutes === closingMinutes) {
-            throw new ValidationError('Opening time and closing time cannot be same');
+    if (data.dayTimings && Array.isArray(data.dayTimings)) {
+        for (const dt of data.dayTimings) {
+            if (dt.isOpen) {
+                const openingMinutes = timeToMinutes(dt.openingTime);
+                const closingMinutes = timeToMinutes(dt.closingTime);
+                if (openingMinutes !== null && closingMinutes !== null) {
+                    if (openingMinutes === closingMinutes) {
+                        throw new ValidationError(`Opening and closing time cannot be the same for ${dt.day}`);
+                    }
+                    if (closingMinutes < openingMinutes) {
+                        throw new ValidationError(`Closing time cannot be less than opening time for ${dt.day}`);
+                    }
+                }
+            }
         }
-        if (closingMinutes < openingMinutes) {
-            throw new ValidationError('Closing time cannot be less than opening time');
+    } else {
+        const openingMinutes = timeToMinutes(data.openingTime);
+        const closingMinutes = timeToMinutes(data.closingTime);
+        if (openingMinutes !== null && closingMinutes !== null) {
+            if (openingMinutes === closingMinutes) {
+                throw new ValidationError('Opening time and closing time cannot be same');
+            }
+            if (closingMinutes < openingMinutes) {
+                throw new ValidationError('Closing time cannot be less than opening time');
+            }
         }
     }
     const isFinalizeOnboarding =
@@ -181,8 +215,9 @@ const onboardingStep2Schema = z.object({
             if (Array.isArray(val)) return val.map((c) => c.trim()).filter(Boolean);
             return val ? val.split(',').map((c) => c.trim()).filter(Boolean) : [];
         }),
-    openingTime: z.string().min(1, 'Opening time is required'),
-    closingTime: z.string().min(1, 'Closing time is required'),
+    openingTime: z.string().optional(),
+    closingTime: z.string().optional(),
+    dayTimings: dayTimingsArraySchema,
     openDays: z
         .union([z.string(), z.array(z.string())])
         .optional()
@@ -227,14 +262,38 @@ export const validateOnboardingStepDto = (stepNum, body) => {
     }
     const data = result.data;
     if (step === 2) {
-        const openingMinutes = timeToMinutes(data.openingTime);
-        const closingMinutes = timeToMinutes(data.closingTime);
-        if (openingMinutes !== null && closingMinutes !== null) {
-            if (openingMinutes === closingMinutes) {
-                throw new ValidationError('Opening time and closing time cannot be same');
+        if (data.dayTimings && Array.isArray(data.dayTimings) && data.dayTimings.length > 0) {
+            let hasOpenDay = false;
+            for (const dt of data.dayTimings) {
+                if (dt.isOpen) {
+                    hasOpenDay = true;
+                    const openingMinutes = timeToMinutes(dt.openingTime);
+                    const closingMinutes = timeToMinutes(dt.closingTime);
+                    if (openingMinutes !== null && closingMinutes !== null) {
+                        if (openingMinutes === closingMinutes) {
+                            throw new ValidationError(`Opening and closing time cannot be the same for ${dt.day}`);
+                        }
+                        if (closingMinutes < openingMinutes) {
+                            throw new ValidationError(`Closing time cannot be less than opening time for ${dt.day}`);
+                        }
+                    } else {
+                        throw new ValidationError(`Opening and closing time are required for ${dt.day}`);
+                    }
+                }
             }
-            if (closingMinutes < openingMinutes) {
-                throw new ValidationError('Closing time cannot be less than opening time');
+            if (!hasOpenDay) {
+                throw new ValidationError('Please set at least one day as open');
+            }
+        } else {
+            const openingMinutes = timeToMinutes(data.openingTime);
+            const closingMinutes = timeToMinutes(data.closingTime);
+            if (openingMinutes !== null && closingMinutes !== null) {
+                if (openingMinutes === closingMinutes) {
+                    throw new ValidationError('Opening time and closing time cannot be same');
+                }
+                if (closingMinutes < openingMinutes) {
+                    throw new ValidationError('Closing time cannot be less than opening time');
+                }
             }
         }
     }

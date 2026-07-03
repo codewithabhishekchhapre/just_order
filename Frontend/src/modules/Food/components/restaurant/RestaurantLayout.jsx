@@ -185,7 +185,17 @@ export default function RestaurantLayout() {
           res?.data?.data?.user ||
           res?.data?.user ||
           res?.data?.data
-        if (data) setRestaurantData(data)
+        if (data) {
+          setRestaurantData(data)
+          if (data.isAcceptingOrders !== undefined) {
+            const isOnline = Boolean(data.isAcceptingOrders)
+            setStatus(isOnline ? "Online" : "Offline")
+            try {
+              localStorage.setItem("restaurant_online_status", JSON.stringify(isOnline))
+              window.dispatchEvent(new CustomEvent("restaurantStatusChanged", { detail: { isOnline } }))
+            } catch {}
+          }
+        }
       } catch {}
     }
     fetch()

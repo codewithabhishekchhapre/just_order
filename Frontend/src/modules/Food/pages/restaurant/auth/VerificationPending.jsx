@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom"
 import { CheckCircle2, Clock, Mail, Phone, ShieldCheck, Store, ChevronRight } from "lucide-react"
 import { Button } from "@food/components/ui/button"
 import { useCompanyName } from "@food/hooks/useCompanyName"
-import { restaurantAPI } from "@food/api"
+import apiClient, { restaurantAPI } from "@food/api"
 import {
   clearRestaurantPendingPhone,
   getModuleToken,
@@ -55,24 +55,40 @@ export default function VerificationPending() {
 
     const checkApprovalStatus = async () => {
       const token = getModuleToken("restaurant")
-      if (!token) {
+      const pendingPhoneStr = pendingPhone // from useMemo
+      
+      if (!token && !pendingPhoneStr) {
         if (!cancelled) setCheckingStatus(false)
         return
       }
 
       try {
-        const response = await restaurantAPI.getCurrentRestaurant()
-        const restaurant =
-          response?.data?.data?.restaurant ||
-          response?.data?.restaurant ||
-          response?.data?.data?.user ||
-          response?.data?.user
+        let restaurant = null;
+        if (token) {
+          const response = await restaurantAPI.getCurrentRestaurant()
+          restaurant =
+            response?.data?.data?.restaurant ||
+            response?.data?.restaurant ||
+            response?.data?.data?.user ||
+            response?.data?.user
+        } else {
+          const response = await apiClient.get(`/food/restaurant/onboarding/draft?phone=${encodeURIComponent(pendingPhoneStr)}`)
+          restaurant =
+            response?.data?.data?.restaurant ||
+            response?.data?.restaurant ||
+            response?.data?.data?.user ||
+            response?.data?.user
+        }
 
         if (cancelled) return
 
         if (String(restaurant?.status || "").toLowerCase() === "approved") {
           clearRestaurantPendingPhone()
-          navigate("/food/restaurant", { replace: true })
+          if (!token) {
+            navigate("/food/restaurant/auth/login", { replace: true })
+          } else {
+            navigate("/food/restaurant", { replace: true })
+          }
           return
         }
       } catch (_) {
