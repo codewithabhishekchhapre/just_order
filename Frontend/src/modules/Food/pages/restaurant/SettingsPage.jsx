@@ -81,6 +81,9 @@ export default function SettingsPage() {
         { id: "conversation", label: "Conversation", icon: MessageSquare, route: "/restaurant/conversation" },
         { id: "terms", label: "Terms & Conditions", icon: FileText, route: "/restaurant/terms" },
         { id: "privacy-policy", label: "Privacy Policy", icon: Shield, route: "/restaurant/privacy" },
+        { id: "refund-policy", label: "Refund Policy", icon: FileText, route: "/restaurant/refund" },
+        { id: "shipping-policy", label: "Shipping Policy", icon: FileText, route: "/restaurant/shipping" },
+        { id: "cancellation-policy", label: "Cancellation Policy", icon: FileText, route: "/restaurant/cancellation" },
         { id: "about", label: "About", icon: Info, route: "/restaurant/about" },
       ]
     },
