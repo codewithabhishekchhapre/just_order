@@ -11,7 +11,7 @@ const PRIMARY_FILTERS = [
 
 const SortFilterSection = memo(({ activeFilters, toggleFilter, setIsFilterOpen }) => {
   return (
-    <section className="sticky top-[74px] md:top-[128px] z-30 bg-white/80 dark:bg-[#0a0a0a]/80 backdrop-blur-md border-b border-gray-100 dark:border-gray-900/60 py-3 px-4 shadow-[0_2px_12px_rgba(0,0,0,0.01)] transition-all duration-300">
+    <section className="sticky top-0 md:top-[128px] z-40 bg-white/80 dark:bg-[#0a0a0a]/80 backdrop-blur-md border-b border-gray-100 dark:border-gray-900/60 py-3 px-4 shadow-[0_2px_12px_rgba(0,0,0,0.01)] transition-all duration-300">
       <div
         className="max-w-7xl mx-auto flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-none sm:gap-2 lg:gap-3"
         style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}

@@ -319,8 +319,8 @@ export default function Home() {
 
   // --- Render ---
   return (
-    <div className="relative min-h-screen bg-white dark:bg-[#0a0a0a] pb-16 md:pb-6 overflow-x-clip">
-      <div className="md:hidden relative overflow-x-clip z-[50]">
+    <div className="relative min-h-screen bg-white dark:bg-[#0a0a0a] pb-16 md:pb-6">
+      <div className="md:hidden relative z-[50]">
         {!state.isBootstrapped ? (
           <div className="px-4 pt-6 pb-4">
             <div className="h-10 w-48 bg-slate-100 animate-pulse rounded-xl mb-6" />
@@ -384,7 +384,7 @@ export default function Home() {
               </Suspense>
 
               <Suspense fallback={<HeroBannerSkeleton className="h-full w-full px-4 mt-3" />}>
-                <section className="content-auto px-4 py-3 sm:py-5 lg:py-6">
+                <section className="hidden md:block content-auto px-4 py-3 sm:py-5 lg:py-6">
                   <div className="overflow-hidden rounded-2xl h-48 sm:h-64 md:h-72 lg:h-[320px] shadow-md border border-gray-100 dark:border-gray-900/60">
                     <BannerSection
                       showBannerSkeleton={banners.loading}
