@@ -22,6 +22,7 @@ import {
   SlidersHorizontal,
   Utensils,
   Flame,
+  Heart,
   Bookmark,
   Share2,
   Plus,
@@ -61,6 +62,11 @@ import {
 } from "@food/utils/foodVariants"
 import fssaiLogo from "@food/assets/fssai.png"
 import { RestaurantDetailSkeleton } from "@food/components/ui/loading-skeletons"
+import {
+  buildDishFavoritePayload,
+  getDishFavoriteKey,
+  getRestaurantFavoriteKey,
+} from "@food/utils/dishFavorites"
 
 const debugLog = (...args) => { }
 const debugWarn = (...args) => { }
@@ -172,6 +178,9 @@ function RestaurantDetailsContent() {
   const [restaurant, setRestaurant] = useState(null)
   const [loadingRestaurant, setLoadingRestaurant] = useState(true)
   const [restaurantError, setRestaurantError] = useState(null)
+  const restaurantFavoriteId = getRestaurantFavoriteKey(restaurant)
+  const isMenuItemBookmarked = (item) =>
+    isDishFavorite(getDishFavoriteKey(item), restaurantFavoriteId)
   const fetchedRestaurantRef = useRef(false) // Track if restaurant has been fetched for current slug
   const fetchedSlugRef = useRef(null)
 
@@ -759,7 +768,7 @@ function RestaurantDetailsContent() {
                   }
                   return {
                     ...item,
-                    id: String(item.id || item._id || `${Date.now()}-${Math.random()}`),
+                    id: String(item.id || item._id || item.itemId || ""),
                     name: item.name || "Unnamed Item",
                     foodType,
                     price: getFoodDisplayPrice(item),
@@ -1396,43 +1405,32 @@ function RestaurantDetailsContent() {
 
   // Handle bookmark click
   const handleBookmarkClick = (item) => {
-    const restaurantId = restaurant?.restaurantId || restaurant?._id || restaurant?.id
+    const restaurantId = getRestaurantFavoriteKey(restaurant)
     if (!restaurantId) {
       toast.error("Restaurant information is missing")
       return
     }
 
-    const dishId = item.id || item._id
+    const dishId = getDishFavoriteKey(item)
     if (!dishId) {
       toast.error("Dish information is missing")
       return
     }
 
-    const isFavorite = isDishFavorite(dishId, restaurantId)
-
-    if (isFavorite) {
-      // If already bookmarked, remove it
+    if (isDishFavorite(dishId, restaurantId)) {
       removeDishFavorite(dishId, restaurantId)
-      toast.success("Dish removed from favorites")
-    } else {
-      // Add to favorites
-      const dishData = {
-        id: dishId,
-        name: item.name,
-        description: item.description,
-        price: item.price,
-        originalPrice: item.originalPrice,
-        image: item.image,
-        restaurantId: restaurantId,
-        restaurantName: restaurant?.name || "",
-        restaurantSlug: restaurant?.slug || slug || "",
-        foodType: item.foodType,
-        isSpicy: item.isSpicy,
-        customisable: item.customisable,
-      }
-      addDishFavorite(dishData)
-      toast.success("Dish added to favorites")
+      toast.success("Dish removed from wishlist")
+      return
     }
+
+    const dishData = buildDishFavoritePayload(item, restaurant, slug)
+    if (!dishData) {
+      toast.error("Could not save dish to wishlist")
+      return
+    }
+
+    addDishFavorite(dishData)
+    toast.success("Dish added to wishlist")
   }
 
   // Handle add to collection
@@ -2486,7 +2484,7 @@ function RestaurantDetailsContent() {
                               )}
 
                               {/* Mobile-only action buttons */}
-                              <div className="flex gap-4 mt-3 md:hidden">
+                              <div className="flex gap-4 mt-3">
                                 <button
                                   type="button"
                                   onClick={(e) => {
@@ -2494,14 +2492,14 @@ function RestaurantDetailsContent() {
                                     e.stopPropagation()
                                     handleBookmarkClick(item)
                                   }}
-                                  className={`p-1.5 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors ${isDishFavorite(item.id, restaurant?.restaurantId || restaurant?._id || restaurant?.id)
+                                  className={`p-1.5 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors ${isMenuItemBookmarked(item)
                                     ? "border-red-500 text-red-500 bg-red-50 dark:bg-red-900/20"
                                     : "border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-400"
                                     }`}
                                 >
-                                  <Bookmark
+                                  <Heart
                                     size={18}
-                                    className={isDishFavorite(item.id, restaurant?.restaurantId || restaurant?._id || restaurant?.id) ? "fill-red-500" : ""}
+                                    className={isMenuItemBookmarked(item) ? "fill-red-500" : ""}
                                   />
                                 </button>
                                 <button
@@ -2753,7 +2751,7 @@ function RestaurantDetailsContent() {
                                         )}
 
                                         {/* Mobile-only action buttons */}
-                                        <div className="flex gap-4 mt-3 md:hidden">
+                                        <div className="flex gap-4 mt-3">
                                           <button
                                             type="button"
                                             onClick={(e) => {
@@ -2761,14 +2759,14 @@ function RestaurantDetailsContent() {
                                               e.stopPropagation()
                                               handleBookmarkClick(item)
                                             }}
-                                            className={`p-1.5 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors ${isDishFavorite(item.id, restaurant?.restaurantId || restaurant?._id || restaurant?.id)
+                                            className={`p-1.5 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors ${isMenuItemBookmarked(item)
                                               ? "border-red-500 text-red-500 bg-red-50 dark:bg-red-900/20"
                                               : "border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-400"
                                               }`}
                                           >
-                                            <Bookmark
+                                            <Heart
                                               size={18}
-                                              className={isDishFavorite(item.id, restaurant?.restaurantId || restaurant?._id || restaurant?.id) ? "fill-red-500" : ""}
+                                              className={isMenuItemBookmarked(item) ? "fill-red-500" : ""}
                                             />
                                           </button>
                                           <button
@@ -3341,20 +3339,30 @@ function RestaurantDetailsContent() {
                       }}
                     >
                       <div className="h-12 w-12 rounded-lg bg-pink-100 dark:bg-pink-900/30 flex items-center justify-center flex-shrink-0">
-                        <Bookmark className="h-6 w-6 text-red-500 dark:text-red-400 fill-red-500 dark:fill-red-400" />
+                        <Heart className="h-6 w-6 text-red-500 dark:text-red-400 fill-red-500 dark:fill-red-400" />
                       </div>
                       <div className="flex-1 text-left">
                         <div className="flex items-center justify-between">
                           <span className="text-base font-medium text-gray-900 dark:text-white">Bookmarks</span>
                           {selectedItem && (
                             <Checkbox
-                              checked={isDishFavorite(selectedItem.id, restaurant?.restaurantId || restaurant?._id || restaurant?.id)}
+                              checked={isMenuItemBookmarked(selectedItem)}
                               onCheckedChange={(checked) => {
-                                if (!checked && selectedItem) {
-                                  const restaurantId = restaurant?.restaurantId || restaurant?._id || restaurant?.id
-                                  removeDishFavorite(selectedItem.id, restaurantId)
-                                  setShowManageCollections(false)
+                                if (!selectedItem) return
+                                const restaurantId = getRestaurantFavoriteKey(restaurant)
+                                const dishId = getDishFavoriteKey(selectedItem)
+                                if (!restaurantId || !dishId) return
+
+                                if (checked) {
+                                  if (!isDishFavorite(dishId, restaurantId)) {
+                                    const dishData = buildDishFavoritePayload(selectedItem, restaurant, slug)
+                                    if (dishData) addDishFavorite(dishData)
+                                  }
+                                  return
                                 }
+
+                                removeDishFavorite(dishId, restaurantId)
+                                setShowManageCollections(false)
                               }}
                               className="h-5 w-5 rounded border-2 border-red-500 data-[state=checked]:bg-red-500 data-[state=checked]:border-red-500"
                               onClick={(e) => e.stopPropagation()}
@@ -3534,13 +3542,13 @@ function RestaurantDetailsContent() {
                           e.stopPropagation()
                           handleBookmarkClick(selectedItem)
                         }}
-                        className={`h-10 w-10 rounded-full border flex items-center justify-center transition-all duration-300 ${isDishFavorite(selectedItem.id, restaurant?.restaurantId || restaurant?._id || restaurant?.id)
+                        className={`h-10 w-10 rounded-full border flex items-center justify-center transition-all duration-300 ${isMenuItemBookmarked(selectedItem)
                           ? "border-red-500 dark:border-red-400 bg-red-50 dark:bg-red-900/30 text-red-500 dark:text-red-400"
                           : "border-white dark:border-gray-800 bg-white/90 dark:bg-[#1a1a1a]/90 text-gray-600 dark:text-gray-300 hover:bg-white dark:hover:bg-[#2a2a2a]"
                           }`}
                       >
-                        <Bookmark
-                          className={`h-5 w-5 transition-all duration-300 ${isDishFavorite(selectedItem.id, restaurant?.restaurantId || restaurant?._id || restaurant?.id) ? "fill-red-500 dark:fill-red-400" : ""
+                        <Heart
+                          className={`h-5 w-5 transition-all duration-300 ${isMenuItemBookmarked(selectedItem) ? "fill-red-500 dark:fill-red-400" : ""
                             }`}
                         />
                       </button>
@@ -4021,7 +4029,7 @@ function RestaurantDetailsContent() {
                         className="w-full flex items-center gap-4 px-2 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg transition-colors text-left"
                         onClick={handleAddToCollection}
                       >
-                        <Bookmark className="h-5 w-5 text-gray-700 dark:text-gray-300" />
+                        <Heart className="h-5 w-5 text-gray-700 dark:text-gray-300" />
                         <span className="text-base text-gray-900 dark:text-white">
                           {isFavorite(restaurant?.slug || slug || "") ? "Remove from Collection" : "Add to Collection"}
                         </span>

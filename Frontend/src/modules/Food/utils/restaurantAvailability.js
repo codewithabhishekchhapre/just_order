@@ -106,8 +106,11 @@ const formatTimeLabel = (timeValue) => {
   return `${hours12}:${String(minutes).padStart(2, "0")} ${period}`
 }
 
+const CLOSING_COUNTDOWN_THRESHOLD_MINUTES = 60
+
 const formatClosingCountdown = (minutesUntilClose, closingTime) => {
   if (minutesUntilClose === null || minutesUntilClose === undefined) return null
+  if (minutesUntilClose > CLOSING_COUNTDOWN_THRESHOLD_MINUTES) return null
 
   if (minutesUntilClose <= 0) {
     const closingLabel = formatTimeLabel(closingTime)

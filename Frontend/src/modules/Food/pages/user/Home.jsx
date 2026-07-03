@@ -311,7 +311,11 @@ export default function Home() {
   const handleFavoriteToggle = useCallback((e, restaurant, slug, favorite) => {
     if (favorite) removeFavorite(slug);
     else {
-      addFavorite(restaurant);
+      addFavorite({
+        ...restaurant,
+        slug: slug,
+        image: restaurant.profileImageUrl?.url || restaurant.image || "",
+      });
       setShowToast(true);
       setTimeout(() => setShowToast(false), 2000);
     }

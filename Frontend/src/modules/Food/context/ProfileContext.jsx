@@ -1,13 +1,11 @@
 import { createContext, useContext, useState, useEffect, useMemo, useCallback } from "react"
 import { authAPI, userAPI } from "@food/api"
-import { clearUserSession } from "@food/utils/auth"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
 
 const ProfileContext = createContext(null)
-const USER_SESSION_PREFERENCE_KEYS = ["userVegMode", "food-under-250-filters"]
 
 export function ProfileProvider({ children }) {
   const getAddressId = (address) => address?.id || address?._id || null
@@ -79,14 +77,12 @@ export function ProfileProvider({ children }) {
   })
 
   const [favorites, setFavorites] = useState(() => {
-    if (!hasUserSession) return []
     const saved = localStorage.getItem("userFavorites")
     return saved ? JSON.parse(saved) : []
   })
 
   // Dish favorites state - stored in localStorage for persistence
   const [dishFavorites, setDishFavorites] = useState(() => {
-    if (!hasUserSession) return []
     const saved = localStorage.getItem("userDishFavorites")
     return saved ? JSON.parse(saved) : []
   })
@@ -124,16 +120,12 @@ export function ProfileProvider({ children }) {
   }, [paymentMethods, isAuthenticated])
 
   useEffect(() => {
-    if (favorites.length > 0 || isAuthenticated) {
-      localStorage.setItem("userFavorites", JSON.stringify(favorites))
-    }
-  }, [favorites, isAuthenticated])
+    localStorage.setItem("userFavorites", JSON.stringify(favorites))
+  }, [favorites])
 
   useEffect(() => {
-    if (dishFavorites.length > 0 || isAuthenticated) {
-      localStorage.setItem("userDishFavorites", JSON.stringify(dishFavorites))
-    }
-  }, [dishFavorites, isAuthenticated])
+    localStorage.setItem("userDishFavorites", JSON.stringify(dishFavorites))
+  }, [dishFavorites])
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -151,13 +143,11 @@ export function ProfileProvider({ children }) {
         setUserProfile(null)
         setAddresses([])
         setPaymentMethods([])
-        setFavorites([])
-        setDishFavorites([])
         setVegMode(false)
-        clearUserSession()
-        USER_SESSION_PREFERENCE_KEYS.forEach((key) => {
-          localStorage.removeItem(key)
-        })
+        const savedFavorites = localStorage.getItem("userFavorites")
+        const savedDishFavorites = localStorage.getItem("userDishFavorites")
+        setFavorites(savedFavorites ? JSON.parse(savedFavorites) : [])
+        setDishFavorites(savedDishFavorites ? JSON.parse(savedDishFavorites) : [])
         setLoading(false)
         return
       }
@@ -380,7 +370,7 @@ export function ProfileProvider({ children }) {
   // Dish favorites functions - memoized with useCallback
   const addDishFavorite = useCallback((dish) => {
     setDishFavorites((prev) => {
-      if (!prev.find(fav => fav.id === dish.id && fav.restaurantId === dish.restaurantId)) {
+      if (!prev.find(fav => String(fav.id) === String(dish.id) && String(fav.restaurantId) === String(dish.restaurantId))) {
         return [...prev, dish]
       }
       return prev
@@ -389,12 +379,12 @@ export function ProfileProvider({ children }) {
 
   const removeDishFavorite = useCallback((dishId, restaurantId) => {
     setDishFavorites((prev) => 
-      prev.filter(fav => !(fav.id === dishId && fav.restaurantId === restaurantId))
+      prev.filter(fav => !(String(fav.id) === String(dishId) && String(fav.restaurantId) === String(restaurantId)))
     )
   }, [])
 
   const isDishFavorite = useCallback((dishId, restaurantId) => {
-    return dishFavorites.some(fav => fav.id === dishId && fav.restaurantId === restaurantId)
+    return dishFavorites.some(fav => String(fav.id) === String(dishId) && String(fav.restaurantId) === String(restaurantId))
   }, [dishFavorites])
 
   const getDishFavorites = useCallback(() => {

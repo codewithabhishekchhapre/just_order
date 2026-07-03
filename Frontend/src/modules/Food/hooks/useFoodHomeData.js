@@ -233,6 +233,8 @@ export const useFoodHomeData = ({
             images: allImages,
             pureVegRestaurant: restaurant.pureVegRestaurant === true,
             location: restaurant.location,
+            area: restaurant.area,
+            city: restaurant.city,
             offer: restaurant.offer,
             slug: restaurant.slug,
             // Timing fields for availability status

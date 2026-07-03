@@ -381,7 +381,7 @@ export default function UnifiedOTPFastLogin() {
         className="flex-1 flex flex-col min-h-screen lg:min-h-0 lg:h-screen lg:overflow-y-auto"
       >
         {/* Form area */}
-        <div className="flex-1 flex flex-col lg:items-center lg:justify-center px-5 sm:px-8 lg:px-12 xl:px-16 pt-16 pb-8 lg:py-0">
+        <div className="flex-1 flex flex-col items-center justify-center px-5 sm:px-8 lg:px-12 xl:px-16 pt-16 pb-8 lg:py-0">
           
           {/* Back button (Only when step is 2 or showNameInput) */}
           {(step === 2 || showNameInput) && (
@@ -389,7 +389,7 @@ export default function UnifiedOTPFastLogin() {
               <button
                 type="button"
                 onClick={handleEditNumber}
-                className="flex items-center gap-2 text-sm text-slate-500 dark:text-zinc-400 hover:text-[#FF6A00] transition-colors mb-6 group cursor-pointer"
+                className="flex items-center justify-center mx-auto lg:mx-0 gap-2 text-sm text-slate-500 dark:text-zinc-400 hover:text-[#FF6A00] transition-colors mb-6 group cursor-pointer"
               >
                 <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" strokeWidth={2} />
                 Back
@@ -398,11 +398,11 @@ export default function UnifiedOTPFastLogin() {
           )}
 
           {/* Logo & Header info */}
-          <div className="mb-8 w-full max-w-sm">
+          <div className="mb-8 w-full max-w-sm text-center">
             {logoUrl ? (
-              <img src={logoUrl} alt={companyName} className="h-12 w-auto object-contain mb-6 rounded-xl" />
+              <img src={logoUrl} alt={companyName} className="h-12 w-auto object-contain mx-auto mb-6 rounded-xl" />
             ) : (
-              <div className="w-12 h-12 bg-[#FF6A00] rounded-2xl flex items-center justify-center mb-6">
+              <div className="w-12 h-12 bg-[#FF6A00] rounded-2xl flex mx-auto items-center justify-center mb-6">
                 <ShieldCheck className="w-6 h-6 text-white" strokeWidth={2} />
               </div>
             )}
@@ -414,7 +414,7 @@ export default function UnifiedOTPFastLogin() {
                 ? "Sign in to your account to continue" 
                 : showNameInput 
                   ? "Tell us your name to set up your profile"
-                  : `We sent a verification code to ${loginType === "email" ? emailAddress : "+91 " + phoneNumber}`}
+                  : `We sent a verification code to +91 ${phoneNumber}`}
             </p>
           </div>
 
@@ -426,93 +426,34 @@ export default function UnifiedOTPFastLogin() {
             >
               {step === 1 ? (
                 <div className="space-y-5">
-                  {/* Tab switcher */}
-                  <div className="relative flex p-1 bg-slate-100 dark:bg-zinc-900 rounded-xl border border-slate-200/50 dark:border-zinc-800/80">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setLoginType("phone");
-                        setPhoneError("");
-                      }}
-                      className={`flex-1 py-2.5 text-xs font-bold transition-all rounded-lg cursor-pointer text-center ${
-                        loginType === "phone"
-                          ? "bg-white dark:bg-zinc-800 text-slate-900 dark:text-white shadow-sm"
-                          : "text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200"
-                      }`}
-                    >
-                      Phone Number
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setLoginType("email");
-                        setEmailError("");
-                      }}
-                      className={`flex-1 py-2.5 text-xs font-bold transition-all rounded-lg cursor-pointer text-center ${
-                        loginType === "email"
-                          ? "bg-white dark:bg-zinc-800 text-slate-900 dark:text-white shadow-sm"
-                          : "text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200"
-                      }`}
-                    >
-                      Email Address
-                    </button>
-                  </div>
-
                   <div className="space-y-4">
-                    {loginType === "phone" ? (
-                      <div className="space-y-1.5 group">
-                        <label className="text-xs font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider">Phone Number</label>
-                        <div className={`flex items-center gap-3 h-14 bg-gray-50 dark:bg-zinc-900 border rounded-2xl px-4 transition-all duration-200 ${
-                          phoneError 
-                            ? "border-red-500 ring-2 ring-red-100 dark:ring-red-900/30" 
-                            : "border-gray-200 dark:border-zinc-800 focus-within:border-[#FF6A00] focus-within:ring-2 focus-within:ring-[#FF6A00]/10"
-                        }`}>
-                          <span className="text-sm font-semibold text-slate-500 dark:text-zinc-400 flex-shrink-0">+91</span>
-                          <div className="w-px h-5 bg-gray-200 dark:bg-zinc-800 flex-shrink-0" />
-                          <input
-                            type="tel"
-                            required
-                            autoFocus
-                            value={phoneNumber}
-                            onChange={(e) => {
-                              setPhoneNumber(e.target.value.replace(/\D/g, "").slice(0, 10));
-                              if (phoneError) setPhoneError("");
-                            }}
-                            maxLength={10}
-                            className="flex-1 bg-transparent border-0 outline-none ring-0 text-base font-semibold text-gray-900 dark:text-white placeholder-gray-350 dark:placeholder-gray-650 caret-[#FF6A00] min-w-0"
-                            placeholder="Enter 10-digit number"
-                          />
-                        </div>
-                        {phoneError && (
-                          <p className="text-xs font-semibold text-red-500 animate-fade-in">{phoneError}</p>
-                        )}
+                    <div className="space-y-1.5 group">
+                      <label className="text-xs font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider">Phone Number</label>
+                      <div className={`flex items-center gap-3 h-14 bg-gray-50 dark:bg-zinc-900 border rounded-2xl px-4 transition-all duration-200 ${
+                        phoneError 
+                          ? "border-red-500 ring-2 ring-red-100 dark:ring-red-900/30" 
+                          : "border-gray-200 dark:border-zinc-800 focus-within:border-[#FF6A00] focus-within:ring-2 focus-within:ring-[#FF6A00]/10"
+                      }`}>
+                        <span className="text-sm font-semibold text-slate-500 dark:text-zinc-400 flex-shrink-0">+91</span>
+                        <div className="w-px h-5 bg-gray-200 dark:bg-zinc-800 flex-shrink-0" />
+                        <input
+                          type="tel"
+                          required
+                          autoFocus
+                          value={phoneNumber}
+                          onChange={(e) => {
+                            setPhoneNumber(e.target.value.replace(/\D/g, "").slice(0, 10));
+                            if (phoneError) setPhoneError("");
+                          }}
+                          maxLength={10}
+                          className="flex-1 bg-transparent border-0 outline-none ring-0 text-base font-semibold text-gray-900 dark:text-white placeholder-gray-350 dark:placeholder-gray-650 caret-[#FF6A00] min-w-0"
+                          placeholder="Enter 10-digit number"
+                        />
                       </div>
-                    ) : (
-                      <div className="space-y-1.5 group">
-                        <label className="text-xs font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider">Email Address</label>
-                        <div className={`flex items-center gap-3 h-14 bg-gray-50 dark:bg-zinc-900 border rounded-2xl px-4 transition-all duration-200 ${
-                          emailError 
-                            ? "border-red-500 ring-2 ring-red-150 dark:ring-red-900/30" 
-                            : "border-gray-200 dark:border-zinc-800 focus-within:border-[#FF6A00] focus-within:ring-2 focus-within:ring-[#FF6A00]/10"
-                        }`}>
-                          <input
-                            type="email"
-                            required
-                            autoFocus
-                            value={emailAddress}
-                            onChange={(e) => {
-                              setEmailAddress(e.target.value);
-                              if (emailError) setEmailError("");
-                            }}
-                            className="flex-1 bg-transparent border-0 outline-none ring-0 text-base font-semibold text-gray-900 dark:text-white placeholder-gray-350 dark:placeholder-gray-655 caret-[#FF6A00] min-w-0"
-                            placeholder="name@example.com"
-                          />
-                        </div>
-                        {emailError && (
-                          <p className="text-xs font-semibold text-red-500 animate-fade-in">{emailError}</p>
-                        )}
-                      </div>
-                    )}
+                      {phoneError && (
+                        <p className="text-xs font-semibold text-red-500 animate-fade-in">{phoneError}</p>
+                      )}
+                    </div>
                   </div>
                   <p className="text-[11px] text-slate-400 dark:text-zinc-500 text-center leading-relaxed">
                     We will send verification code to your device
@@ -529,7 +470,7 @@ export default function UnifiedOTPFastLogin() {
                       <div>
                         <p className="text-[10px] uppercase font-bold text-slate-400 dark:text-zinc-500 tracking-wider">Verified</p>
                         <p className="text-sm font-bold text-slate-900 dark:text-white">
-                          {loginType === "email" ? emailAddress : `+91 ${phoneNumber}`}
+                          +91 {phoneNumber}
                         </p>
                       </div>
                     </div>
@@ -582,7 +523,7 @@ export default function UnifiedOTPFastLogin() {
                       <div>
                         <p className="text-[10px] uppercase font-bold text-slate-400 dark:text-zinc-500 tracking-wider">Verifying</p>
                         <p className="text-sm font-bold text-slate-900 dark:text-white">
-                          {loginType === "email" ? emailAddress : `+91 ${phoneNumber}`}
+                          +91 {phoneNumber}
                         </p>
                       </div>
                     </div>

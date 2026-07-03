@@ -38,6 +38,7 @@ const SharedProfilePrivacyPage = lazy(() => import('../modules/Food/pages/user/p
 const SharedProfileRefundPage = lazy(() => import('../modules/Food/pages/user/profile/Refund'))
 const SharedProfileShippingPage = lazy(() => import('../modules/Food/pages/user/profile/Shipping'))
 const SharedProfileCancellationPage = lazy(() => import('../modules/Food/pages/user/profile/Cancellation'))
+const SharedFavoritesPage = lazy(() => import('../modules/Food/pages/user/profile/Favorites'))
 
 const RouteAwarePageLoader = () => {
   const location = useLocation()
@@ -204,6 +205,7 @@ const AppRoutes = () => {
             <Route path="/profile/edit" element={<ProtectedRoute requiredRole="user" loginPath="/user/auth/login"><SharedProfileEditPage /></ProtectedRoute>} />
             <Route path="/profile/support" element={<ProtectedRoute requiredRole="user" loginPath="/user/auth/login"><SharedProfileSupportPage /></ProtectedRoute>} />
             <Route path="/profile/coupons" element={<ProtectedRoute requiredRole="user" loginPath="/user/auth/login"><SharedProfileCouponsPage /></ProtectedRoute>} />
+            <Route path="/profile/favorites" element={<ProtectedRoute requiredRole="user" loginPath="/user/auth/login"><SharedFavoritesPage /></ProtectedRoute>} />
             <Route path="/profile/about" element={<SharedProfileAboutPage />} />
             <Route path="/profile/terms" element={<SharedProfileTermsPage />} />
             <Route path="/profile/privacy" element={<SharedProfilePrivacyPage />} />

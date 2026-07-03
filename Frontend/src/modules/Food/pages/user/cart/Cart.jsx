@@ -19,6 +19,7 @@ import { orderAPI, restaurantAPI, adminAPI, userAPI, API_ENDPOINTS } from "@food
 import { API_BASE_URL } from "@food/api/config"
 import { initRazorpayPayment, isFlutterWebView, handleFlutterRazorpayPayment } from "@food/utils/razorpay"
 import { sanitizeOrderImage, sanitizeOrderNotes } from "@food/utils/orderPayload"
+import { getMaxDeliveryTime, getHighestPricedItem } from "@food/utils/cartUtils"
 import { toast } from "sonner"
 import { getCompanyNameAsync } from "@common/utils/businessSettings"
 import { useCompanyName } from "@food/hooks/useCompanyName"
@@ -2117,7 +2118,7 @@ export default function Cart() {
               <div className="min-w-0">
                 <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400">{restaurantName}</p>
                 <p className="text-sm md:text-base font-medium text-gray-800 dark:text-white truncate">
-                  {restaurantData?.estimatedDeliveryTime || "10-15 mins"} to <span className="font-semibold">Location</span>
+                  {getMaxDeliveryTime(cart, restaurantData)} to <span className="font-semibold">Location</span>
                   <span className="text-gray-400 dark:text-gray-500 ml-1 text-xs md:text-sm">{defaultAddress ? (formatFullAddress(defaultAddress) || defaultAddress?.formattedAddress || defaultAddress?.address || defaultAddress?.city || "Select address") : "Select address"}</span>
                 </p>
               </div>
@@ -2248,9 +2249,10 @@ export default function Cart() {
                       </div>
 
                       <p className="mt-3 text-lg font-bold tracking-tight text-gray-900 dark:text-white md:text-xl">
-                        Delivery in <span className="text-[#FF6A00]">{restaurantData?.estimatedDeliveryTime || "15-20 mins"}</span>
+                        Delivery in <span className="text-[#FF6A00]">{getMaxDeliveryTime(cart, restaurantData)}</span>
                       </p>
                       <p className="mt-1 max-w-xl text-sm leading-6 text-gray-600 dark:text-gray-300">
+                        {getHighestPricedItem(cart)?.name && (`Estimated time based on ${getHighestPricedItem(cart)?.name} `)}
                         We prioritize your order, match the nearest available rider, and keep the handoff moving smoothly.
                       </p>
 
@@ -2388,63 +2390,63 @@ export default function Cart() {
                       {addons
                         .filter(addon => !vegMode || addon.foodType === 'Veg' || addon.foodType !== 'Non-Veg')
                         .map((addon) => (
-                        <div key={addon.id} className="flex-shrink-0 w-28 md:w-36">
-                          <div className="relative bg-gray-100 dark:bg-gray-800 rounded-lg md:rounded-xl overflow-hidden">
-                            <img
-                              src={addon.image || (addon.images && addon.images[0]) || "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=200&h=200&fit=crop"}
-                              alt={addon.name}
-                              className="w-full h-28 md:h-36 object-cover rounded-lg md:rounded-xl"
-                              onError={(e) => {
-                                e.target.onerror = null
-                                e.target.src = "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=200&h=200&fit=crop"
-                              }}
-                            />
-                            <div className="absolute top-1 md:top-2 left-1 md:left-2">
-                              <div className={`w-3.5 h-3.5 md:w-4 md:h-4 bg-white border flex items-center justify-center rounded ${addon.foodType === 'Non-Veg' ? 'border-red-600' : 'border-green-600'}`}>
-                                <div className={`w-1.5 h-1.5 md:w-2 md:h-2 rounded-full ${addon.foodType === 'Non-Veg' ? 'bg-red-600' : 'bg-green-600'}`} />
+                          <div key={addon.id} className="flex-shrink-0 w-28 md:w-36">
+                            <div className="relative bg-gray-100 dark:bg-gray-800 rounded-lg md:rounded-xl overflow-hidden">
+                              <img
+                                src={addon.image || (addon.images && addon.images[0]) || "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=200&h=200&fit=crop"}
+                                alt={addon.name}
+                                className="w-full h-28 md:h-36 object-cover rounded-lg md:rounded-xl"
+                                onError={(e) => {
+                                  e.target.onerror = null
+                                  e.target.src = "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=200&h=200&fit=crop"
+                                }}
+                              />
+                              <div className="absolute top-1 md:top-2 left-1 md:left-2">
+                                <div className={`w-3.5 h-3.5 md:w-4 md:h-4 bg-white border flex items-center justify-center rounded ${addon.foodType === 'Non-Veg' ? 'border-red-600' : 'border-green-600'}`}>
+                                  <div className={`w-1.5 h-1.5 md:w-2 md:h-2 rounded-full ${addon.foodType === 'Non-Veg' ? 'bg-red-600' : 'bg-green-600'}`} />
+                                </div>
                               </div>
-                            </div>
-                            <button
-                              onClick={() => {
-                                // Use restaurant info from existing cart items to ensure format consistency
-                                const cartRestaurantId = cart[0]?.restaurantId || restaurantId;
-                                const cartRestaurantName = cart[0]?.restaurant || restaurantName;
+                              <button
+                                onClick={() => {
+                                  // Use restaurant info from existing cart items to ensure format consistency
+                                  const cartRestaurantId = cart[0]?.restaurantId || restaurantId;
+                                  const cartRestaurantName = cart[0]?.restaurant || restaurantName;
 
-                                if (!cartRestaurantId || !cartRestaurantName) {
-                                  debugError('? Cannot add addon: Missing restaurant information', {
-                                    cartRestaurantId,
-                                    cartRestaurantName,
-                                    restaurantId,
-                                    restaurantName,
-                                    cartItem: cart[0]
+                                  if (!cartRestaurantId || !cartRestaurantName) {
+                                    debugError('? Cannot add addon: Missing restaurant information', {
+                                      cartRestaurantId,
+                                      cartRestaurantName,
+                                      restaurantId,
+                                      restaurantName,
+                                      cartItem: cart[0]
+                                    });
+                                    toast.error('Restaurant information is missing. Please refresh the page.');
+                                    return;
+                                  }
+
+                                  addToCart({
+                                    id: addon.id,
+                                    name: addon.name,
+                                    price: addon.price,
+                                    image: addon.image || (addon.images && addon.images[0]) || "",
+                                    description: addon.description || "",
+                                    isVeg: addon.foodType !== 'Non-Veg',
+                                    restaurant: cartRestaurantName,
+                                    restaurantId: cartRestaurantId
                                   });
-                                  toast.error('Restaurant information is missing. Please refresh the page.');
-                                  return;
-                                }
-
-                                addToCart({
-                                  id: addon.id,
-                                  name: addon.name,
-                                  price: addon.price,
-                                  image: addon.image || (addon.images && addon.images[0]) || "",
-                                  description: addon.description || "",
-                                  isVeg: addon.foodType !== 'Non-Veg',
-                                  restaurant: cartRestaurantName,
-                                  restaurantId: cartRestaurantId
-                                });
-                              }}
-                              className="absolute bottom-1 md:bottom-2 right-1 md:right-2 w-6 h-6 md:w-7 md:h-7 bg-white border border-[#FF6A00] rounded flex items-center justify-center shadow-sm hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-                            >
-                              <Plus className="h-3.5 w-3.5 md:h-4 md:w-4 text-[#FF6A00]" />
-                            </button>
+                                }}
+                                className="absolute bottom-1 md:bottom-2 right-1 md:right-2 w-6 h-6 md:w-7 md:h-7 bg-white border border-[#FF6A00] rounded flex items-center justify-center shadow-sm hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                              >
+                                <Plus className="h-3.5 w-3.5 md:h-4 md:w-4 text-[#FF6A00]" />
+                              </button>
+                            </div>
+                            <p className="text-xs md:text-sm font-medium text-gray-800 dark:text-gray-200 mt-1.5 md:mt-2 line-clamp-2 leading-tight">{addon.name}</p>
+                            {addon.description && (
+                              <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-1">{addon.description}</p>
+                            )}
+                            <p className="text-xs md:text-sm text-gray-800 dark:text-gray-200 font-semibold mt-0.5">{RUPEE_SYMBOL}{addon.price}</p>
                           </div>
-                          <p className="text-xs md:text-sm font-medium text-gray-800 dark:text-gray-200 mt-1.5 md:mt-2 line-clamp-2 leading-tight">{addon.name}</p>
-                          {addon.description && (
-                            <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-1">{addon.description}</p>
-                          )}
-                          <p className="text-xs md:text-sm text-gray-800 dark:text-gray-200 font-semibold mt-0.5">{RUPEE_SYMBOL}{addon.price}</p>
-                        </div>
-                      ))}
+                        ))}
                     </div>
                   )}
                 </div>

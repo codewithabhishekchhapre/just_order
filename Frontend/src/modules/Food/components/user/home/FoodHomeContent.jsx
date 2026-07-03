@@ -25,6 +25,22 @@ import { getRestaurantAvailabilityStatus } from "@food/utils/restaurantAvailabil
 import foodPattern from "@food/assets/food_pattern_background.png";
 import discoveryBg from "@food/assets/food_discovery_bg.png";
 
+const getRestaurantDisplayLocation = (restaurant) => {
+  const loc = restaurant?.location;
+  if (typeof loc === "string" && loc.trim()) return loc.trim();
+
+  const area = (typeof loc === "object" && loc?.area) || restaurant?.area;
+  const city = (typeof loc === "object" && loc?.city) || restaurant?.city;
+  const areaCity = [area, city].filter(Boolean).join(", ");
+  if (areaCity) return areaCity;
+
+  if (loc && typeof loc === "object") {
+    return loc.formattedAddress || loc.address || null;
+  }
+
+  return null;
+};
+
 const PRIMARY_FILTERS = [
   { id: "delivery-under-30", label: "Under 30 mins" },
   { id: "delivery-under-45", label: "Under 45 mins" },
@@ -57,6 +73,7 @@ const FoodRestaurantCard = memo(function FoodRestaurantCard({
     ignoreOperationalStatus: false,
   });
   const favorite = isFavorite(restaurantSlug);
+  const displayLocation = getRestaurantDisplayLocation(restaurant);
 
   return (
     <div
@@ -111,21 +128,18 @@ const FoodRestaurantCard = memo(function FoodRestaurantCard({
                     <h3 className="line-clamp-1 text-lg font-medium leading-tight tracking-tight text-gray-950 transition-colors duration-300 group-hover:text-[#ef4f5f] dark:text-white lg:text-2xl">
                       {restaurant.name}
                     </h3>
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <span
-                        className={`inline-flex rounded-full px-3 py-1 text-[10px] font-medium uppercase tracking-widest shadow-sm ${
-                          availability.isOpen ? "bg-emerald-500 text-white" : "bg-gray-400 text-white"
-                        }`}
-                      >
-                        {availability.isOpen ? "Open now" : "Offline"}
-                      </span>
-                      {availability.isOpen && availability.closingCountdownLabel && (
-                        <div className="flex items-center gap-1.5 rounded-full border border-amber-100 bg-amber-50 px-2.5 py-1 text-[10px] font-medium uppercase tracking-wide text-amber-700">
-                          <Timer className="h-3 w-3 flex-shrink-0" strokeWidth={2.5} />
-                          <span>{availability.closingCountdownLabel}</span>
-                        </div>
-                      )}
-                    </div>
+                    {displayLocation && (
+                      <p className="mt-1 flex items-center gap-1 line-clamp-1 text-sm font-medium text-gray-500 dark:text-gray-400">
+                        <MapPin className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" strokeWidth={2} />
+                        <span>{displayLocation}</span>
+                      </p>
+                    )}
+                    {availability.isOpen && availability.closingCountdownLabel && (
+                      <div className="mt-2 flex w-fit items-center gap-1.5 rounded-full border border-amber-100 bg-amber-50 px-2.5 py-1 text-[10px] font-medium uppercase tracking-wide text-amber-700">
+                        <Timer className="h-3 w-3 flex-shrink-0" strokeWidth={2.5} />
+                        <span>{availability.closingCountdownLabel}</span>
+                      </div>
+                    )}
                   </div>
                   <div
                     className={`flex-shrink-0 rounded-2xl px-3 py-1.5 text-white shadow-md transition-transform duration-300 group-hover:scale-110 ${

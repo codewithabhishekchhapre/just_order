@@ -118,7 +118,7 @@ export default function Category() {
   const [formData, setFormData] = useState(defaultFormData)
   const [selectedImageFile, setSelectedImageFile] = useState(null)
   const [imagePreview, setImagePreview] = useState(null)
-  const [uploadingImage, setUploadingImage] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const fileInputRef = useRef(null)
 
   useEffect(() => {
@@ -350,7 +350,7 @@ export default function Category() {
       toast.error("Permission denied")
       return
     }
-    const categoryName = categories.find((category) => String(category?.id) === String(id))?.name || "this category"
+    const categoryName = categories.find((category) => String(category?.id || category?._id) === String(id))?.name || "this category"
     if (!window.confirm(`Delete "${categoryName}"? This action cannot be undone.`)) return
 
     try {
@@ -419,7 +419,7 @@ export default function Category() {
     }
 
     try {
-      setUploadingImage(true)
+      setIsSubmitting(true)
       let imageUrl = String(formData.image || "").trim()
 
       if (selectedImageFile) {
@@ -454,7 +454,7 @@ export default function Category() {
         toast.error(error?.response?.data?.message || "Failed to save category")
       }
     } finally {
-      setUploadingImage(false)
+      setIsSubmitting(false)
     }
   }
 
@@ -667,7 +667,7 @@ export default function Category() {
                             )}
                             {canDelete && (
                               <button
-                                onClick={() => handleDelete(category.id)}
+                                onClick={() => handleDelete(category._id || category.id)}
                                 className="rounded-lg p-2 text-rose-600 hover:bg-rose-50"
                                 title="Delete"
                               >
@@ -798,7 +798,6 @@ export default function Category() {
                                 <Upload className="h-4 w-4" />
                                 {imagePreview ? "Change Image" : "Upload Image"}
                               </label>
-                              {uploadingImage && <Loader2 className="h-5 w-5 animate-spin text-blue-600" />}
                             </div>
                           </div>
                         </div>
@@ -824,8 +823,10 @@ export default function Category() {
                         </button>
                         <button
                           type="submit"
-                          className="flex-1 rounded-xl bg-blue-600 px-4 py-3 text-white"
+                          disabled={isSubmitting}
+                          className={`flex-1 rounded-xl bg-blue-600 px-4 py-3 text-white flex items-center justify-center gap-2 ${isSubmitting ? "opacity-70 cursor-not-allowed" : "hover:bg-blue-700"}`}
                         >
+                          {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
                           {editingCategory ? "Update" : "Create"}
                         </button>
                       </div>

@@ -19,6 +19,7 @@
     "migrate:seller-quick-shared": "node scripts/migrate-seller-quick-commerce-to-shared.js",
     "cleanup:legacy-collections": "node scripts/cleanup-legacy-collections.js",
     "db:seed-admin": "node scripts/seed-admin.js",
+    "db:seed-indore": "node scripts/seed-indore-restaurants.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
