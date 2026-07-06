@@ -9,6 +9,7 @@ import { ValidationError } from '../../../../core/auth/errors.js';
 import mongoose from 'mongoose';
 import { FoodZone } from '../../admin/models/zone.model.js';
 import { FoodOffer } from '../../admin/models/offer.model.js';
+import { FoodItem } from '../../admin/models/food.model.js';
 import { getRestaurantDiningSnapshot, submitRestaurantDiningRequest } from '../../dining/services/dining.service.js';
 import {
     notifyAdminsSafely,
@@ -46,6 +47,63 @@ const normalizeRatingValue = (value) => {
     const numeric = Number(value);
     if (!Number.isFinite(numeric)) return 0;
     return Math.max(0, Math.min(5, Number(numeric.toFixed(1))));
+};
+
+const activeItemLookupStages = () => [
+    {
+        $lookup: {
+            from: 'food_items',
+            let: { restaurantObjectId: '$_id' },
+            pipeline: [
+                {
+                    $match: {
+                        $expr: { $eq: ['$restaurantId', '$$restaurantObjectId'] },
+                        approvalStatus: 'approved',
+                        isAvailable: { $ne: false }
+                    }
+                },
+                { $limit: 1 },
+                { $project: { _id: 1 } }
+            ],
+            as: 'activeVisibilityItems'
+        }
+    },
+    {
+        $addFields: {
+            activeItemCount: { $size: '$activeVisibilityItems' }
+        }
+    },
+    {
+        $match: {
+            isVisibleToUsers: { $ne: false },
+            $or: [
+                { showRestaurantToUsersWithoutItems: true },
+                { hasHadActiveItems: true },
+                { activeItemCount: { $gt: 0 } }
+            ]
+        }
+    }
+];
+
+const ensurePublicRestaurantVisible = async (restaurant) => {
+    if (!restaurant || restaurant.isVisibleToUsers === false) return false;
+    if (restaurant.showRestaurantToUsersWithoutItems === true || restaurant.hasHadActiveItems === true) return true;
+
+    const activeItems = await FoodItem.countDocuments({
+        restaurantId: restaurant._id,
+        approvalStatus: 'approved',
+        isAvailable: { $ne: false }
+    });
+
+    if (activeItems > 0) {
+        await FoodRestaurant.updateOne(
+            { _id: restaurant._id, hasHadActiveItems: { $ne: true } },
+            { $set: { hasHadActiveItems: true } }
+        );
+        return true;
+    }
+
+    return false;
 };
 
 const normalizeTotalRatingsValue = (value) => {
@@ -109,6 +167,44 @@ const parseEstimatedDeliveryMinutes = (value) => {
     const numbers = matches.map((n) => Number(n)).filter((n) => Number.isFinite(n) && n >= 0);
     if (!numbers.length) return null;
     return Math.round(numbers[numbers.length - 1]);
+};
+
+const RESTAURANT_ONBOARDING_IMAGE_RULES = {
+    minBytes: 20 * 1024,
+    documentMaxBytes: 2.5 * 1024 * 1024,
+    menuMaxBytes: 5 * 1024 * 1024,
+    allowedMimeTypes: new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'])
+};
+
+const validateRestaurantOnboardingFile = (file, fieldName) => {
+    if (!file) return;
+    const label = {
+        profileImage: 'Restaurant profile image',
+        panImage: 'PAN image',
+        gstImage: 'GST image',
+        fssaiImage: 'FSSAI image',
+        menuImages: 'Menu image'
+    }[fieldName] || 'Image';
+    const maxBytes = fieldName === 'menuImages'
+        ? RESTAURANT_ONBOARDING_IMAGE_RULES.menuMaxBytes
+        : RESTAURANT_ONBOARDING_IMAGE_RULES.documentMaxBytes;
+
+    if (!RESTAURANT_ONBOARDING_IMAGE_RULES.allowedMimeTypes.has(file.mimetype)) {
+        throw new ValidationError(`${label} must be JPG, PNG, WEBP, HEIC or HEIF`);
+    }
+    if (Number(file.size || 0) < RESTAURANT_ONBOARDING_IMAGE_RULES.minBytes) {
+        throw new ValidationError(`${label} is too small. Minimum size is 20KB`);
+    }
+    if (Number(file.size || 0) > maxBytes) {
+        throw new ValidationError(`${label} is too large. Maximum size is ${fieldName === 'menuImages' ? '5MB' : '2.5MB'}`);
+    }
+};
+
+const validateRestaurantOnboardingFiles = (files = {}) => {
+    ['profileImage', 'panImage', 'gstImage', 'fssaiImage'].forEach((fieldName) => {
+        if (files?.[fieldName]?.[0]) validateRestaurantOnboardingFile(files[fieldName][0], fieldName);
+    });
+    (files?.menuImages || []).forEach((file) => validateRestaurantOnboardingFile(file, 'menuImages'));
 };
 
 const toRestaurantProfile = (doc) => {
@@ -213,6 +309,9 @@ const toRestaurantProfile = (doc) => {
         diningPrimaryCategoryId: doc.diningPrimaryCategoryId || null,
         pendingDiningRequest: doc.pendingDiningRequest || null,
         isAcceptingOrders: doc.isAcceptingOrders !== false,
+        showRestaurantToUsersWithoutItems: doc.showRestaurantToUsersWithoutItems === true,
+        isVisibleToUsers: doc.isVisibleToUsers !== false,
+        hasHadActiveItems: doc.hasHadActiveItems === true,
         status: doc.status || null,
         onboardingStep: doc.onboardingStep ?? 1,
         createdAt: doc.createdAt,
@@ -732,6 +831,7 @@ const buildStep1Data = (payload) => {
 };
 
 export const saveOnboardingStep = async (stepNum, payload, files) => {
+    validateRestaurantOnboardingFiles(files);
     const step = Number(stepNum);
     if (![1, 2, 3].includes(step)) {
         throw new ValidationError('Invalid onboarding step');
@@ -833,6 +933,10 @@ export const saveOnboardingStep = async (stepNum, payload, files) => {
                 cuisines,
                 openingTime: normalizedOpeningTime || undefined,
                 closingTime: normalizedClosingTime || undefined,
+                showRestaurantToUsersWithoutItems:
+                    payload.showRestaurantToUsersWithoutItems === true ||
+                    payload.showRestaurantToUsersWithoutItems === 'true' ||
+                    payload.showRestaurantToUsersWithoutItems === '1',
                 openDays: Array.isArray(payload.openDays)
                     ? payload.openDays
                     : (typeof payload.openDays === 'string'
@@ -894,6 +998,7 @@ export const saveOnboardingStep = async (stepNum, payload, files) => {
 
 // new code
 export const registerRestaurant = async (payload, files, authUserId) => {
+    validateRestaurantOnboardingFiles(files);
     const {
         restaurantName,
         ownerName,
@@ -935,7 +1040,8 @@ export const registerRestaurant = async (payload, files, authUserId) => {
         razorpayOrderId,
         razorpayPaymentId,
         razorpaySignature,
-        finalizeOnboarding
+        finalizeOnboarding,
+        showRestaurantToUsersWithoutItems
     } = payload;
 
     const isFinalizeOnboarding =
@@ -1054,6 +1160,11 @@ export const registerRestaurant = async (payload, files, authUserId) => {
             dayTimings: payload.dayTimings || [],
             estimatedDeliveryTime: estimatedDeliveryTimeText || undefined,
             estimatedDeliveryTimeMinutes: estimatedDeliveryTimeMinutes ?? undefined,
+            showRestaurantToUsersWithoutItems:
+                showRestaurantToUsersWithoutItems === true ||
+                showRestaurantToUsersWithoutItems === 'true' ||
+                showRestaurantToUsersWithoutItems === '1',
+            isVisibleToUsers: true,
             panNumber,
             nameOnPan,
             gstRegistered,
@@ -2191,6 +2302,9 @@ export const listApprovedRestaurants = async (query = {}) => {
         rating: 1,
         totalRatings: 1,
         isAcceptingOrders: 1,
+        isVisibleToUsers: 1,
+        showRestaurantToUsersWithoutItems: 1,
+        hasHadActiveItems: 1,
         status: 1,
         pureVegRestaurant: 1,
         createdAt: 1,
@@ -2229,6 +2343,7 @@ export const listApprovedRestaurants = async (query = {}) => {
 
         const basePipeline = [
             geoNear,
+            ...activeItemLookupStages(),
             {
                 $addFields: {
                     distanceInKm: { $round: [{ $divide: ['$distanceMeters', 1000] }, 2] }
@@ -2262,15 +2377,26 @@ export const listApprovedRestaurants = async (query = {}) => {
         return { createdAt: -1 };
     })();
 
-    const [restaurantsRaw, total] = await Promise.all([
-        FoodRestaurant.find(filter)
-            .select(Object.keys(projection).join(' '))
-            .sort(sort)
-            .skip(skip)
-            .limit(limit)
-            .lean(),
-        FoodRestaurant.countDocuments(filter)
+    const aggregateBasePipeline = [
+        { $match: filter },
+        ...activeItemLookupStages(),
+        { $sort: sort }
+    ];
+
+    const [restaurantsRaw, totalDocs] = await Promise.all([
+        FoodRestaurant.aggregate([
+            ...aggregateBasePipeline,
+            { $project: projection },
+            { $skip: skip },
+            { $limit: limit }
+        ]),
+        FoodRestaurant.aggregate([
+            ...aggregateBasePipeline,
+            { $count: 'count' }
+        ])
     ]);
+
+    const total = totalDocs?.[0]?.count || 0;
 
     const restaurants = (restaurantsRaw || []).map((r) => ({
         ...r,
@@ -2302,6 +2428,7 @@ export const getApprovedRestaurantByIdOrSlug = async (idOrSlug) => {
     if (/^[0-9a-fA-F]{24}$/.test(value)) {
         const doc = await FoodRestaurant.findOne({ _id: value, status: 'approved' }).lean();
         if (!doc) return null;
+        if (!(await ensurePublicRestaurantVisible(doc))) return null;
         return {
             ...doc,
             rating: normalizeRatingValue(doc.rating),
@@ -2316,6 +2443,7 @@ export const getApprovedRestaurantByIdOrSlug = async (idOrSlug) => {
             status: 'approved',
         }).lean();
         if (!doc) return null;
+        if (!(await ensurePublicRestaurantVisible(doc))) return null;
         return {
             ...doc,
             rating: normalizeRatingValue(doc.rating),
@@ -2332,6 +2460,7 @@ export const getApprovedRestaurantByIdOrSlug = async (idOrSlug) => {
         restaurantNameNormalized
     }).lean();
     if (!doc) return null;
+    if (!(await ensurePublicRestaurantVisible(doc))) return null;
     return {
         ...doc,
         rating: normalizeRatingValue(doc.rating),

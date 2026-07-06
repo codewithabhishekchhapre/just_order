@@ -1,8 +1,13 @@
 import { useState, useMemo, useEffect } from "react"
-import { Search, Plus, Pencil, Trash2, ArrowUpDown, Loader2, UtensilsCrossed, Percent, Check, AlertTriangle, CheckSquare, Square } from "lucide-react"
+import { Search, Pencil, Trash2, ArrowUpDown, Loader2, UtensilsCrossed, Percent, AlertTriangle, CheckSquare, Square } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@food/components/ui/dialog"
 import { adminAPI } from "@food/api"
 import { toast } from "sonner"
+import {
+  DEFAULT_RESTAURANT_COMMISSION_PERCENTAGE,
+  isCustomRestaurantCommission,
+  resolveRestaurantCommissionPercentage,
+} from "@food/utils/restaurantCommissionDefaults"
 
 const debugLog = (...args) => {}
 const debugError = (...args) => {}
@@ -11,13 +16,11 @@ export default function RestaurantCommission() {
   const [restaurants, setRestaurants] = useState([])
   const [isLoading, setIsLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
-  const [filterMode, setFilterMode] = useState("configured") // "configured" or "all"
-  
+
   // Sorting state
   const [sortConfig, setSortConfig] = useState({ key: "name", direction: "asc" })
 
   // Modal states
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false)
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false)
@@ -26,16 +29,9 @@ export default function RestaurantCommission() {
   const [selectedRestaurant, setSelectedRestaurant] = useState(null)
   const [commissionInput, setCommissionInput] = useState("")
   
-  // Multi-select state (only used in "all" tab)
   const [selectedIds, setSelectedIds] = useState(new Set())
-  const [bulkCommissionInput, setBulkCommissionInput] = useState("")
+  const [bulkCommissionInput, setBulkCommissionInput] = useState(String(DEFAULT_RESTAURANT_COMMISSION_PERCENTAGE))
 
-  // New commission form state
-  const [newCommissionForm, setNewCommissionForm] = useState({
-    restaurantId: "",
-    commissionPercentage: ""
-  })
-  
   // Loading states for actions
   const [isSaving, setIsSaving] = useState(false)
   const [isBulkSaving, setIsBulkSaving] = useState(false)
@@ -45,7 +41,7 @@ export default function RestaurantCommission() {
   const fetchRestaurants = async () => {
     try {
       setIsLoading(true)
-      const response = await adminAPI.getRestaurants({ limit: 1000 })
+      const response = await adminAPI.getRestaurants({ limit: 1000, status: "approved" })
       const body = response?.data
       const data = body?.data
       
@@ -63,8 +59,9 @@ export default function RestaurantCommission() {
         _id: res._id,
         restaurantId: res.restaurantId || `REST${String(index + 1).padStart(5, "0")}`,
         name: res.name || res.restaurantName || "N/A",
-        commissionPercentage: typeof res.commissionPercentage === "number" ? res.commissionPercentage : 0,
-        isActive: res.isActive !== false,
+        commissionPercentage: resolveRestaurantCommissionPercentage(res.commissionPercentage),
+        rawCommissionPercentage: res.commissionPercentage,
+        isActive: res.isVisibleToUsers !== false,
       }))
       
       setRestaurants(mapped)
@@ -80,18 +77,9 @@ export default function RestaurantCommission() {
     fetchRestaurants()
   }, [])
 
-  // Reset selections when switching tabs
-  useEffect(() => {
-    setSelectedIds(new Set())
-  }, [filterMode])
-
   // Filter & Sort restaurants
   const filteredRestaurants = useMemo(() => {
     let result = [...restaurants]
-
-    if (filterMode === "configured") {
-      result = result.filter(res => res.commissionPercentage > 0)
-    }
 
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase().trim()
@@ -117,17 +105,7 @@ export default function RestaurantCommission() {
     }
 
     return result
-  }, [restaurants, filterMode, searchQuery, sortConfig])
-
-  // Count of configured commissions
-  const configuredCount = useMemo(() => {
-    return restaurants.filter(res => res.commissionPercentage > 0).length
-  }, [restaurants])
-
-  // Dropdown list of restaurants that do NOT have a commission set yet
-  const unconfiguredRestaurantsList = useMemo(() => {
-    return restaurants.filter(res => res.commissionPercentage === 0)
-  }, [restaurants])
+  }, [restaurants, searchQuery, sortConfig])
 
   // ----- Multi-select helpers -----
   const allVisibleIds = useMemo(() => filteredRestaurants.map(r => r.id), [filteredRestaurants])
@@ -179,46 +157,6 @@ export default function RestaurantCommission() {
     }
   }
 
-  // Handle Add Commission Submission
-  const handleAddCommission = async (e) => {
-    e.preventDefault()
-    const { restaurantId, commissionPercentage } = newCommissionForm
-    
-    if (!restaurantId) {
-      toast.error("Please select a restaurant")
-      return
-    }
-
-    const pct = parseFloat(commissionPercentage)
-    if (isNaN(pct) || pct < 0 || pct > 100) {
-      toast.error("Commission must be a percentage between 0 and 100")
-      return
-    }
-
-    try {
-      setIsSaving(true)
-      const targetRestaurant = restaurants.find(r => r.id === restaurantId || r._id === restaurantId)
-      if (!targetRestaurant) return
-
-      await adminAPI.updateRestaurant(targetRestaurant._id || targetRestaurant.id, {
-        commissionPercentage: pct
-      })
-
-      setRestaurants(prev =>
-        prev.map(r => (r.id === targetRestaurant.id) ? { ...r, commissionPercentage: pct } : r)
-      )
-
-      toast.success(`Commission set to ${pct}% for ${targetRestaurant.name}`)
-      setIsAddModalOpen(false)
-      setNewCommissionForm({ restaurantId: "", commissionPercentage: "" })
-    } catch (err) {
-      debugError("Failed to add commission:", err)
-      toast.error(err?.response?.data?.message || "Failed to set commission percentage")
-    } finally {
-      setIsSaving(false)
-    }
-  }
-
   // Open Edit Modal
   const openEditModal = (restaurant) => {
     setSelectedRestaurant(restaurant)
@@ -244,7 +182,13 @@ export default function RestaurantCommission() {
       })
 
       setRestaurants(prev =>
-        prev.map(r => r.id === selectedRestaurant.id ? { ...r, commissionPercentage: pct } : r)
+        prev.map(r => r.id === selectedRestaurant.id
+          ? {
+              ...r,
+              commissionPercentage: pct,
+              rawCommissionPercentage: pct,
+            }
+          : r)
       )
 
       toast.success(`Commission updated to ${pct}% for ${selectedRestaurant.name}`)
@@ -265,21 +209,27 @@ export default function RestaurantCommission() {
     setIsDeleteConfirmOpen(true)
   }
 
-  // Handle Reset to 0% (Delete action)
+  // Handle Reset to platform default (15%)
   const handleDeleteCommission = async () => {
     if (!selectedRestaurant) return
 
     try {
       setIsSaving(true)
       await adminAPI.updateRestaurant(selectedRestaurant._id || selectedRestaurant.id, {
-        commissionPercentage: 0
+        commissionPercentage: DEFAULT_RESTAURANT_COMMISSION_PERCENTAGE,
       })
 
       setRestaurants(prev =>
-        prev.map(r => r.id === selectedRestaurant.id ? { ...r, commissionPercentage: 0 } : r)
+        prev.map(r => r.id === selectedRestaurant.id
+          ? {
+              ...r,
+              commissionPercentage: DEFAULT_RESTAURANT_COMMISSION_PERCENTAGE,
+              rawCommissionPercentage: DEFAULT_RESTAURANT_COMMISSION_PERCENTAGE,
+            }
+          : r)
       )
 
-      toast.success(`Commission reset to 0% for ${selectedRestaurant.name}`)
+      toast.success(`Commission reset to default ${DEFAULT_RESTAURANT_COMMISSION_PERCENTAGE}% for ${selectedRestaurant.name}`)
       setIsDeleteConfirmOpen(false)
       setSelectedRestaurant(null)
     } catch (err) {
@@ -323,14 +273,20 @@ export default function RestaurantCommission() {
           .map(r => r.id)
       )
       setRestaurants(prev =>
-        prev.map(r => successIds.has(r.id) ? { ...r, commissionPercentage: pct } : r)
+        prev.map(r => successIds.has(r.id)
+          ? {
+              ...r,
+              commissionPercentage: pct,
+              rawCommissionPercentage: pct,
+            }
+          : r)
       )
 
       if (successCount > 0) toast.success(`Commission set to ${pct}% for ${successCount} restaurant(s)`)
       if (failCount > 0) toast.error(`Failed to update ${failCount} restaurant(s)`)
 
       setIsBulkModalOpen(false)
-      setBulkCommissionInput("")
+      setBulkCommissionInput(String(DEFAULT_RESTAURANT_COMMISSION_PERCENTAGE))
       setSelectedIds(new Set())
     } catch (err) {
       debugError("Bulk commission error:", err)
@@ -346,65 +302,42 @@ export default function RestaurantCommission() {
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
           
           {/* Header Section */}
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
                 <Percent className="w-5 h-5 text-blue-600" />
               </div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-2xl font-bold text-slate-900">Restaurant Commission</h1>
-                <span className="px-3 py-1 rounded-full text-sm font-semibold bg-slate-100 text-slate-700">
-                  {configuredCount}
-                </span>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-2xl font-bold text-slate-900">Restaurant Commission</h1>
+                  <span className="px-3 py-1 rounded-full text-sm font-semibold bg-slate-100 text-slate-700">
+                    {restaurants.length}
+                  </span>
+                </div>
+                <p className="mt-1 text-sm text-slate-500">
+                  Every restaurant uses {DEFAULT_RESTAURANT_COMMISSION_PERCENTAGE}% by default. Edit any row to set a custom rate.
+                </p>
               </div>
             </div>
 
             <div className="flex items-center gap-2">
-              {/* Bulk Set Commission button — only visible in "all" tab with selection */}
-              {filterMode === "all" && selectedIds.size > 0 && (
+              {selectedIds.size > 0 && (
                 <button
-                  onClick={() => { setBulkCommissionInput(""); setIsBulkModalOpen(true) }}
-                  className="px-4 py-2.5 bg-red-500 hover:bg-red-600 text-white font-semibold rounded-lg flex items-center justify-center gap-2 shadow-sm transition-all duration-150 active:scale-95 text-sm"
+                  onClick={() => {
+                    setBulkCommissionInput(String(DEFAULT_RESTAURANT_COMMISSION_PERCENTAGE))
+                    setIsBulkModalOpen(true)
+                  }}
+                  className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg flex items-center justify-center gap-2 shadow-sm transition-all duration-150 active:scale-95 text-sm"
                 >
                   <Percent className="w-4 h-4" />
-                  Set Commission ({selectedIds.size})
+                  Update Selected ({selectedIds.size})
                 </button>
               )}
-              <button
-                onClick={() => setIsAddModalOpen(true)}
-                className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg flex items-center justify-center gap-2 shadow-sm transition-all duration-150 active:scale-95 text-sm"
-              >
-                <Plus className="w-4 h-4" />
-                Add Commission
-              </button>
             </div>
           </div>
 
-          {/* Filter Tabs & Search Bar */}
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-            <div className="flex items-center gap-2 p-1 bg-slate-100 rounded-lg w-fit">
-              <button
-                onClick={() => setFilterMode("configured")}
-                className={`px-4 py-2 text-xs sm:text-sm font-medium rounded-md transition-all duration-150 ${
-                  filterMode === "configured"
-                    ? "bg-white text-blue-600 shadow-sm font-semibold"
-                    : "text-slate-600 hover:text-slate-900"
-                }`}
-              >
-                Custom Commissions ({configuredCount})
-              </button>
-              <button
-                onClick={() => setFilterMode("all")}
-                className={`px-4 py-2 text-xs sm:text-sm font-medium rounded-md transition-all duration-150 ${
-                  filterMode === "all"
-                    ? "bg-white text-blue-600 shadow-sm font-semibold"
-                    : "text-slate-600 hover:text-slate-900"
-                }`}
-              >
-                All Restaurants ({restaurants.length})
-              </button>
-            </div>
-
+          {/* Search Bar */}
+          <div className="flex flex-col md:flex-row md:items-center justify-end gap-4 mb-6">
             <div className="relative flex-1 md:max-w-md">
               <input
                 type="text"
@@ -418,14 +351,14 @@ export default function RestaurantCommission() {
           </div>
 
           {/* Selection info bar — shown only in "all" tab */}
-          {filterMode === "all" && selectedIds.size > 0 && (
-            <div className="mb-4 flex items-center justify-between px-4 py-2.5 bg-red-50 border border-red-200 rounded-lg">
-              <span className="text-sm font-medium text-red-700">
+          {selectedIds.size > 0 && (
+            <div className="mb-4 flex items-center justify-between px-4 py-2.5 bg-blue-50 border border-blue-200 rounded-lg">
+              <span className="text-sm font-medium text-blue-700">
                 {selectedIds.size} restaurant{selectedIds.size > 1 ? "s" : ""} selected
               </span>
               <button
                 onClick={() => setSelectedIds(new Set())}
-                className="text-xs text-red-600 hover:text-red-800 font-semibold underline"
+                className="text-xs text-blue-600 hover:text-blue-800 font-semibold underline"
               >
                 Clear selection
               </button>
@@ -444,18 +377,14 @@ export default function RestaurantCommission() {
                 <UtensilsCrossed className="w-12 h-12 text-slate-300 mb-3" />
                 <h3 className="text-lg font-bold text-slate-700 mb-1">No Restaurants Found</h3>
                 <p className="text-sm text-slate-500 max-w-sm">
-                  {filterMode === "configured"
-                    ? "No restaurants have custom commissions configured yet. Click 'Add Commission' to set one up!"
-                    : "No approved restaurants match your search query."}
+                  No approved restaurants match your search query.
                 </p>
               </div>
             ) : (
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-slate-50/70 border-b border-slate-200 text-xs font-bold text-slate-600 uppercase tracking-wider">
-                    {/* Checkbox column — only in "all" tab */}
-                    {filterMode === "all" && (
-                      <th className="px-4 py-4 w-12">
+                    <th className="px-4 py-4 w-12">
                         <button
                           onClick={toggleSelectAll}
                           className="flex items-center justify-center w-5 h-5 rounded text-blue-600 hover:text-blue-700 transition-colors"
@@ -472,7 +401,6 @@ export default function RestaurantCommission() {
                           )}
                         </button>
                       </th>
-                    )}
                     <th 
                       onClick={() => handleSort("id")}
                       className="px-6 py-4 cursor-pointer hover:bg-slate-100/80 transition-colors w-20"
@@ -502,7 +430,7 @@ export default function RestaurantCommission() {
                       className="px-6 py-4 cursor-pointer hover:bg-slate-100/80 transition-colors"
                     >
                       <div className="flex items-center gap-1.5">
-                        DEFAULT COMMISSION <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
+                        COMMISSION <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
                       </div>
                     </th>
                     <th className="px-6 py-4">STATUS</th>
@@ -516,12 +444,10 @@ export default function RestaurantCommission() {
                       <tr
                         key={res.id}
                         className={`hover:bg-slate-50/50 transition-colors text-sm text-slate-800 ${
-                          filterMode === "all" && isChecked ? "bg-red-50/40" : ""
+                          isChecked ? "bg-blue-50/40" : ""
                         }`}
                       >
-                        {/* Checkbox — only in "all" tab */}
-                        {filterMode === "all" && (
-                          <td className="px-4 py-4">
+                        <td className="px-4 py-4">
                             <button
                               onClick={() => toggleSelectOne(res.id)}
                               className="flex items-center justify-center w-5 h-5 rounded text-blue-600 hover:text-blue-700 transition-colors"
@@ -531,8 +457,7 @@ export default function RestaurantCommission() {
                                 : <Square className="w-5 h-5 text-slate-300 hover:text-slate-500" />
                               }
                             </button>
-                          </td>
-                        )}
+                        </td>
                         {/* Serial Number */}
                         <td className="px-6 py-4 font-medium text-slate-600">
                           {index + 1}
@@ -552,6 +477,11 @@ export default function RestaurantCommission() {
                         {/* Commission */}
                         <td className="px-6 py-4 font-semibold text-slate-900">
                           {res.commissionPercentage}%
+                          {!isCustomRestaurantCommission(res.rawCommissionPercentage) && (
+                            <span className="ml-2 inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                              Default
+                            </span>
+                          )}
                         </td>
                         {/* Status */}
                         <td className="px-6 py-4">
@@ -581,8 +511,8 @@ export default function RestaurantCommission() {
                             </button>
                             <button
                               onClick={() => openDeleteConfirm(res)}
-                              title="Reset Commission to 0%"
-                              disabled={res.commissionPercentage === 0}
+                              title={`Reset commission to default ${DEFAULT_RESTAURANT_COMMISSION_PERCENTAGE}%`}
+                              disabled={!isCustomRestaurantCommission(res.rawCommissionPercentage)}
                               className="p-1.5 text-rose-600 hover:bg-rose-50 rounded disabled:text-slate-300 disabled:hover:bg-transparent transition-colors"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -600,89 +530,6 @@ export default function RestaurantCommission() {
         </div>
       </div>
 
-      {/* Add Commission Modal */}
-      <Dialog open={isAddModalOpen} onOpenChange={setIsAddModalOpen}>
-        <DialogContent className="max-w-md bg-white p-0 overflow-hidden rounded-2xl border-none shadow-2xl">
-          <DialogHeader className="px-6 pt-6 pb-4 border-b border-slate-100 bg-slate-50/50">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
-                <Plus className="w-5 h-5 text-blue-600" />
-              </div>
-              <div>
-                <DialogTitle className="text-xl font-bold text-slate-900">Add Commission</DialogTitle>
-                <p className="text-xs text-slate-500 mt-0.5">Set a custom commission for a restaurant</p>
-              </div>
-            </div>
-          </DialogHeader>
-
-          <form onSubmit={handleAddCommission}>
-            <div className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">
-                  Select Restaurant
-                </label>
-                <select
-                  value={newCommissionForm.restaurantId}
-                  onChange={(e) => setNewCommissionForm(prev => ({ ...prev, restaurantId: e.target.value }))}
-                  className="w-full px-3 py-2.5 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm bg-white"
-                  required
-                >
-                  <option value="">-- Choose a restaurant --</option>
-                  {unconfiguredRestaurantsList.map((res) => (
-                    <option key={res.id} value={res.id}>
-                      {res.name} ({res.restaurantId})
-                    </option>
-                  ))}
-                </select>
-                {unconfiguredRestaurantsList.length === 0 && (
-                  <p className="text-xs text-amber-600 mt-1">All approved restaurants already have a custom commission set.</p>
-                )}
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">
-                  Commission Percentage (%)
-                </label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="0.1"
-                    placeholder="e.g. 10"
-                    value={newCommissionForm.commissionPercentage}
-                    onChange={(e) => setNewCommissionForm(prev => ({ ...prev, commissionPercentage: e.target.value }))}
-                    className="w-full pl-3 pr-10 py-2.5 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                    required
-                  />
-                  <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-slate-400 font-bold text-sm">
-                    %
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <DialogFooter className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex flex-row items-center justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setIsAddModalOpen(false)}
-                className="px-4 py-2 text-sm font-semibold rounded-lg bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 transition-all"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={isSaving || !newCommissionForm.restaurantId}
-                className="px-5 py-2 text-sm font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
-              >
-                {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
-                Add Commission
-              </button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
       {/* Edit Commission Modal */}
       <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
         <DialogContent className="max-w-md bg-white p-0 overflow-hidden rounded-2xl border-none shadow-2xl">
@@ -693,7 +540,7 @@ export default function RestaurantCommission() {
               </div>
               <div>
                 <DialogTitle className="text-xl font-bold text-slate-900">Edit Commission</DialogTitle>
-                <p className="text-xs text-slate-500 mt-0.5">Modify individual restaurant commission policy</p>
+                <p className="text-xs text-slate-500 mt-0.5">Change commission from the default {DEFAULT_RESTAURANT_COMMISSION_PERCENTAGE}%</p>
               </div>
             </div>
           </DialogHeader>
@@ -723,7 +570,7 @@ export default function RestaurantCommission() {
                       min="0"
                       max="100"
                       step="0.1"
-                      placeholder="e.g. 10"
+                      placeholder={`e.g. ${DEFAULT_RESTAURANT_COMMISSION_PERCENTAGE}`}
                       value={commissionInput}
                       onChange={(e) => setCommissionInput(e.target.value)}
                       className="w-full pl-3 pr-10 py-2.5 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
@@ -768,7 +615,7 @@ export default function RestaurantCommission() {
               </div>
               <div>
                 <DialogTitle className="text-xl font-bold text-slate-900">Reset Commission</DialogTitle>
-                <p className="text-xs text-slate-500 mt-0.5">Remove custom commission rule</p>
+                <p className="text-xs text-slate-500 mt-0.5">Restore platform default commission</p>
               </div>
             </div>
           </DialogHeader>
@@ -776,12 +623,12 @@ export default function RestaurantCommission() {
           {selectedRestaurant && (
             <div className="p-6">
               <p className="text-sm text-slate-600 leading-relaxed">
-                Are you sure you want to reset the custom commission percentage for{" "}
-                <span className="font-bold text-slate-900">{selectedRestaurant.name}</span> back to{" "}
-                <span className="font-bold text-slate-900">0%</span>?
+                Are you sure you want to reset the commission for{" "}
+                <span className="font-bold text-slate-900">{selectedRestaurant.name}</span> back to the default{" "}
+                <span className="font-bold text-slate-900">{DEFAULT_RESTAURANT_COMMISSION_PERCENTAGE}%</span>?
               </p>
               <p className="text-xs text-slate-500 mt-2 italic bg-slate-50 p-2.5 rounded-lg border border-slate-100">
-                Note: Resetting means no automatic commission earnings will be deducted for this restaurant on future orders.
+                This removes any custom commission override and applies the standard platform rate.
               </p>
             </div>
           )}
@@ -801,7 +648,7 @@ export default function RestaurantCommission() {
               className="px-5 py-2 text-sm font-semibold rounded-lg bg-red-600 text-white hover:bg-red-700 transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
             >
               {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
-              Reset to 0%
+              Reset to {DEFAULT_RESTAURANT_COMMISSION_PERCENTAGE}%
             </button>
           </DialogFooter>
         </DialogContent>
@@ -810,10 +657,10 @@ export default function RestaurantCommission() {
       {/* Bulk Set Commission Modal */}
       <Dialog open={isBulkModalOpen} onOpenChange={setIsBulkModalOpen}>
         <DialogContent className="max-w-md bg-white p-0 overflow-hidden rounded-2xl border-none shadow-2xl">
-          <DialogHeader className="px-6 pt-6 pb-4 border-b border-slate-100 bg-red-50/50">
+          <DialogHeader className="px-6 pt-6 pb-4 border-b border-slate-100 bg-blue-50/50">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center">
-                <Percent className="w-5 h-5 text-red-600" />
+              <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
+                <Percent className="w-5 h-5 text-blue-600" />
               </div>
               <div>
                 <DialogTitle className="text-xl font-bold text-slate-900">Bulk Set Commission</DialogTitle>
@@ -853,10 +700,10 @@ export default function RestaurantCommission() {
                     min="0"
                     max="100"
                     step="0.1"
-                    placeholder="e.g. 10"
+                    placeholder={`e.g. ${DEFAULT_RESTAURANT_COMMISSION_PERCENTAGE}`}
                     value={bulkCommissionInput}
                     onChange={(e) => setBulkCommissionInput(e.target.value)}
-                    className="w-full pl-3 pr-10 py-2.5 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm"
+                    className="w-full pl-3 pr-10 py-2.5 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                     required
                     autoFocus
                   />
@@ -881,7 +728,7 @@ export default function RestaurantCommission() {
               <button
                 type="submit"
                 disabled={isBulkSaving || !bulkCommissionInput}
-                className="px-5 py-2 text-sm font-semibold rounded-lg bg-red-500 text-white hover:bg-red-600 transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                className="px-5 py-2 text-sm font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
               >
                 {isBulkSaving && <Loader2 className="w-4 h-4 animate-spin" />}
                 Apply to {selectedIds.size} Restaurant{selectedIds.size > 1 ? "s" : ""}

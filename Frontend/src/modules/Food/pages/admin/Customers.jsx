@@ -1,9 +1,10 @@
 import { useState, useMemo, useEffect } from "react"
 import { useSearchParams } from "react-router-dom"
-import { Search, Download, ChevronDown, Calendar, Eye, FileDown, FileSpreadsheet, FileText, X, Mail, Phone, MapPin, Package, IndianRupee, Calendar as CalendarIcon, User, CheckCircle, XCircle } from "lucide-react"
+import { Search, Download, ChevronDown, ChevronLeft, ChevronRight, Calendar, Eye, FileDown, FileSpreadsheet, FileText, X, Mail, Phone, MapPin, Package, IndianRupee, Calendar as CalendarIcon, User, CheckCircle, XCircle } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@food/components/ui/dropdown-menu"
 import { exportCustomersToCSV, exportCustomersToExcel, exportCustomersToPDF } from "@food/components/admin/customers/customersExportUtils"
 import { adminAPI } from "@food/api"
+import useCachedPaginatedQuery from "@food/hooks/useCachedPaginatedQuery"
 import { toast } from "sonner"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@food/components/ui/dialog"
 const debugLog = (...args) => { }
@@ -13,9 +14,6 @@ const debugError = (...args) => { }
 
 export default function Customers() {
   const [searchQuery, setSearchQuery] = useState("")
-  const [customers, setCustomers] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [totalCustomers, setTotalCustomers] = useState(0)
   const [selectedCustomer, setSelectedCustomer] = useState(null)
   const [userDetails, setUserDetails] = useState(null)
   const [loadingDetails, setLoadingDetails] = useState(false)
@@ -46,18 +44,46 @@ export default function Customers() {
     chooseFirst: "",
   })
 
+  const customerQueryFilters = useMemo(() => ({
+    ...(filters.status && { status: filters.status }),
+    ...(filters.joiningDate && { joiningDate: filters.joiningDate }),
+    ...(filters.sortBy && { sortBy: filters.sortBy }),
+    ...(filters.chooseFirst && { chooseFirst: filters.chooseFirst }),
+  }), [filters.status, filters.joiningDate, filters.sortBy, filters.chooseFirst])
+
+  const {
+    items: customers,
+    setItems: setCustomers,
+    total: totalCustomers,
+    page: currentPage,
+    setPage: setCurrentPage,
+    totalPages,
+    loading,
+    search: cachedSearchQuery,
+    setSearch: setCachedSearchQuery,
+  } = useCachedPaginatedQuery(
+    async (params, config) => {
+      const response = await adminAPI.getCustomers(params, config)
+      const data = response?.data?.data || response?.data
+      const list = data?.customers || data?.users || []
+      return {
+        items: Array.isArray(list) ? list : [],
+        total: data?.total || data?.pagination?.total || list.length || 0,
+      }
+    },
+    {
+      pageSize: 20,
+      filters: customerQueryFilters,
+      cacheKey: "admin-customers",
+    },
+  )
+
+  useEffect(() => {
+    setSearchQuery(cachedSearchQuery)
+  }, [cachedSearchQuery])
+
   const filteredCustomers = useMemo(() => {
     let result = [...customers]
-
-    // Filter by search query
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase().trim()
-      result = result.filter(customer =>
-        customer.name.toLowerCase().includes(query) ||
-        customer.email.toLowerCase().includes(query) ||
-        customer.phone.includes(query)
-      )
-    }
 
     // Filter by order date when that field is available in the API payload.
 
@@ -129,54 +155,6 @@ export default function Customers() {
       return String(value)
     }
   }
-
-  // Fetch customers from API
-  useEffect(() => {
-    let cancelled = false
-    const fetchCustomers = async () => {
-      try {
-        setLoading(true)
-        const params = {
-          limit: 1000,
-          page: 1,
-          ...(searchQuery && { search: searchQuery }),
-          ...(filters.status && { status: filters.status }),
-          ...(filters.joiningDate && { joiningDate: filters.joiningDate }),
-          ...(filters.sortBy && { sortBy: filters.sortBy }),
-          ...(filters.chooseFirst && { chooseFirst: filters.chooseFirst }),
-        }
-
-        const response = await adminAPI.getCustomers(params)
-        const data = response?.data?.data || response?.data?.data || response?.data
-
-        const list = data?.customers || data?.users || []
-        if (!cancelled && Array.isArray(list)) {
-          setCustomers(list)
-          setTotalCustomers(data?.total || list.length)
-        } else {
-          if (!cancelled) {
-            setCustomers([])
-            setTotalCustomers(0)
-          }
-        }
-      } catch (error) {
-        debugError('Error fetching customers:', error)
-        toast.error('Failed to load customers')
-        if (!cancelled) {
-          setCustomers([])
-          setTotalCustomers(0)
-        }
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    }
-
-    const t = setTimeout(fetchCustomers, 250)
-    return () => {
-      cancelled = true
-      clearTimeout(t)
-    }
-  }, [searchQuery, filters.status, filters.joiningDate, filters.sortBy, filters.chooseFirst])
 
   const [searchParams] = useSearchParams()
   const userIdFromUrl = searchParams.get("userId")
@@ -494,7 +472,7 @@ export default function Customers() {
                   type="text"
                   placeholder="Ex: Search by name"
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e) => setCachedSearchQuery(e.target.value)}
                   className="pl-10 pr-4 py-2.5 w-full text-sm rounded-lg border border-[#EDE8E0] bg-white focus:outline-none focus:ring-2 focus:ring-[#FF6A00] focus:border-[#FF6A00]"
                 />
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#9E8F7E]" />
@@ -601,7 +579,7 @@ export default function Customers() {
                         />
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="text-sm font-medium text-[#5C5247]">{index + 1}</span>
+                        <span className="text-sm font-medium text-[#5C5247]">{(currentPage - 1) * 20 + index + 1}</span>
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
@@ -710,6 +688,39 @@ export default function Customers() {
               </tbody>
             </table>
           </div>
+          {!loading && totalCustomers > 0 && (
+            <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-t border-[#EDE8E0] pt-4">
+              <p className="text-sm text-[#5C5247]">
+                Showing <span className="font-semibold text-[#1A1A1A]">{(currentPage - 1) * 20 + 1}</span>
+                {" - "}
+                <span className="font-semibold text-[#1A1A1A]">{Math.min(currentPage * 20, totalCustomers)}</span>
+                {" "}of <span className="font-semibold text-[#1A1A1A]">{totalCustomers}</span> customers
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                  disabled={currentPage === 1}
+                  className="inline-flex items-center gap-1 rounded-lg border border-[#EDE8E0] px-3 py-2 text-sm font-semibold text-[#5C5247] disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#FFF3EB]"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Prev
+                </button>
+                <span className="rounded-lg bg-[#FAF7F2] px-3 py-2 text-sm font-semibold text-[#1A1A1A]">
+                  {currentPage} / {totalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                  disabled={currentPage >= totalPages}
+                  className="inline-flex items-center gap-1 rounded-lg border border-[#EDE8E0] px-3 py-2 text-sm font-semibold text-[#5C5247] disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#FFF3EB]"
+                >
+                  Next
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

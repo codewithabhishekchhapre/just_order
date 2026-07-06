@@ -23,6 +23,7 @@ import { restaurantAPI, uploadAPI, mediaAPI } from "@food/api"
 import { toast } from "sonner"
 import { ImageSourcePicker } from "@food/components/ImageSourcePicker"
 import ReusableImageLibraryModal from "@food/components/ReusableImageLibraryModal"
+import NameSuggestionField from "@food/components/NameSuggestionField"
 import Cropper from "react-easy-crop"
 import { isFlutterBridgeAvailable } from "@food/utils/imageUploadUtils"
 import { getFoodVariants } from "@food/utils/foodVariants"
@@ -113,6 +114,8 @@ export default function ItemDetailsPage() {
   const [categories, setCategories] = useState([])
   const [loadingCategories, setLoadingCategories] = useState(true)
   const [loadingItem, setLoadingItem] = useState(false)
+  const [existingItems, setExistingItems] = useState([])
+  const [isItemNameDuplicate, setIsItemNameDuplicate] = useState(false)
   const [keyboardInset, setKeyboardInset] = useState(0)
   const [isPureVegRestaurant, setIsPureVegRestaurant] = useState(false)
 
@@ -289,60 +292,52 @@ export default function ItemDetailsPage() {
     }
   }
 
-  // Fetch item data from menu API when editing
+  // Fetch item data from menu API when editing, and build a flat list of the
+  // restaurant's existing item names (for typeahead + duplicate detection).
+  // Fetched once on mount - no repeat calls while the user types the name.
   useEffect(() => {
+    const flattenMenuItems = (sections = []) => {
+      const flat = []
+      sections.forEach((section) => {
+        (section.items || []).forEach((item) => flat.push(item))
+        ;(section.subsections || []).forEach((subsection) => {
+          (subsection.items || []).forEach((item) => flat.push(item))
+        })
+      })
+      return flat
+    }
+
     const fetchItemData = async () => {
       if (location.state?.item) {
         populateFormFromItem(location.state.item)
       }
 
-      if (!isNewItem && id) {
-        try {
-          setLoadingItem(true)
-          const menuResponse = await restaurantAPI.getMenu()
-          const menu = menuResponse.data?.data?.menu
-          const sections = menu?.sections || []
+      try {
+        if (!isNewItem && id) setLoadingItem(true)
+        const menuResponse = await restaurantAPI.getMenu()
+        const menu = menuResponse.data?.data?.menu
+        const sections = menu?.sections || []
+        const flatItems = flattenMenuItems(sections)
+        setExistingItems(flatItems)
 
-          // Find the item across all sections
-          let foundItem = null
+        if (!isNewItem && id) {
           const searchId = String(id).trim()
-          for (const section of sections) {
-            // Check items in section
-            const item = section.items?.find(i => {
-              const itemId = String(i.id || i._id || '').trim()
-              return itemId === searchId || itemId === id
-            })
-            if (item) {
-              foundItem = item
-              break
-            }
-            // Check items in subsections
-            if (section.subsections) {
-              for (const subsection of section.subsections) {
-                const subItem = subsection.items?.find(i => {
-                  const itemId = String(i.id || i._id || '').trim()
-                  return itemId === searchId || itemId === id
-                })
-                if (subItem) {
-                  foundItem = subItem
-                  break
-                }
-              }
-              if (foundItem) break
-            }
-          }
+          const foundItem = flatItems.find((i) => {
+            const itemId = String(i.id || i._id || '').trim()
+            return itemId === searchId || itemId === id
+          })
 
           if (foundItem) {
             populateFormFromItem(foundItem)
           } else {
             toast.error("Item not found")
           }
-        } catch (error) {
-          debugError('Error fetching item data:', error)
-          toast.error("Failed to load item data")
-        } finally {
-          setLoadingItem(false)
         }
+      } catch (error) {
+        debugError('Error fetching item data:', error)
+        if (!isNewItem && id) toast.error("Failed to load item data")
+      } finally {
+        if (!isNewItem && id) setLoadingItem(false)
       }
     }
 
@@ -723,6 +718,10 @@ export default function ItemDetailsPage() {
       toast.error("Please enter an item name")
       return
     }
+    if (isItemNameDuplicate) {
+      toast.error("An item with this name already exists in your menu")
+      return
+    }
 
     try {
       setUploadingImages(true)
@@ -995,7 +994,7 @@ export default function ItemDetailsPage() {
       `}</style>
       {/* Header */}
       <div className="sticky top-0 z-40 bg-white dark:bg-[#111] border-b border-gray-100 dark:border-gray-800 flex-shrink-0">
-        <div className="max-w-3xl mx-auto w-full px-4 py-4 flex items-center gap-3">
+        <div className="max-w-5xl mx-auto w-full px-4 lg:px-6 py-4 flex items-center gap-3">
           <button
             onClick={goBack}
             className="p-1.5 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
@@ -1009,9 +1008,9 @@ export default function ItemDetailsPage() {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto" style={{ paddingBottom: `${96 + keyboardInset}px` }}>
-       <div className="max-w-3xl mx-auto w-full">
+       <div className="max-w-5xl mx-auto w-full lg:px-6 lg:py-6">
         {!isNewItem && currentApprovalStatus === "rejected" && currentRejectionReason ? (
-          <div className="px-4 pt-4">
+          <div className="px-4 pt-4 lg:px-0 lg:pt-0 lg:pb-6">
             <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3">
               <p className="text-sm font-semibold text-red-700">Approval rejected</p>
               <p className="mt-1 text-sm leading-5 text-red-600">Reason: {currentRejectionReason}</p>
@@ -1022,8 +1021,10 @@ export default function ItemDetailsPage() {
           </div>
         ) : null}
 
+        <div className="lg:grid lg:grid-cols-[380px_1fr] lg:gap-8 lg:items-start">
+        <div className="lg:sticky lg:top-24">
         {/* Image Carousel */}
-        <div className="relative bg-white">
+        <div className="relative bg-white lg:rounded-2xl lg:border lg:border-gray-200 lg:overflow-hidden lg:shadow-sm">
           {images.length > 0 ? (
             <div className="relative w-full h-80 overflow-hidden bg-gray-100">
               {/* Image container with swipe support */}
@@ -1185,9 +1186,10 @@ export default function ItemDetailsPage() {
             )}
           </div>
         )}
+        </div>
 
         {/* Form Fields */}
-        <div className="p-4 space-y-3">
+        <div className="p-4 lg:p-0 space-y-3">
           {/* Category Selector */}
           <div>
             <label className="block text-sm font-medium text-gray-900 mb-2">
@@ -1209,19 +1211,22 @@ export default function ItemDetailsPage() {
             <label className="block text-sm font-medium text-gray-900 mb-2">
               Item name
             </label>
-            <div className="relative">
-              <input
-                type="text"
-                value={itemName}
-                onChange={(e) => setItemName(e.target.value)}
-                maxLength={maxNameLength}
-                className="w-full px-4 py-3 pr-12 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#FF6A00] focus:border-transparent"
-                placeholder="Enter item name"
-              />
-              <button className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-gray-100">
-                <EditIcon className="w-4 h-4 text-gray-500" />
-              </button>
-            </div>
+            <NameSuggestionField
+              value={itemName}
+              onChange={setItemName}
+              items={existingItems}
+              excludeId={!isNewItem ? id : undefined}
+              entityLabel="item"
+              maxLength={maxNameLength}
+              placeholder="Enter item name"
+              inputClassName="w-full px-4 py-3 pr-12 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#FF6A00] focus:border-transparent"
+              onDuplicateChange={setIsItemNameDuplicate}
+              rightSlot={
+                <button className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-gray-100">
+                  <EditIcon className="w-4 h-4 text-gray-500" />
+                </button>
+              }
+            />
             <div className="text-right mt-1">
               <span className="text-xs text-gray-500">
                 {nameLength} / {maxNameLength}
@@ -1470,6 +1475,7 @@ export default function ItemDetailsPage() {
 
 
         </div>
+        </div>
        </div>
       </div>
 
@@ -1484,12 +1490,16 @@ export default function ItemDetailsPage() {
               onClick={() => setIsCategoryPopupOpen(false)}
               className="fixed inset-0 bg-black/50 z-50"
             />
+            <div
+              className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4"
+              onClick={() => setIsCategoryPopupOpen(false)}
+            >
             <motion.div
-              initial={{ y: "100%" }}
-              animate={{ y: 0 }}
-              exit={{ y: "100%" }}
+              initial={{ y: 40, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 40, opacity: 0 }}
               transition={{ type: "spring", damping: 30, stiffness: 300 }}
-              className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl z-50 max-h-[85vh] flex flex-col"
+              className="w-full sm:max-w-lg bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[85vh]"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between px-4 py-4 border-b border-gray-200">
@@ -1578,6 +1588,7 @@ export default function ItemDetailsPage() {
                 )}
               </div>
             </motion.div>
+            </div>
           </>
         )}
       </AnimatePresence>
@@ -1639,19 +1650,19 @@ export default function ItemDetailsPage() {
         className="fixed left-0 right-0 bg-white dark:bg-[#111] border-t border-gray-200 dark:border-gray-800 z-40"
         style={{ bottom: `${keyboardInset}px` }}
       >
-        <div className={`max-w-3xl mx-auto w-full flex gap-3 px-4 py-4 ${isNewItem ? 'justify-end' : ''}`}>
+        <div className={`max-w-5xl mx-auto w-full flex gap-3 px-4 lg:px-6 py-4 ${isNewItem ? 'justify-end' : ''}`}>
           {!isNewItem && (
             <button
               onClick={handleDelete}
-              className="flex-1 py-3 px-4 border border-black rounded-lg text-sm font-semibold text-black bg-white hover:bg-gray-50 transition-colors"
+              className="flex-1 sm:flex-none sm:w-40 py-3 px-4 border border-black rounded-lg text-sm font-semibold text-black bg-white hover:bg-gray-50 transition-colors"
             >
               Delete
             </button>
           )}
           <button
             onClick={handleSave}
-            disabled={uploadingImages}
-            className={`${isNewItem ? 'w-full' : 'flex-1'} py-3 px-4 rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${!uploadingImages
+            disabled={uploadingImages || isItemNameDuplicate}
+            className={`${isNewItem ? 'w-full sm:w-56' : 'flex-1 sm:flex-none sm:w-56'} py-3 px-4 rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${!uploadingImages && !isItemNameDuplicate
               ? "bg-[#FF6A00] text-white hover:bg-[#E64D02]"
               : "bg-gray-300 text-gray-500 cursor-not-allowed"
               }`}

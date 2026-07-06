@@ -15,7 +15,7 @@ import MixedSharedCart from "@food/pages/user/cart/MixedSharedCart"
 import { useLocation as useUserLocation } from "@food/hooks/useLocation"
 import { useZone } from "@food/hooks/useZone"
 import { useLocationSelector } from "@food/components/user/UserLayout"
-import { orderAPI, restaurantAPI, adminAPI, userAPI, API_ENDPOINTS } from "@food/api"
+import { orderAPI, restaurantAPI, userAPI, API_ENDPOINTS } from "@food/api"
 import { API_BASE_URL } from "@food/api/config"
 import { initRazorpayPayment, isFlutterWebView, handleFlutterRazorpayPayment } from "@food/utils/razorpay"
 import { sanitizeOrderImage, sanitizeOrderNotes } from "@food/utils/orderPayload"
@@ -26,7 +26,6 @@ import { useCompanyName } from "@food/hooks/useCompanyName"
 import { getRestaurantAvailabilityStatus } from "@food/utils/restaurantAvailability"
 import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 import zoopSound from "@food/assets/audio/zomato_sms.mp3"
-import deliveryBoyGif from "@/assets/Delivery Boy.gif"
 const debugLog = (...args) => { }
 const debugWarn = (...args) => { }
 const debugError = (...args) => { }
@@ -254,6 +253,7 @@ export default function Cart() {
   const [availableCoupons, setAvailableCoupons] = useState([])
   const [loadingCoupons, setLoadingCoupons] = useState(false)
   const [userOrderCount, setUserOrderCount] = useState(0)
+  const [showAllCoupons, setShowAllCoupons] = useState(false)
 
   // Fee settings from database (used for platform fee and GST fallback only)
   const [feeSettings, setFeeSettings] = useState({
@@ -263,6 +263,10 @@ export default function Cart() {
     platformFee: 5,
     gstRate: 5,
   })
+
+  // Delivery speed tiers (Eco/Standard/Express) - admin-configurable, fetched publicly.
+  const [deliverySpeedOptions, setDeliverySpeedOptions] = useState([])
+  const [selectedDeliveryFleet, setSelectedDeliveryFleet] = useState(null)
 
 
   const availableTimeSlots = useMemo(() => {
@@ -926,7 +930,8 @@ export default function Cart() {
           items,
           restaurantId: resolvedRestaurantId,
           address: defaultAddress,
-          couponCode: resolvedCouponCode
+          couponCode: resolvedCouponCode,
+          deliveryFleet: selectedDeliveryFleet || undefined,
         })
 
         if (response?.data?.success && response?.data?.data?.pricing) {
@@ -953,7 +958,7 @@ export default function Cart() {
     }
 
     calculatePricing()
-  }, [cart, defaultAddress, appliedCoupon, couponCode, restaurantId])
+  }, [cart, defaultAddress, appliedCoupon, couponCode, restaurantId, selectedDeliveryFleet])
 
   // Fetch wallet balance
   useEffect(() => {
@@ -992,24 +997,26 @@ export default function Cart() {
     fetchOrderCount()
   }, [])
 
-  // Fetch fee settings on mount
+  // Fetch fee settings + delivery speed options on mount (public endpoint - no admin auth needed)
   useEffect(() => {
     const fetchFeeSettings = async () => {
-      if (typeof adminAPI.getPublicFeeSettings !== "function") return
       try {
-        const response = await adminAPI.getPublicFeeSettings()
-        if (response.data.success && response.data.data.feeSettings) {
-          setFeeSettings({
-            baseDistanceKm: response.data.data.feeSettings.baseDistanceKm || 3,
-            baseDeliveryFee:
-              response.data.data.feeSettings.baseDeliveryFee ||
-              response.data.data.feeSettings.deliveryFee ||
-              25,
-            perKmCharge: response.data.data.feeSettings.perKmCharge || 10,
-            platformFee: response.data.data.feeSettings.platformFee || 5,
-            gstRate: response.data.data.feeSettings.gstRate || 5,
-          })
-        }
+        const response = await orderAPI.getPublicFeeSummary()
+        const data = response?.data?.data
+        if (!response?.data?.success || !data) return
+
+        setFeeSettings((prev) => ({
+          ...prev,
+          platformFee: data.platformFee ?? prev.platformFee,
+          gstRate: data.gstRate ?? prev.gstRate,
+        }))
+
+        const options = Array.isArray(data.deliverySpeedOptions) ? data.deliverySpeedOptions : []
+        setDeliverySpeedOptions(options)
+        setSelectedDeliveryFleet((prev) => {
+          if (prev && options.some((option) => option.code === prev)) return prev
+          return options.find((option) => option.isDefault)?.code || options[0]?.code || "standard"
+        })
       } catch (error) {
         debugError('Error fetching fee settings:', error)
         // Keep default values on error
@@ -1053,7 +1060,10 @@ export default function Cart() {
   const platformFee = pricing?.platformFee ?? feeSettings.platformFee
   const gstCharges = pricing?.tax ?? Math.round(subtotal * (feeSettings.gstRate / 100))
   const discount = pricing?.discount ?? (appliedCoupon ? Math.min(appliedCoupon.discount, subtotal * 0.5) : 0)
-  const totalBeforeDiscount = subtotal + deliveryFee + platformFee + gstCharges
+  const deliverySpeedFee = Number(pricing?.deliverySpeedFee || 0)
+  const selectedDeliverySpeedOption =
+    pricing?.deliverySpeed || deliverySpeedOptions.find((option) => option.code === selectedDeliveryFleet) || null
+  const totalBeforeDiscount = subtotal + deliveryFee + deliverySpeedFee + platformFee + gstCharges
   const total = pricing?.total ?? (totalBeforeDiscount - discount)
 
   // Calculate other platform total for comparison
@@ -1494,6 +1504,7 @@ export default function Cart() {
           restaurantId: restaurantData?.restaurantId || restaurantData?._id || restaurantId || undefined,
           address: defaultAddress,
           couponCode: appliedCoupon?.code || couponCode || undefined,
+          deliveryFleet: selectedDeliveryFleet || undefined,
         })
         resolvedPricing = pricingResponse?.data?.data?.pricing || null
         if (resolvedPricing) {
@@ -1705,6 +1716,7 @@ export default function Cart() {
         restaurantId: finalRestaurantId,
         restaurantName: finalRestaurantName || undefined,
         pricing: orderPricing,
+        deliveryFleet: selectedDeliveryFleet || undefined,
         note: note || "",
         sendCutlery: sendCutlery !== false,
         paymentMethod: selectedPaymentMethod,
@@ -2072,28 +2084,35 @@ export default function Cart() {
   // Empty cart state - but don't show if order success or placing order modal is active
   if (cart.length === 0 && !showOrderSuccess && !showPlacingOrder) {
     return (
-      <AnimatedPage className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a]">
-        <div className="bg-white dark:bg-[#1a1a1a] border-b dark:border-gray-800 sticky top-0 z-10">
-          <div className="flex items-center gap-3 px-4 py-3">
+      <AnimatedPage className="min-h-screen bg-[#f6f6f6] dark:bg-[#080808]">
+        <div className="sticky top-0 z-10 border-b border-black/5 bg-white/95 shadow-sm backdrop-blur-xl dark:border-white/10 dark:bg-[#121212]/95">
+          <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3">
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+              className="h-9 w-9 rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-white/10 dark:text-gray-300 dark:hover:bg-white/15"
               onClick={handleBack}
             >
               <ArrowLeft className="h-4 w-4" />
             </Button>
-            <span className="font-semibold text-gray-800 dark:text-white">Cart</span>
+            <div>
+              <p className="text-[11px] font-black uppercase tracking-[0.18em] text-[#FF6A00]">Checkout</p>
+              <span className="text-sm font-black text-gray-950 dark:text-white">Your cart</span>
+            </div>
           </div>
         </div>
-        <div className="flex flex-col items-center justify-center py-20 px-4">
-          <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-            <Utensils className="h-10 w-10 text-gray-400" />
+        <div className="mx-auto flex min-h-[70vh] max-w-md flex-col items-center justify-center px-5 py-16 text-center">
+          <div className="mb-5 flex h-28 w-28 items-center justify-center rounded-[32px] bg-white shadow-[0_12px_36px_rgba(15,23,42,0.08)] dark:bg-[#151515]">
+            <Utensils className="h-12 w-12 text-[#FF6A00]" />
           </div>
-          <h2 className="text-lg font-semibold text-gray-800 dark:text-white mb-1">Your cart is empty</h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4 text-center">Add items from a restaurant to start a new order</p>
-          <Link to="/user">
-            <Button className="bg-primary-orange hover:opacity-90 text-white">Browse Restaurants</Button>
+          <h2 className="text-2xl font-black text-gray-950 dark:text-white">Your cart is empty</h2>
+          <p className="mt-2 text-sm font-medium leading-6 text-gray-500 dark:text-gray-400">
+            Looks like you haven’t added anything yet. Browse restaurants and build your perfect meal.
+          </p>
+          <Link to="/food/user" className="mt-7 w-full">
+            <Button className="h-12 w-full rounded-2xl bg-[#FF6A00] text-sm font-black text-white shadow-lg shadow-orange-500/25 hover:bg-[#e85d04]">
+              Browse Restaurants
+            </Button>
           </Link>
         </div>
       </AnimatedPage>
@@ -2101,115 +2120,146 @@ export default function Cart() {
   }
 
   return (
-    <div className="relative min-h-screen overflow-x-hidden bg-slate-50 dark:bg-[#0a0a0a]">
+    <div className="relative min-h-screen overflow-x-hidden bg-[#f6f6f6] text-gray-900 dark:bg-[#080808] dark:text-white">
       {/* Header - Sticky at top */}
-      <div className="bg-white dark:bg-[#1a1a1a] border-b dark:border-gray-800 sticky top-0 z-20 flex-shrink-0">
-        <div className="max-w-7xl mx-auto">
-          <div className="flex items-center justify-between px-3 md:px-6 py-2 md:py-3">
-            <div className="flex items-center gap-2 flex-1 min-w-0">
+      <div className="sticky top-0 z-20 flex-shrink-0 border-b border-black/5 bg-white/95 shadow-sm backdrop-blur-xl dark:border-white/10 dark:bg-[#121212]/95">
+        <div className="mx-auto max-w-6xl">
+          <div className="flex items-center justify-between gap-3 px-4 py-3 sm:px-5 lg:px-6">
+            <div className="flex min-w-0 flex-1 items-center gap-3">
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-7 w-7 md:h-8 md:w-8 flex-shrink-0 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+                className="h-9 w-9 shrink-0 rounded-full bg-gray-100 text-gray-800 hover:bg-gray-200 dark:bg-white/10 dark:text-gray-200 dark:hover:bg-white/15"
                 onClick={handleBack}
               >
-                <ArrowLeft className="h-4 w-4 md:h-5 md:w-5" />
+                <ArrowLeft className="h-4 w-4" />
               </Button>
-              <div className="min-w-0">
-                <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400">{restaurantName}</p>
-                <p className="text-sm md:text-base font-medium text-gray-800 dark:text-white truncate">
-                  {getMaxDeliveryTime(cart, restaurantData)} to <span className="font-semibold">Location</span>
-                  <span className="text-gray-400 dark:text-gray-500 ml-1 text-xs md:text-sm">{defaultAddress ? (formatFullAddress(defaultAddress) || defaultAddress?.formattedAddress || defaultAddress?.address || defaultAddress?.city || "Select address") : "Select address"}</span>
+              <div className="min-w-0 leading-tight">
+                <p className="text-[11px] font-black uppercase tracking-[0.18em] text-[#FF6A00]">Secure checkout</p>
+                <p className="mt-0.5 truncate text-sm font-extrabold text-gray-950 dark:text-white sm:text-base">
+                  {restaurantName}
+                </p>
+                <p className="mt-0.5 truncate text-[11px] font-medium text-gray-500 dark:text-gray-400 sm:text-xs">
+                  {getMaxDeliveryTime(cart, restaurantData)} delivery
+                  <span className="mx-1 text-gray-300">•</span>
+                  {defaultAddress ? (formatFullAddress(defaultAddress) || defaultAddress?.formattedAddress || defaultAddress?.address || defaultAddress?.city || "Select address") : "Select address"}
                 </p>
               </div>
             </div>
             <Button
               variant="ghost"
               size="icon"
-              className="h-7 w-7 md:h-8 md:w-8 flex-shrink-0"
+              className="h-9 w-9 shrink-0 rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-white/10 dark:text-gray-200 dark:hover:bg-white/15"
               onClick={handleShare}
             >
-              <Share2 className="h-4 w-4 md:h-5 md:w-5" />
+              <Share2 className="h-4 w-4" />
             </Button>
           </div>
         </div>
       </div>
 
       {/* Scrollable Content Area */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden pb-28 md:pb-32">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden pb-36 md:pb-40 lg:pb-10">
         {/* Savings Banner */}
         {otherPlatformSavings > 0 && (
-          <div className="bg-red-100 dark:bg-red-900/20 px-4 md:px-6 py-2 md:py-3 flex-shrink-0 border-b border-red-200 dark:border-red-800/30">
-            <div className="max-w-7xl mx-auto flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-[#FF6A00] dark:text-red-400" />
-              <p className="text-sm md:text-base font-bold text-[#FF6A00] dark:text-red-200">
+          <div className="flex-shrink-0 bg-[#fff7ed] px-4 py-2.5 dark:bg-[#2b1408] sm:px-6">
+            <div className="mx-auto flex max-w-6xl items-center gap-2">
+              <Sparkles className="h-4 w-4 text-[#FF6A00]" />
+              <p className="text-xs font-extrabold text-[#c2410c] dark:text-orange-200 sm:text-sm">
                 You're saving {RUPEE_SYMBOL}{Math.round(otherPlatformSavings)} compared to other platforms!
               </p>
             </div>
           </div>
         )}
 
-        <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6">
-          <div className="max-w-3xl mx-auto">
+        <div className="mx-auto max-w-6xl px-3 py-3 sm:px-5 sm:py-5 lg:px-6 lg:py-7">
+          <div className="mx-auto max-w-3xl">
             {/* Main Cart Content */}
-            <div className="space-y-2 md:space-y-4">
+            <div className="space-y-3 sm:space-y-4">
               {/* Cart Items */}
-              <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-4 md:py-5 rounded-2xl md:rounded-3xl shadow-sm border border-slate-100 dark:border-gray-800">
-                <div className="space-y-3 md:space-y-4">
+              <div className="overflow-hidden rounded-[24px] border border-black/5 bg-white shadow-[0_8px_24px_rgba(15,23,42,0.05)] dark:border-white/10 dark:bg-[#151515]">
+                <div className="flex items-center justify-between border-b border-dashed border-gray-100 px-4 py-3 dark:border-white/10 sm:px-5">
+                  <div>
+                    <p className="text-[11px] font-black uppercase tracking-[0.18em] text-gray-400">Your order</p>
+                    <h2 className="mt-0.5 text-base font-black text-gray-950 dark:text-white">{cart.length} item{cart.length === 1 ? "" : "s"}</h2>
+                  </div>
+                  <button
+                    onClick={handleBack}
+                    className="inline-flex items-center gap-1.5 rounded-full bg-[#fff3eb] px-3 py-1.5 text-xs font-black text-[#FF6A00] transition active:scale-95 dark:bg-[#FF6A00]/10"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Add items
+                  </button>
+                </div>
+
+                <div className="divide-y divide-gray-100 dark:divide-white/10">
                   {cart.map((item) => (
-                    <div key={item.id} className="flex min-w-0 items-start gap-2 md:gap-4">
-                      {/* Veg/Non-veg indicator */}
-                      <div className={`w-4 h-4 md:w-5 md:h-5 border-2 ${item.isVeg !== false ? 'border-green-600' : 'border-red-600'} flex items-center justify-center mt-1 flex-shrink-0`}>
-                        <div className={`w-2 h-2 md:w-2.5 md:h-2.5 rounded-full ${item.isVeg !== false ? 'bg-green-600' : 'bg-red-600'}`} />
+                    <div key={item.id} className="flex min-w-0 items-start gap-3 px-4 py-3.5 sm:gap-4 sm:px-5 sm:py-4">
+                      <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-2xl bg-gray-100 dark:bg-white/10 sm:h-20 sm:w-20">
+                        {item.image ? (
+                          <img
+                            src={item.image}
+                            alt={item.name}
+                            className="h-full w-full object-cover"
+                            loading="lazy"
+                          />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center">
+                            <Utensils className="h-6 w-6 text-gray-300" />
+                          </div>
+                        )}
+                        <div className={`absolute left-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-[4px] border bg-white ${item.isVeg !== false ? 'border-green-600' : 'border-red-600'}`}>
+                          <div className={`h-2 w-2 rounded-full ${item.isVeg !== false ? 'bg-green-600' : 'bg-red-600'}`} />
+                        </div>
                       </div>
 
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm md:text-base font-medium text-gray-800 dark:text-gray-200 leading-tight">{item.name}</p>
+                      <div className="min-w-0 flex-1">
+                        <p className="line-clamp-2 text-sm font-extrabold leading-tight text-gray-950 dark:text-gray-100 sm:text-base">{item.name}</p>
                         {item.variantName ? (
-                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{item.variantName}</p>
+                          <p className="mt-1 text-xs font-semibold text-gray-500 dark:text-gray-400">{item.variantName}</p>
                         ) : null}
                         {Number(item.otherPrice || 0) > Number(item.price || 0) ? (
-                          <div className="mt-1 flex items-center gap-2 flex-wrap">
-                            <span className="text-xs font-semibold text-gray-900 dark:text-gray-100">
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            <span className="text-xs font-black text-gray-950 dark:text-gray-100">
                               {RUPEE_SYMBOL}{Number(item.price || 0).toFixed(0)}
                             </span>
                             <span className="text-[11px] text-gray-400 line-through">
                               {RUPEE_SYMBOL}{Number(item.otherPrice || 0).toFixed(0)}
                             </span>
-                            <span className="text-[10px] font-bold text-[#FF6A00] dark:text-red-400">
+                            <span className="rounded-full bg-green-50 px-2 py-0.5 text-[10px] font-black text-green-700 dark:bg-green-950/40 dark:text-green-400">
                               Save {RUPEE_SYMBOL}{Math.max(0, Number(item.otherPrice || 0) - Number(item.price || 0)).toFixed(0)}
                             </span>
                           </div>
                         ) : null}
                       </div>
 
-                      <div className="flex shrink-0 items-center gap-2 md:gap-4">
+                      <div className="flex shrink-0 flex-col items-end gap-2">
                         {/* Quantity controls */}
-                        <div className="flex items-center border border-[#FF6A00] dark:border-[#FF6A00]/50 rounded">
+                        <div className="flex h-8 items-center overflow-hidden rounded-lg border border-[#FF6A00] bg-white shadow-sm dark:bg-[#111]">
                           <button
-                            className="px-2 md:px-3 py-1 text-[#FF6A00] dark:text-[#FF6A00] hover:bg-red-50 dark:hover:bg-[#FF6A00]/10"
+                            className="flex h-full w-8 items-center justify-center text-[#FF6A00] hover:bg-orange-50 dark:hover:bg-[#FF6A00]/10"
                             onClick={() => updateQuantity(item.id, item.quantity - 1)}
                           >
-                            <Minus className="h-3 w-3 md:h-4 md:w-4" />
+                            <Minus className="h-3.5 w-3.5" />
                           </button>
-                          <span className="px-2 md:px-3 text-sm md:text-base font-semibold text-[#FF6A00] dark:text-[#FF6A00] min-w-[20px] md:min-w-[24px] text-center">
+                          <span className="min-w-7 px-1 text-center text-sm font-black text-[#FF6A00]">
                             {item.quantity}
                           </span>
                           <button
-                            className="px-2 md:px-3 py-1 text-[#FF6A00] dark:text-[#FF6A00] hover:bg-red-50 dark:hover:bg-[#FF6A00]/10"
+                            className="flex h-full w-8 items-center justify-center text-[#FF6A00] hover:bg-orange-50 dark:hover:bg-[#FF6A00]/10"
                             onClick={() => updateQuantity(item.id, item.quantity + 1)}
                           >
-                            <Plus className="h-3 w-3 md:h-4 md:w-4" />
+                            <Plus className="h-3.5 w-3.5" />
                           </button>
                         </div>
 
-                        <div className="min-w-[50px] md:min-w-[86px] text-right">
+                        <div className="text-right">
                           {Number(item.otherPrice || 0) > Number(item.price || 0) ? (
                             <p className="text-[11px] text-gray-400 line-through">
                               {RUPEE_SYMBOL}{(Number(item.otherPrice || 0) * (item.quantity || 1)).toFixed(0)}
                             </p>
                           ) : null}
-                          <p className="text-sm md:text-base font-medium text-gray-800 dark:text-gray-200">
+                          <p className="text-sm font-black text-gray-950 dark:text-gray-100">
                             {RUPEE_SYMBOL}{((item.price || 0) * (item.quantity || 1)).toFixed(0)}
                           </p>
                         </div>
@@ -2218,73 +2268,63 @@ export default function Cart() {
                   ))}
                 </div>
 
-                {/* Add more items */}
-                <button
-                  onClick={handleBack}
-                  className="flex items-center gap-2 mt-4 md:mt-6 text-[#FF6A00] dark:text-[#FF6A00]"
-                >
-                  <Plus className="h-4 w-4 md:h-5 md:w-5" />
-                  <span className="text-sm md:text-base font-medium">Add more items</span>
-                </button>
               </div>
 
-              {/* Delivery Time */}
-              <div className="relative overflow-hidden rounded-3xl border border-red-200/80 bg-[linear-gradient(135deg,#fff7ed_0%,#ffffff_52%,#fef2f2_100%)] px-4 py-5 shadow-[0_16px_50px_rgba(235,89,14,0.12)] dark:border-red-900/50 dark:bg-[linear-gradient(135deg,rgba(60,24,10,0.92)_0%,rgba(26,26,26,0.98)_48%,rgba(58,16,23,0.92)_100%)] md:px-6">
-                <div className="pointer-events-none absolute -right-12 -top-14 h-40 w-40 rounded-full bg-red-200/50 blur-3xl dark:bg-red-500/10" />
-                <div className="pointer-events-none absolute -left-10 bottom-0 h-24 w-24 rounded-full bg-rose-200/60 blur-2xl dark:bg-rose-500/10" />
-
-                <div className="relative flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
-                  <div className="flex items-start gap-4">
-                    <div className="mt-1 flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#FF6A00] to-[#FF6A00] text-white shadow-lg shadow-orange-500/25">
-                      <Zap className="h-5 w-5" />
+              {/* Delivery Time + Speed */}
+              <div className="rounded-[22px] border border-black/5 bg-white px-4 py-3.5 shadow-[0_8px_24px_rgba(15,23,42,0.04)] dark:border-white/10 dark:bg-[#151515]">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#FF6A00]/10 text-[#FF6A00]">
+                      <Zap className="h-4 w-4" />
                     </div>
-                    <div className="flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="rounded-full border border-red-200 bg-white/80 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.22em] text-[#FF6A00] shadow-sm dark:border-red-800/60 dark:bg-white/10">
-                          Express Delivery
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-bold text-gray-900 dark:text-white">
+                        Delivery in{" "}
+                        <span className="text-[#FF6A00]">
+                          {selectedDeliverySpeedOption
+                            ? `${selectedDeliverySpeedOption.etaMinutesMin}-${selectedDeliverySpeedOption.etaMinutesMax} min`
+                            : getMaxDeliveryTime(cart, restaurantData)}
                         </span>
-                        <span className="rounded-full bg-red-100 px-2.5 py-1 text-[11px] font-semibold text-[#FF6A00] dark:bg-red-500/15 dark:text-red-300">
-                          Fastest rider route
-                        </span>
-                      </div>
-
-                      <p className="mt-3 text-lg font-bold tracking-tight text-gray-900 dark:text-white md:text-xl">
-                        Delivery in <span className="text-[#FF6A00]">{getMaxDeliveryTime(cart, restaurantData)}</span>
                       </p>
-                      <p className="mt-1 max-w-xl text-sm leading-6 text-gray-600 dark:text-gray-300">
-                        {getHighestPricedItem(cart)?.name && (`Estimated time based on ${getHighestPricedItem(cart)?.name} `)}
-                        We prioritize your order, match the nearest available rider, and keep the handoff moving smoothly.
-                      </p>
-
-                      <div className="mt-4 flex flex-wrap items-center gap-2">
-                        <div className="rounded-2xl border border-red-200/70 bg-white/85 px-3 py-2 text-xs font-medium text-gray-700 shadow-sm dark:border-red-900/50 dark:bg-white/10 dark:text-gray-200">
-                          Live prep to doorstep flow
-                        </div>
-                        <button
-                          onClick={() => setIsScheduled(!isScheduled)}
-                          className="rounded-2xl border border-dashed border-[#FF6A00]/60 bg-[#FFF3EB] px-3 py-2 text-xs font-bold text-[#FF6A00] transition-colors hover:bg-[#ffe6d8] dark:bg-[#FF6A00]/10 dark:hover:bg-[#FF6A00]/20"
-                        >
-                          {isScheduled ? "Switch back to express now" : "Want this later? Schedule it"}
-                        </button>
-                      </div>
+                      <p className="truncate text-xs text-gray-500 dark:text-gray-400">Choose your delivery speed</p>
                     </div>
                   </div>
-
-                  <div className="relative mx-auto w-full max-w-[220px] flex-shrink-0 md:mx-0">
-                    <div className="absolute inset-x-6 bottom-2 h-10 rounded-full bg-red-300/40 blur-2xl dark:bg-red-500/20" />
-                    <div className="relative overflow-hidden rounded-[28px] border border-white/70 bg-white/75 p-2 shadow-xl backdrop-blur-sm dark:border-white/10 dark:bg-white/5">
-                      <img
-                        src={deliveryBoyGif}
-                        alt="Express delivery rider"
-                        className="h-40 w-full rounded-[22px] object-cover object-center md:h-44"
-                        loading="lazy"
-                      />
-                    </div>
-                  </div>
+                  <button
+                    onClick={() => setIsScheduled(!isScheduled)}
+                    className="shrink-0 rounded-full border border-dashed border-[#FF6A00]/50 bg-[#fff3eb] px-3 py-1.5 text-xs font-black text-[#FF6A00] transition active:scale-95 dark:bg-[#FF6A00]/10"
+                  >
+                    {isScheduled ? "Deliver now" : "Schedule"}
+                  </button>
                 </div>
 
+                {deliverySpeedOptions.length > 0 && (
+                  <div className="mt-3 flex gap-2 overflow-x-auto pb-0.5">
+                    {deliverySpeedOptions.map((option) => {
+                      const isSelected = option.code === selectedDeliveryFleet
+                      return (
+                        <button
+                          key={option.code}
+                          onClick={() => setSelectedDeliveryFleet(option.code)}
+                          className={`flex shrink-0 flex-col items-start rounded-xl border px-3 py-1.5 text-left transition-colors ${isSelected
+                            ? "border-[#FF6A00] bg-[#FF6A00]/10"
+                            : "border-gray-200 dark:border-gray-700"
+                            }`}
+                        >
+                          <span className={`text-xs font-bold ${isSelected ? "text-[#FF6A00]" : "text-gray-800 dark:text-gray-200"}`}>
+                            {option.label}
+                          </span>
+                          <span className="text-[10px] text-gray-500 dark:text-gray-400">
+                            {option.etaMinutesMin}-{option.etaMinutesMax}m ·{" "}
+                            {option.extraFee > 0 ? `+${RUPEE_SYMBOL}${option.extraFee}` : "Free"}
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+
                 {isScheduled && (
-                  <div className="relative mt-5 flex flex-col gap-3 border-t border-red-200/70 pt-4 dark:border-red-900/40 sm:flex-row">
+                  <div className="relative mt-3 flex flex-col gap-3 border-t border-gray-100 pt-3 dark:border-gray-800 sm:flex-row">
                     <div className="flex-1">
                       <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">Date (Up to Tomorrow)</label>
                       <input
@@ -2323,17 +2363,17 @@ export default function Cart() {
 
 
               {/* Note & Cutlery */}
-              <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-4 rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800 flex flex-col sm:flex-row gap-3">
+              <div className="flex flex-col gap-3 rounded-[22px] border border-black/5 bg-white px-4 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.04)] dark:border-white/10 dark:bg-[#151515] sm:flex-row">
                 <button
                   onClick={() => setShowNoteInput(!showNoteInput)}
-                  className="flex-1 flex items-center gap-2 px-3 md:px-4 py-2 md:py-3 border border-gray-200 dark:border-gray-700 rounded-lg md:rounded-xl text-sm md:text-base text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
+                  className="flex flex-1 items-center gap-2 rounded-2xl border border-gray-100 bg-gray-50 px-3 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-100 dark:border-white/10 dark:bg-white/5 dark:text-gray-300 dark:hover:bg-white/10"
                 >
                   <FileText className="h-4 w-4 md:h-5 md:w-5" />
                   <span className="truncate">{note || "Add a note for the delivery partner"}</span>
                 </button>
                 <button
                   onClick={() => setSendCutlery(!sendCutlery)}
-                  className={`flex items-center gap-2 px-3 md:px-4 py-2 md:py-3 border rounded-lg md:rounded-xl text-sm md:text-base ${sendCutlery ? 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300' : 'border-[#FF6A00] dark:border-[#FF6A00]/50 text-[#FF6A00] dark:text-[#FF6A00] bg-[#FFF3EB] dark:bg-[#FF6A00]/10'}`}
+                  className={`flex items-center gap-2 rounded-2xl border px-3 py-3 text-sm font-semibold ${sendCutlery ? 'border-gray-100 bg-gray-50 text-gray-700 dark:border-white/10 dark:bg-white/5 dark:text-gray-300' : 'border-[#FF6A00]/50 bg-[#fff3eb] text-[#FF6A00] dark:bg-[#FF6A00]/10'}`}
                 >
                   <Utensils className="h-4 w-4 md:h-5 md:w-5" />
                   <span className="whitespace-nowrap">
@@ -2344,7 +2384,7 @@ export default function Cart() {
 
               {/* Note Input */}
               {showNoteInput && (
-                <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-3 md:py-4 rounded-lg md:rounded-xl border border-slate-100 dark:border-gray-800">
+                <div className="rounded-[22px] border border-black/5 bg-white px-4 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.04)] dark:border-white/10 dark:bg-[#151515]">
                   <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">
                     Delivery instructions
                   </p>
@@ -2352,7 +2392,7 @@ export default function Cart() {
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
                     placeholder="Eg. Call when outside, ring bell once, leave at gate"
-                    className="w-full border border-gray-200 dark:border-gray-700 rounded-lg md:rounded-xl p-3 md:p-4 text-sm md:text-base resize-none h-20 md:h-24 focus:outline-none focus:border-[#FF6A00] dark:focus:border-[#FF6A00] bg-white dark:bg-[#0a0a0a] text-gray-900 dark:text-gray-100"
+                    className="h-24 w-full resize-none rounded-2xl border border-gray-100 bg-gray-50 p-3 text-sm text-gray-900 outline-none focus:border-[#FF6A00] dark:border-white/10 dark:bg-[#0f0f0f] dark:text-gray-100"
                     maxLength={240}
                   />
                   <div className="mt-2 flex items-center justify-between gap-3">
@@ -2368,7 +2408,7 @@ export default function Cart() {
 
               {/* Complete your meal section - Approved Addons */}
               {addons.length > 0 && (
-                <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-5 rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800">
+                <div className="rounded-[22px] border border-black/5 bg-white px-4 py-5 shadow-[0_8px_24px_rgba(15,23,42,0.04)] dark:border-white/10 dark:bg-[#151515] sm:px-5">
                   <div className="flex items-center gap-2 md:gap-3 mb-3 md:mb-4">
                     <div className="w-6 h-6 md:w-8 md:h-8 bg-gray-100 dark:bg-gray-800 rounded flex items-center justify-center">
                       <Sparkles className="h-4 w-4 md:h-5 md:w-5 text-[#FF6A00]" />
@@ -2453,7 +2493,7 @@ export default function Cart() {
               )}
 
               {/* Coupon Section */}
-              <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl overflow-hidden border border-slate-100 dark:border-gray-800 shadow-sm flex flex-col">
+              <div className="flex flex-col overflow-hidden rounded-[22px] border border-black/5 bg-white shadow-[0_8px_24px_rgba(15,23,42,0.04)] dark:border-white/10 dark:bg-[#151515]">
                 {deliveryFee === 0 && (
                   <div className="px-4 py-3 md:px-6 md:py-4 border-b border-dashed border-gray-200 dark:border-gray-800 flex items-center gap-3 bg-[#f4fcf7] dark:bg-green-900/10">
                     <CheckCircle2 className="h-5 w-5 text-green-600 fill-green-600/20" />
@@ -2499,9 +2539,19 @@ export default function Cart() {
                       <p className="text-sm text-gray-500">Loading offers...</p>
                     ) : availableCoupons.length > 0 ? (
                       <div className="space-y-3 mt-1">
-                        <p className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Available Coupons</p>
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Available Coupons</p>
+                          {availableCoupons.length > 2 && (
+                            <button
+                              onClick={() => setShowAllCoupons((prev) => !prev)}
+                              className="text-xs font-semibold text-[#FF6A00] hover:underline"
+                            >
+                              {showAllCoupons ? "Show less" : `View all ${availableCoupons.length} offers`}
+                            </button>
+                          )}
+                        </div>
                         <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
-                          {availableCoupons.map((coupon) => {
+                          {(showAllCoupons ? availableCoupons : availableCoupons.slice(0, 2)).map((coupon) => {
                             const canApply = subtotal >= coupon.minOrder && !(coupon.customerGroup === "new" && userOrderCount > 0);
                             return (
                               <div key={coupon.code} className="flex items-start justify-between p-3 rounded-2xl border border-slate-100 dark:border-gray-800 bg-slate-50/50 dark:bg-slate-900/30">
@@ -2551,7 +2601,7 @@ export default function Cart() {
               </div>
 
               {/* Delivery Address */}
-              <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-5 rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800">
+              <div className="rounded-[22px] border border-black/5 bg-white px-4 py-5 shadow-[0_8px_24px_rgba(15,23,42,0.04)] dark:border-white/10 dark:bg-[#151515] sm:px-5">
                 <div className="flex items-start justify-between w-full text-left">
                   <div className="flex items-start gap-4 flex-1">
                     <div className="bg-red-50 dark:bg-red-900/20 p-2 rounded-xl mt-0.5">
@@ -2673,7 +2723,7 @@ export default function Cart() {
               </div>
 
               {/* Contact */}
-              <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-4 rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800">
+              <div className="rounded-[22px] border border-black/5 bg-white px-4 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.04)] dark:border-white/10 dark:bg-[#151515] sm:px-5">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-start gap-3 md:gap-4 flex-1 min-w-0">
                     <Phone className="h-4 w-4 md:h-5 md:w-5 text-gray-500 dark:text-gray-400 mt-0.5" />
@@ -2738,7 +2788,7 @@ export default function Cart() {
                 )}
               </div>
               {/* Bill Details */}
-              <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-5 rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800">
+              <div className="rounded-[22px] border border-black/5 bg-white px-4 py-5 shadow-[0_8px_24px_rgba(15,23,42,0.04)] dark:border-white/10 dark:bg-[#151515] sm:px-5">
                 <button
                   onClick={() => setShowBillDetails(!showBillDetails)}
                   className="flex items-center justify-between w-full"
@@ -2798,6 +2848,14 @@ export default function Cart() {
                         {deliveryFeeBreakdownText}
                       </div>
                     )}
+                    {deliverySpeedFee > 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600 dark:text-gray-400">
+                          {selectedDeliverySpeedOption?.label || "Delivery Speed"} Fee
+                        </span>
+                        <span className="text-gray-800 dark:text-gray-200 font-medium">{RUPEE_SYMBOL}{deliverySpeedFee.toFixed(2)}</span>
+                      </div>
+                    )}
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-600 dark:text-gray-400">Platform Fee</span>
                       <div className="text-right">
@@ -2844,18 +2902,18 @@ export default function Cart() {
 
       {/* Bottom Sticky - Place Order */}
       <div
-        className="bg-white dark:bg-[#1a1a1a] border-t dark:border-gray-800 shadow-lg z-30 flex-shrink-0 fixed bottom-0 left-0 right-0"
+        className="fixed bottom-0 left-0 right-0 z-30 flex-shrink-0 border-t border-black/5 bg-white/95 shadow-[0_-10px_30px_rgba(15,23,42,0.12)] backdrop-blur-xl dark:border-white/10 dark:bg-[#151515]/95 lg:left-1/2 lg:w-full lg:-translate-x-1/2"
         style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
       >
-        <div className="max-w-7xl mx-auto px-4 md:px-6 py-3 md:py-4">
-          <div className="w-full max-w-lg mx-auto space-y-3">
+        <div className="mx-auto max-w-3xl px-3 py-3 sm:px-5">
+          <div className="w-full space-y-2.5">
             {/* Pay Using - Slim Pro UI */}
             <div
-              className="flex items-center justify-between p-2 bg-gray-50 dark:bg-[#222222] rounded-xl border border-gray-100 dark:border-gray-800 cursor-pointer hover:bg-gray-100 dark:hover:bg-[#282828] active:scale-[0.98] transition-all duration-200 shadow-sm"
+              className="flex cursor-pointer items-center justify-between rounded-2xl border border-gray-100 bg-gray-50 p-2.5 transition active:scale-[0.99] dark:border-white/10 dark:bg-white/5"
               onClick={() => setShowPaymentSheet(true)}
             >
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg bg-red-100/80 dark:bg-red-900/40 flex items-center justify-center flex-shrink-0">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#fff3eb] dark:bg-[#FF6A00]/10">
                   {selectedPaymentMethod === "wallet" ? (
                     <Wallet className="h-5 w-5 text-[#FF6A00]" />
                   ) : selectedPaymentMethod === "razorpay" ? (
@@ -2865,11 +2923,11 @@ export default function Cart() {
                   )}
                 </div>
                 <div className="leading-tight">
-                  <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400 font-bold opacity-80">
+                  <p className="text-[10px] font-black uppercase tracking-[0.16em] text-gray-400">
                     PAYING WITH
                   </p>
                   <div className="flex items-center gap-1.5">
-                    <p className="text-sm font-bold text-gray-800 dark:text-gray-100">
+                    <p className="text-sm font-black text-gray-950 dark:text-gray-100">
                       {selectedPaymentLabel}
                     </p>
                     {selectedPaymentMethod === "wallet" && (
@@ -2881,7 +2939,7 @@ export default function Cart() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-0.5 text-[#FF6A00] font-bold text-[11px] uppercase tracking-widest bg-red-50 dark:bg-red-900/20 px-2.5 py-1 rounded-lg">
+              <div className="flex items-center gap-0.5 rounded-lg bg-[#fff3eb] px-2.5 py-1 text-[11px] font-black uppercase tracking-widest text-[#FF6A00] dark:bg-[#FF6A00]/10">
                 CHANGE <ChevronRight className="h-3.5 w-3.5" />
               </div>
             </div>
@@ -2890,15 +2948,15 @@ export default function Cart() {
             <button
               onClick={handlePlaceOrder}
               disabled={isPlacingOrder || (selectedPaymentMethod === "wallet" && walletBalance < total)}
-              className="w-full bg-gradient-to-r from-[#FF6A00] to-[#FF6A00] hover:from-[#C83C00] hover:to-[#CF2834] text-white px-6 h-12 md:h-14 rounded-2xl font-bold shadow-lg shadow-[#FF6A00]/30 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-between transition-transform active:scale-[0.98]"
+              className="flex h-14 w-full items-center justify-between rounded-2xl bg-gradient-to-r from-[#FF6A00] to-[#f97316] px-4 font-black text-white shadow-lg shadow-orange-500/25 transition-transform active:scale-[0.985] disabled:cursor-not-allowed disabled:opacity-50 sm:px-5"
             >
               {(selectedPaymentMethod === "razorpay" || selectedPaymentMethod === "wallet" || selectedPaymentMethod === "cash") && (
-                <div className="text-left flex flex-col justify-center border-r-[1.5px] border-white/20 pr-4">
-                  <span className="text-xs md:text-sm font-semibold text-white/90">{RUPEE_SYMBOL}{total.toFixed(2)}</span>
-                  <span className="text-[9px] md:text-[10px] uppercase font-bold tracking-wider text-white/80 mt-[-2px]">Total</span>
+                <div className="flex flex-col justify-center border-r border-white/25 pr-4 text-left">
+                  <span className="text-sm font-black text-white">{RUPEE_SYMBOL}{total.toFixed(0)}</span>
+                  <span className="mt-[-2px] text-[10px] font-black uppercase tracking-wider text-white/75">To pay</span>
                 </div>
               )}
-              <div className="flex items-center gap-1 mx-auto text-sm md:text-lg tracking-wide">
+              <div className="mx-auto flex items-center gap-1 text-base tracking-wide">
                 {isPlacingOrder
                   ? "Processing..."
                   : !hasSavedAddress

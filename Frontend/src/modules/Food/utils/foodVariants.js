@@ -12,6 +12,7 @@ export const normalizeFoodVariants = (value) =>
         id,
         _id: id,
         name,
+        unit: String(entry?.unit || "").trim(),
         price,
         otherPrice: Number(entry?.otherPrice) || 0,
       }
@@ -24,6 +25,13 @@ export const getFoodVariants = (item = {}) =>
 export const hasFoodVariants = (item = {}) => getFoodVariants(item).length > 0
 
 export const getDefaultFoodVariant = (item = {}) => getFoodVariants(item)[0] || null
+
+export const getFoodVariantLabel = (variant = {}) => {
+  const name = String(variant?.name || "").trim()
+  const unit = String(variant?.unit || "").trim()
+  if (!name) return unit || "Variant"
+  return unit ? `${name} (${unit})` : name
+}
 
 export const getFoodDisplayPrice = (item = {}) => {
   // Prefer the item's own price if it's valid and positive

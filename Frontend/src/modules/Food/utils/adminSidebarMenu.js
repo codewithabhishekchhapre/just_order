@@ -62,7 +62,7 @@ export const adminSidebarMenu = [
         permissionKey: "restaurants",
         icon: "UtensilsCrossed",
         subItems: [
-          { label: "Restaurants List", path: "/admin/food/restaurants", permissionKey: "list" },
+          { label: "All Restaurants", path: "/admin/food/restaurants", permissionKey: "list" },
           { label: "Restaurant Commission", path: "/admin/food/restaurants/commission", permissionKey: "commission" },
           { label: "New Joining Request", path: "/admin/food/restaurants/joining-request", permissionKey: "joining_request" },
           { label: "Zone Hub", path: "/admin/food/restaurants/zone-hubs", permissionKey: "joining_request" },
@@ -143,7 +143,7 @@ export const adminSidebarMenu = [
     items: [
       {
         type: "link",
-        label: "Customers",
+        label: "All Users",
         permissionKey: "customers",
         path: "/admin/food/customers",
         icon: "Users",
@@ -180,7 +180,8 @@ export const adminSidebarMenu = [
     permissionKey: "deliveryman_management",
     items: [
       { type: "link", label: "Delivery Cash Limit", permissionKey: "cash_limit", path: "/admin/food/delivery-cash-limit", icon: "IndianRupee" },
-      { type: "link", label: "Delivery & Platform Fee", permissionKey: "fee_settings", path: "/admin/food/fee-settings", icon: "IndianRupee " },
+      { type: "link", label: "Delivery & Platform Fee", permissionKey: "fee_settings", path: "/admin/food/fee-settings", icon: "IndianRupee" },
+      { type: "link", label: "Delivery Speed Options", permissionKey: "fee_settings", path: "/admin/food/delivery-speed-options", icon: "Zap" },
       { type: "link", label: "Cash limit settlement", permissionKey: "settlement", path: "/admin/food/cash-limit-settlement", icon: "Receipt" },
       { type: "link", label: "Cash Pay Requests", permissionKey: "settlement", path: "/admin/food/cash-pay-requests", icon: "ClipboardCheck" },
       { type: "link", label: "Delivery Withdrawal", permissionKey: "withdrawal", path: "/admin/food/delivery-withdrawal", icon: "Wallet" },
@@ -195,7 +196,7 @@ export const adminSidebarMenu = [
         icon: "Package",
         subItems: [
           { label: "New Join Request", path: "/admin/food/delivery-partners/join-request", permissionKey: "join_request" },
-          { label: "Deliveryman List", path: "/admin/food/delivery-partners", permissionKey: "list" },
+          { label: "All Drivers", path: "/admin/food/delivery-partners", permissionKey: "list" },
           { label: "Deliveryman Reviews", path: "/admin/food/delivery-partners/reviews", permissionKey: "reviews" },
           { label: "Bonus", path: "/admin/food/delivery-partners/bonus", permissionKey: "bonus" },
           { label: "Earning Addon", path: "/admin/food/delivery-partners/earning-addon", permissionKey: "earning_addon" },

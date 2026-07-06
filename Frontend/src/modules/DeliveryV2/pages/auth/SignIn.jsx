@@ -17,6 +17,9 @@ import {
   updateBrowserFavicon,
   getAppLogo,
 } from "@common/utils/businessSettings"
+import loginBg from "@food/assets/deliveryloginbanner.png"
+import { ShieldCheck, ChevronRight } from "lucide-react"
+
 const debugLog = (...args) => { }
 const debugWarn = (...args) => { }
 const debugError = (...args) => { }
@@ -197,105 +200,137 @@ export default function DeliverySignIn() {
   const isValid = !validatePhone(formData.phone, formData.countryCode)
 
   return (
-    <div className="max-h-screen h-screen bg-white flex flex-col">
-      {/* Top Banner section - Orange */}
-      <div className="w-full bg-red-600 rounded-b-[2.5rem] p-6 text-center text-white relative overflow-hidden shadow-xl mb-6">
-        <div className="absolute inset-0 bg-white/5 opacity-50 blur-3xl rounded-full -top-1/2 -left-1/4 animate-pulse" />
+    <div className="min-h-screen w-full flex items-center justify-center bg-slate-50 dark:bg-[#0a0a0a] p-4 md:p-8">
+      <div className="w-full max-w-[1000px] bg-white dark:bg-zinc-900 rounded-[2.5rem] overflow-hidden shadow-2xl flex flex-col lg:flex-row">
+        
+        {/* ── Image Panel ── */}
+        <div className="w-full lg:w-[45%] h-64 lg:h-auto relative flex-shrink-0">
+          <img
+            src={loginBg}
+            alt="Delivery partner banner"
+            className="w-full h-full object-cover"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t lg:bg-gradient-to-br from-black/80 via-black/40 to-transparent" />
 
-        <div className="relative z-10 flex flex-col items-center pt-4 pb-2">
-          <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mb-3 shadow-lg overflow-hidden">
-            {logoUrl ? (
-              <img src={logoUrl} alt={companyName} className="w-full h-full object-contain p-2" />
-            ) : (
-              <span className="text-red-600 text-2xl font-black italic">{companyName.charAt(0).toUpperCase()}</span>
-            )}
-          </div>
-
-          <h1 className="text-2xl md:text-3xl font-black tracking-tight mb-2">
-            {companyName}
-          </h1>
-
-          {/* DELIVERY Badge */}
-          <div className="bg-white/20 backdrop-blur-sm px-4 py-1.5 rounded-full border border-white/30">
-            <span className="text-white font-bold text-xs uppercase tracking-[0.2em]">
-              Delivery Partner
-            </span>
+          {/* Glass card content */}
+          <div className="absolute inset-0 flex items-end justify-start p-6 lg:p-10">
+            <div className="bg-white/10 border border-white/20 backdrop-blur-md rounded-2xl p-6 w-full max-w-sm">
+              {logoUrl && (
+                <img src={logoUrl} alt={companyName} className="h-8 lg:h-10 w-auto object-contain mb-3 lg:mb-4 rounded-xl bg-white p-1" />
+              )}
+              <h2 className="text-xl lg:text-2xl font-bold text-white leading-tight mb-2">
+                Deliver with {companyName}
+              </h2>
+              <p className="text-xs lg:text-sm text-white/80 leading-relaxed hidden sm:block">
+                Join our fleet of delivery partners and earn on your own schedule.
+              </p>
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Main Content - Form Section */}
-      <div className="flex-1 flex flex-col px-6">
-        <div className="w-full max-w-md mx-auto space-y-6">
-          {/* Sign In Heading */}
-          <div className="space-y-2 text-center">
-            <h2 className="text-2xl font-bold text-black">
-              Sign in to your account
-            </h2>
-            <p className="text-base text-gray-600">
-              Login with your phone number
-            </p>
-          </div>
-
-          {/* Mobile Number Input */}
-          <div className="space-y-2 w-full">
-            <div className="flex gap-2 items-stretch w-full">
-              <div className="flex items-center px-4 h-12 border border-gray-300 bg-gray-50 text-gray-900 rounded-lg shrink-0">
-                <span className="flex items-center gap-2 text-base font-medium">
-                  <span>🇮🇳</span>
-                  <span>+91</span>
-                </span>
-              </div>
-              <input
-                type="tel"
-                inputMode="numeric"
-                maxLength={10}
-                placeholder="Enter 10-digit mobile number"
-                value={formData.phone}
-                onChange={handlePhoneChange}
-                autoComplete="off"
-                autoFocus={false}
-                className={`flex-1 h-12 px-4 text-gray-900 placeholder-gray-400 focus:outline-none text-base border rounded-lg min-w-0 ${error ? "border-red-500" : "border-gray-300"
-                  }`}
-              />
+        {/* ── Form Panel ── */}
+        <div className="flex-1 flex flex-col justify-center px-6 py-8 lg:p-12 xl:p-16">
+          <div className="w-full max-w-sm mx-auto">
+            {/* Heading */}
+            <div className="mb-8">
+              {!logoUrl && (
+                <div className="w-12 h-12 bg-red-600 rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-red-600/20">
+                  <ShieldCheck className="w-6 h-6 text-white" strokeWidth={2} />
+                </div>
+              )}
+              <h1 className="text-2xl lg:text-3xl font-bold text-gray-900 dark:text-white leading-tight mb-2">
+                Welcome back
+              </h1>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Sign in to your delivery partner account
+              </p>
             </div>
 
-            {/* Hint Text */}
-            <p className="text-sm text-gray-500">
-              Enter exactly 10 digits
-            </p>
+            <div className="space-y-5">
+              {/* Phone input */}
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-widest">
+                  Mobile number
+                </label>
+                <div className={`flex items-center gap-3 h-14 bg-gray-50 dark:bg-gray-800/50 border rounded-2xl px-4 transition-all duration-200 ${
+                  error
+                    ? "border-red-400 dark:border-red-600 ring-2 ring-red-100 dark:ring-red-900/30"
+                    : "border-gray-200 dark:border-gray-700 focus-within:border-red-600 focus-within:ring-2 focus-within:ring-red-600/10"
+                }`}>
+                  <span className="text-sm font-semibold text-gray-500 dark:text-gray-400 flex-shrink-0">
+                    {formData.countryCode}
+                  </span>
+                  <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 flex-shrink-0" />
+                  <input
+                    type="tel"
+                    inputMode="numeric"
+                    maxLength={10}
+                    autoComplete="tel-national"
+                    enterKeyHint="done"
+                    placeholder="Enter 10-digit number"
+                    value={formData.phone}
+                    onChange={handlePhoneChange}
+                    onKeyDown={(e) => { if (e.key === "Enter" && isValid) handleSendOTP() }}
+                    className="flex-1 bg-transparent border-0 outline-none ring-0 text-base font-semibold text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 caret-red-600 min-w-0"
+                  />
+                </div>
+                {error && (
+                  <p className="text-xs font-medium text-red-500 dark:text-red-400 flex items-center gap-1 pl-1">
+                    <span>⚠</span> {error}
+                  </p>
+                )}
+              </div>
 
-            {error && (
-              <p className="text-sm text-red-500">
-                {error}
+              {/* CTA */}
+              <button
+                onClick={handleSendOTP}
+                disabled={!isValid || isSending}
+                className={`w-full py-3.5 rounded-2xl font-bold text-sm tracking-wide transition-all duration-200 border-0 flex items-center justify-center gap-2 ${
+                  isValid && !isSending
+                    ? "bg-red-600 hover:bg-red-700 text-white shadow-lg shadow-red-600/25 active:scale-[0.98]"
+                    : "bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-600 cursor-not-allowed"
+                }`}
+                style={{ height: 52 }}
+              >
+                {isSending ? (
+                  <>
+                    <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                    Sending OTP…
+                  </>
+                ) : (
+                  <>
+                    Continue
+                    <ChevronRight className="w-4 h-4" strokeWidth={2.5} />
+                  </>
+                )}
+              </button>
+
+              {/* Terms */}
+              <p className="text-center text-xs text-gray-400 dark:text-gray-500 leading-relaxed pt-2">
+                By continuing you agree to our{" "}
+                <Link
+                  to="/food/delivery/terms"
+                  className="text-red-600 font-semibold bg-transparent border-0 p-0 cursor-pointer hover:underline"
+                >
+                  Terms &amp; Conditions
+                </Link>
+                {" "}and{" "}
+                <Link
+                  to="/food/delivery/privacy"
+                  className="text-red-600 font-semibold bg-transparent border-0 p-0 cursor-pointer hover:underline"
+                >
+                  Privacy Policy
+                </Link>
               </p>
-            )}
+            </div>
+            
+            {/* Footer */}
+            <div className="mt-8 pt-6 border-t border-gray-100 dark:border-gray-800">
+              <p className="text-center text-[10px] text-gray-400 dark:text-gray-600 font-medium tracking-widest uppercase">
+                © {new Date().getFullYear()} {companyName} Partner
+              </p>
+            </div>
           </div>
-        </div>
-      </div>
-
-      {/* Bottom Section - Continue Button and Terms */}
-      <div className="px-6 pb-8 pt-4">
-        <div className="w-full max-w-md mx-auto space-y-4">
-          {/* Continue Button */}
-          <button
-            onClick={handleSendOTP}
-            disabled={!isValid || isSending}
-            className={`w-full py-4 rounded-xl font-black text-lg transition-all shadow-lg ${isValid && !isSending
-              ? "bg-red-600 hover:bg-primary-hover active:scale-[0.98] text-white hover:shadow-xl"
-              : "bg-gray-100 text-gray-400 cursor-not-allowed shadow-none"
-              }`}
-          >
-            {isSending ? "Sending OTP..." : "Continue"}
-          </button>
-
-          {/* Terms and Conditions */}
-          <p className="text-xs text-center text-gray-500 px-4 font-medium uppercase tracking-widest leading-relaxed mt-4">
-            By continuing, you agree to our{" "}
-            <Link to="/food/delivery/terms" className="text-red-600 hover:underline font-bold">
-              Terms and Conditions
-            </Link>
-          </p>
         </div>
       </div>
     </div>

@@ -24,6 +24,24 @@ const deliveryDistanceSlabSchema = new mongoose.Schema(
     { _id: false }
 );
 
+// Admin-configurable delivery speed tiers (Eco / Standard / Express, etc.)
+// shown as a selector on the user cart. `extraFee` is added on top of the
+// distance-based delivery fee for whichever tier the user picks.
+const deliverySpeedOptionSchema = new mongoose.Schema(
+    {
+        code: { type: String, required: true, trim: true, lowercase: true },
+        label: { type: String, required: true, trim: true },
+        description: { type: String, default: '', trim: true },
+        etaMinutesMin: { type: Number, required: true, min: 0 },
+        etaMinutesMax: { type: Number, required: true, min: 0 },
+        extraFee: { type: Number, required: true, min: 0, default: 0 },
+        isDefault: { type: Boolean, default: false },
+        isActive: { type: Boolean, default: true },
+        sortOrder: { type: Number, default: 0 }
+    },
+    { _id: false }
+);
+
 const feeSettingsSchema = new mongoose.Schema(
     {
         // Legacy alias kept so quick/mixed flows that still read `deliveryFee`
@@ -34,6 +52,7 @@ const feeSettingsSchema = new mongoose.Schema(
         perKmCharge: { type: Number, min: 0 },
         sponsorRules: { type: [deliverySponsorRuleSchema], default: [] },
         deliveryDistanceSlabs: { type: [deliveryDistanceSlabSchema], default: [] },
+        deliverySpeedOptions: { type: [deliverySpeedOptionSchema], default: [] },
         platformFee: { type: Number, min: 0 },
         gstRate: { type: Number, min: 0, max: 100 },
         mixedOrderDistanceLimit: { type: Number, min: 0, default: 2 },

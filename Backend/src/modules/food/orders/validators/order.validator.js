@@ -49,6 +49,17 @@ const pricingSchema = z.object({
     deliverySponsorType: z.string().optional(),
     platformFee: z.number().min(0).optional(),
     discount: z.number().min(0).optional(),
+    deliverySpeedFee: z.number().min(0).optional(),
+    deliverySpeed: z
+        .object({
+            code: z.string().optional(),
+            label: z.string().optional(),
+            fee: z.number().min(0).optional(),
+            etaMinutesMin: z.number().min(0).optional(),
+            etaMinutesMax: z.number().min(0).optional()
+        })
+        .nullable()
+        .optional(),
     total: z.number().min(0),
     currency: z.string().optional()
 });

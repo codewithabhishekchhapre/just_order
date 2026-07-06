@@ -39,7 +39,8 @@ export const normalizeFoodVariantsInput = (value = [], options = {}) => {
             const variant = {
                 name,
                 price,
-                otherPrice: Number(entry?.otherPrice) || 0
+                otherPrice: Number(entry?.otherPrice) || 0,
+                unit: toTrimmedString(entry?.unit)
             };
 
             const variantId = entry?._id || entry?.id;
@@ -71,7 +72,8 @@ export const serializeFoodVariants = (value = []) =>
                 _id: variantId ? String(variantId) : '',
                 name,
                 price,
-                otherPrice: Number(entry?.otherPrice) || 0
+                otherPrice: Number(entry?.otherPrice) || 0,
+                unit: toTrimmedString(entry?.unit)
             };
         })
         .filter(Boolean);

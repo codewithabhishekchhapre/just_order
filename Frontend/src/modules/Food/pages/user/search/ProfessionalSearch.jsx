@@ -55,6 +55,8 @@ export default function ProfessionalSearch() {
   const [categories, setCategories] = useState([])
   const [selectedCategoryId, setSelectedCategoryId] = useState(searchParams.get("cat") || null)
   const [history, setHistory] = useState([])
+  const searchCacheRef = useRef(new Map())
+  const abortControllerRef = useRef(null)
 
   // URL query change hone par query state sync karein
   useEffect(() => {
@@ -91,7 +93,22 @@ export default function ProfessionalSearch() {
       setResults({ restaurants: [], dishes: [] })
       return
     }
-    
+
+    // Cache key covers everything the response depends on, so identical
+    // re-searches (typing then backspacing, revisiting a term) skip the network.
+    const cacheKey = JSON.stringify({ q: searchTerm || "", catId: catId || "", zoneId: zoneId || "" })
+    const cached = searchCacheRef.current.get(cacheKey)
+    if (cached) {
+      setResults(cached)
+      return
+    }
+
+    // Cancel any still-in-flight search so a slow older response can't
+    // overwrite the results of a newer one.
+    abortControllerRef.current?.abort()
+    const controller = new AbortController()
+    abortControllerRef.current = controller
+
     setLoading(true)
     try {
       const res = await searchAPI.unifiedSearch({
@@ -100,23 +117,29 @@ export default function ProfessionalSearch() {
         lat: userCoords?.latitude,
         lng: userCoords?.longitude,
         zoneId
-      })
-      
+      }, { signal: controller.signal })
+
       if (res.data?.success) {
         // Grouping results into Restaurants and potential Dishes
         const all = res.data.data.restaurants || []
-        setResults({
+        const grouped = {
           restaurants: all.filter(r => r.matchType === 'restaurant' || !r.matchType),
           dishes: all.filter(r => r.matchType === 'food')
-        })
+        }
+        if (searchCacheRef.current.size >= 30) {
+          searchCacheRef.current.delete(searchCacheRef.current.keys().next().value)
+        }
+        searchCacheRef.current.set(cacheKey, grouped)
+        setResults(grouped)
       } else {
         setResults({ restaurants: [], dishes: [] })
       }
     } catch (err) {
+      if (err?.code === "ERR_CANCELED" || controller.signal.aborted) return
       console.error("Search failed", err)
       setResults({ restaurants: [], dishes: [] })
     } finally {
-      setLoading(false)
+      if (!controller.signal.aborted) setLoading(false)
     }
   }, [userCoords, zoneId])
 

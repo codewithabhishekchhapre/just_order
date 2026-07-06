@@ -32,7 +32,19 @@ const foodCategorySchema = new mongoose.Schema(
          */
         zoneId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodZone', index: true, default: undefined },
         isActive: { type: Boolean, default: true, index: true },
-        sortOrder: { type: Number, default: 0, index: true }
+        sortOrder: { type: Number, default: 0, index: true },
+        /**
+         * Snapshot of the last-approved values, captured the moment a restaurant edit
+         * puts the category back into 'pending'. Lets admin see exactly what changed
+         * (old vs new) instead of only the already-changed current values.
+         * Left unset for brand-new restaurant-submitted categories (nothing to diff against).
+         */
+        previousApproved: {
+            name: { type: String, default: undefined },
+            image: { type: String, default: undefined },
+            type: { type: String, default: undefined },
+            foodTypeScope: { type: String, default: undefined }
+        }
     },
     {
         collection: 'food_categories',

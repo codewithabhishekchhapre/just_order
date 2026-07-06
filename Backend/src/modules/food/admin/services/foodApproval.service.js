@@ -32,7 +32,6 @@ export async function listPendingFoodApprovals(query = {}) {
         .sort({ requestedAt: -1, createdAt: -1 })
         .skip(skip)
         .limit(limit)
-        .select('restaurantId categoryName name price otherPrice variants image images foodType approvalStatus requestedAt createdAt')
         .lean();
 
     const addonList = await FoodAddon.find({ approvalStatus: 'pending' })
@@ -70,7 +69,11 @@ export async function listPendingFoodApprovals(query = {}) {
         image: f.image || '',
         images: Array.isArray(f.images) && f.images.length > 0 ? f.images.filter(Boolean) : (f.image ? [f.image] : []),
         requestedAt: f.requestedAt || f.createdAt,
-        isActionable: (f.approvalStatus || 'pending') === 'pending'
+        isActionable: (f.approvalStatus || 'pending') === 'pending',
+        description: f.description || '',
+        isAvailable: f.isAvailable !== false,
+        preparationTime: f.preparationTime || '',
+        previousApproved: f.previousApproved || null
     }));
 
     const addonRequests = addonList.map((a) => ({
@@ -107,12 +110,18 @@ export async function approveFoodItem(id, performer = null) {
     }
     const updated = await FoodItem.findOneAndUpdate(
         { _id: id, approvalStatus: 'pending' },
-        { $set: { approvalStatus: 'approved', approvedAt: new Date(), rejectedAt: null, rejectionReason: '', approvedBy: performer } },
+        { $set: { approvalStatus: 'approved', approvedAt: new Date(), rejectedAt: null, rejectionReason: '', approvedBy: performer }, $unset: { previousApproved: "" } },
         { new: true }
     ).lean();
     if (updated?.restaurantId) {
         // Single DB update; makes user-facing menu reflect approval immediately.
         await syncMenuItemApprovalStatus(updated.restaurantId, updated._id, 'approved', '');
+        if (updated.isAvailable !== false) {
+            await FoodRestaurant.updateOne(
+                { _id: updated.restaurantId, hasHadActiveItems: { $ne: true } },
+                { $set: { hasHadActiveItems: true } }
+            );
+        }
         
         try {
             const { notifyOwnersSafely } = await import('../../../core/notifications/firebase.service.js');
@@ -146,7 +155,7 @@ export async function rejectFoodItem(id, reason, performer = null) {
 
     const updated = await FoodItem.findOneAndUpdate(
         { _id: id, approvalStatus: 'pending' },
-        { $set: { approvalStatus: 'rejected', rejectedAt: new Date(), rejectionReason: r, approvedAt: null, rejectedBy: performer } },
+        { $set: { approvalStatus: 'rejected', rejectedAt: new Date(), rejectionReason: r, approvedAt: null, rejectedBy: performer }, $unset: { previousApproved: "" } },
         { new: true }
     ).lean();
     if (updated?.restaurantId) {

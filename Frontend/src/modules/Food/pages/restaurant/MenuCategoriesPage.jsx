@@ -20,6 +20,7 @@ import { toast } from "sonner"
 import { ImageSourcePicker } from "@food/components/ImageSourcePicker"
 import { isFlutterBridgeAvailable } from "@food/utils/imageUploadUtils"
 import { Modal, ModalFooter } from "@food/components/restaurant/Modal"
+import NameSuggestionField from "@food/components/NameSuggestionField"
 
 const defaultFormData = {
   name: "",
@@ -56,6 +57,7 @@ export default function MenuCategoriesPage() {
   const [imagePreview, setImagePreview] = useState(null)
   const [uploadingImage, setUploadingImage] = useState(false)
   const [isPhotoPickerOpen, setIsPhotoPickerOpen] = useState(false)
+  const [isNameDuplicate, setIsNameDuplicate] = useState(false)
   const fileInputRef = useRef(null)
 
   useEffect(() => {
@@ -99,6 +101,7 @@ export default function MenuCategoriesPage() {
     setSelectedImageFile(null)
     setImagePreview(null)
     setUploadingImage(false)
+    setIsNameDuplicate(false)
     if (fileInputRef.current) fileInputRef.current.value = ""
   }
 
@@ -154,6 +157,10 @@ export default function MenuCategoriesPage() {
   const handleSaveCategory = async () => {
     if (!String(formData.name || "").trim()) {
       toast.error("Category name is required")
+      return
+    }
+    if (isNameDuplicate) {
+      toast.error("A category with this name already exists")
       return
     }
 
@@ -218,7 +225,11 @@ export default function MenuCategoriesPage() {
       await restaurantAPI.updateCategory(category._id || category.id, {
         isActive: !(category?.isActive !== false),
       })
-      toast.success("Category updated and sent for admin approval")
+      toast.success(
+        category?.isActive !== false
+          ? "Category disabled"
+          : "Category enabled and visible to customers"
+      )
       fetchCategories()
     } catch (error) {
       toast.error(error?.response?.data?.message || "Failed to update category")
@@ -371,7 +382,7 @@ export default function MenuCategoriesPage() {
             </button>
             <button
               onClick={handleSaveCategory}
-              disabled={uploadingImage}
+              disabled={uploadingImage || isNameDuplicate}
               className="flex-1 rounded-xl bg-[#FF6A00] hover:bg-[#e05e00] py-3 font-semibold text-white disabled:opacity-60"
             >
               {uploadingImage ? "Uploading…" : editingCategory ? "Save & Resubmit" : "Create"}
@@ -382,12 +393,15 @@ export default function MenuCategoriesPage() {
               <div className="space-y-4">
                 <div>
                   <label className="mb-2 block text-sm font-semibold text-gray-700 dark:text-gray-300">Category Name</label>
-                  <input
-                    type="text"
+                  <NameSuggestionField
                     value={formData.name}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
+                    onChange={(value) => setFormData((prev) => ({ ...prev, name: value }))}
+                    items={categories}
+                    excludeId={editingCategory?._id || editingCategory?.id}
+                    entityLabel="category"
                     placeholder="Enter category name"
-                    className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 px-4 py-3 text-sm text-gray-900 dark:text-white placeholder:text-gray-400 outline-none focus:border-[#FF6A00] focus:ring-1 focus:ring-[#FF6A00]/30"
+                    inputClassName="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 px-4 py-3 text-sm text-gray-900 dark:text-white placeholder:text-gray-400 outline-none focus:border-[#FF6A00] focus:ring-1 focus:ring-[#FF6A00]/30"
+                    onDuplicateChange={setIsNameDuplicate}
                   />
                 </div>
 

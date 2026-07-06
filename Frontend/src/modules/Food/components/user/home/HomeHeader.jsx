@@ -35,14 +35,14 @@ import useNotificationInbox from "@food/hooks/useNotificationInbox";
 
 const tabs = [
   {
-    id: "food",
-    name: "Food",
-    icon: UtensilsCrossed,
-  },
-  {
     id: "quick",
     name: "Quick",
     icon: ShoppingBag,
+  },
+  {
+    id: "food",
+    name: "Food",
+    icon: UtensilsCrossed,
   },
   {
     id: "porter",
@@ -406,7 +406,7 @@ export default function HomeHeader({
       {/* 2. Category Switcher Row */}
       <div
         className={cn(
-          "mx-4 my-2 p-1 flex gap-1 rounded-2xl border transition-all duration-300",
+          "mx-3 my-2 grid grid-cols-3 gap-1 rounded-2xl border p-1 transition-all duration-300 sm:mx-4",
           isLightChrome
             ? "bg-gray-100/70 border-gray-200/40"
             : "bg-black/15 border-white/5"
@@ -435,7 +435,7 @@ export default function HomeHeader({
               onTouchStart={handleTabIntent}
               onFocus={handleTabIntent}
               className={cn(
-                "flex-1 py-2 rounded-xl font-bold flex items-center justify-center gap-1.5 transition-all duration-200 cursor-pointer text-[11px] uppercase tracking-wider",
+                "min-w-0 rounded-xl py-2 font-bold flex items-center justify-center gap-1 transition-all duration-200 cursor-pointer text-[10px] uppercase tracking-wide sm:gap-1.5 sm:text-[11px] sm:tracking-wider",
                 isActive
                   ? "text-white shadow-sm border-0"
                   : (isLightChrome ? "text-gray-500 hover:text-gray-700 bg-transparent border-0" : "text-white/60 hover:text-white bg-transparent border-0")
@@ -446,7 +446,7 @@ export default function HomeHeader({
               } : undefined}
             >
               <Icon className="h-3.5 w-3.5 shrink-0" />
-              <span>{tab.name}</span>
+              <span className="truncate">{tab.name}</span>
             </button>
           );
         })}
@@ -461,8 +461,9 @@ export default function HomeHeader({
             </div>
 
             <input
-              onClick={() => navigate("/food/user/search")}
+              onClick={() => (handleSearchFocus ? handleSearchFocus() : navigate("/food/user/search"))}
               type="text"
+              readOnly
               placeholder={placeholders?.[placeholderIndex] || "Search for food, restaurants..."}
               className="block w-full pl-10 pr-28 py-3 border border-gray-200 dark:border-gray-800 rounded-2xl text-sm bg-gray-50 dark:bg-[#1a1a1a] text-gray-900 dark:text-white placeholder:text-gray-400 font-normal cursor-pointer shadow-sm focus:outline-none"
             />
@@ -470,7 +471,7 @@ export default function HomeHeader({
             <div className="absolute inset-y-0 right-0 pr-3 flex items-center gap-1.5 z-20">
               <button
                 type="button"
-                onClick={() => navigate("/food/user/search")}
+                onClick={handleVoiceSearch}
                 style={{ color: theme.accent }}
                 className={cn("p-1.5 rounded-xl hover:bg-[#FF6A00]/10 active:scale-95 transition-all border-0 bg-transparent", isListening && "animate-pulse")}
                 aria-label="Voice search"

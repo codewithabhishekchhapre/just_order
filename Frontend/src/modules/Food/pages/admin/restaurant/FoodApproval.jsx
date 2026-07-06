@@ -18,6 +18,38 @@ const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
+// Compare only the meaningful fields so unrelated differences (e.g. id vs _id,
+// key ordering) between the raw DB snapshot and the serialized current variants
+// never register as a change.
+const normalizeVariantForCompare = (variant = {}) => ({
+  name: String(variant?.name || variant?.variantName || "").trim(),
+  price: Number(variant?.price) || 0,
+  otherPrice: Number(variant?.otherPrice) || 0,
+  unit: String(variant?.unit || "").trim(),
+})
+
+const variantsEqual = (a, b) => {
+  if (!a || !b) return false
+  const na = normalizeVariantForCompare(a)
+  const nb = normalizeVariantForCompare(b)
+  return na.name === nb.name && na.price === nb.price && na.otherPrice === nb.otherPrice && na.unit === nb.unit
+}
+
+// Builds a row-by-row diff so only the variant(s) that actually changed get
+// highlighted, instead of marking the whole list as updated.
+const buildVariantDiff = (previousVariants = [], currentVariants = []) => {
+  const maxLen = Math.max(previousVariants.length, currentVariants.length)
+  const rows = []
+  let changed = previousVariants.length !== currentVariants.length
+  for (let i = 0; i < maxLen; i++) {
+    const prev = previousVariants[i] || null
+    const next = currentVariants[i] || null
+    const rowChanged = !variantsEqual(prev, next)
+    if (rowChanged) changed = true
+    rows.push({ prev, next, changed: rowChanged })
+  }
+  return { rows, changed }
+}
 
 export default function FoodApproval() {
   const { user: authUser } = useAuth()
@@ -73,6 +105,14 @@ export default function FoodApproval() {
   const [rejectReason, setRejectReason] = useState("")
   const [processing, setProcessing] = useState(false)
   const isMountedRef = useRef(true)
+
+  const variantDiff = useMemo(
+    () => buildVariantDiff(
+      selectedRequest?.previousApproved?.variants || [],
+      selectedRequest?.variants || [],
+    ),
+    [selectedRequest],
+  )
 
   // Fetch pending food approval requests
   const fetchFoodRequests = useCallback(async ({ silent = false } = {}) => {
@@ -434,23 +474,43 @@ export default function FoodApproval() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-4">
                     <div>
-                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Item Name</label>
-                        <p className="text-sm font-semibold text-gray-900">{selectedRequest.itemName || '-'}</p>
+                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">
+                            Item Name 
+                            {selectedRequest.previousApproved && selectedRequest.previousApproved.name !== selectedRequest.itemName && <span className="text-blue-500 ml-1">(Updated)</span>}
+                        </label>
+                        {selectedRequest.previousApproved && selectedRequest.previousApproved.name !== selectedRequest.itemName ? (
+                            <div className="flex flex-col gap-1 mt-1">
+                                <p className="text-sm text-gray-500 line-through decoration-red-400">{selectedRequest.previousApproved.name || '-'}</p>
+                                <p className="text-sm font-bold text-green-600 bg-green-50 px-2 py-1 rounded w-fit">{selectedRequest.itemName || '-'}</p>
+                            </div>
+                        ) : (
+                            <p className="text-sm font-semibold text-gray-900">{selectedRequest.itemName || '-'}</p>
+                        )}
                     </div>
                     <div>
                         <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Category</label>
                         <p className="text-sm text-gray-700">{selectedRequest.category || '-'}</p>
                     </div>
                     <div>
-                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Price</label>
-                        <p className="text-sm font-bold text-green-600">
-                          ₹{selectedRequest.price !== null && selectedRequest.price !== undefined ? selectedRequest.price : '-'}
-                          {selectedRequest.otherPrice > 0 && (
-                            <span className="ml-2 text-[10px] font-medium text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200">
-                              Other: ₹{selectedRequest.otherPrice}
-                            </span>
-                          )}
-                        </p>
+                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">
+                            Price
+                            {selectedRequest.previousApproved && selectedRequest.previousApproved.price !== selectedRequest.price && <span className="text-blue-500 ml-1">(Updated)</span>}
+                        </label>
+                        {selectedRequest.previousApproved && selectedRequest.previousApproved.price !== selectedRequest.price ? (
+                            <div className="flex flex-col gap-1 mt-1">
+                                <p className="text-sm text-gray-500 line-through decoration-red-400">₹{selectedRequest.previousApproved.price ?? '-'}</p>
+                                <p className="text-sm font-bold text-green-600 bg-green-50 px-2 py-1 rounded w-fit">₹{selectedRequest.price ?? '-'}</p>
+                            </div>
+                        ) : (
+                            <p className="text-sm font-bold text-green-600">
+                              ₹{selectedRequest.price !== null && selectedRequest.price !== undefined ? selectedRequest.price : '-'}
+                              {selectedRequest.otherPrice > 0 && (
+                                <span className="ml-2 text-[10px] font-medium text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200">
+                                  Other: ₹{selectedRequest.otherPrice}
+                                </span>
+                              )}
+                            </p>
+                        )}
                     </div>
                     <div>
                         <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Status</label>
@@ -461,8 +521,46 @@ export default function FoodApproval() {
                 <div className="space-y-4">
                     {selectedRequest.foodType && (
                         <div>
-                            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Food Type</label>
-                            <p className="text-sm text-gray-700">{selectedRequest.foodType}</p>
+                            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">
+                                Food Type
+                                {selectedRequest.previousApproved && selectedRequest.previousApproved.foodType !== selectedRequest.foodType && <span className="text-blue-500 ml-1">(Updated)</span>}
+                            </label>
+                            {selectedRequest.previousApproved && selectedRequest.previousApproved.foodType !== selectedRequest.foodType ? (
+                                <div className="flex flex-col gap-1 mt-1">
+                                    <p className="text-sm text-gray-500 line-through decoration-red-400">{selectedRequest.previousApproved.foodType || '-'}</p>
+                                    <p className="text-sm font-bold text-green-600 bg-green-50 px-2 py-1 rounded w-fit">{selectedRequest.foodType || '-'}</p>
+                                </div>
+                            ) : (
+                                <p className="text-sm text-gray-700">{selectedRequest.foodType}</p>
+                            )}
+                        </div>
+                    )}
+                    {(selectedRequest.preparationTime || selectedRequest.previousApproved?.preparationTime) && (
+                        <div>
+                            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">
+                                Preparation Time
+                                {selectedRequest.previousApproved && selectedRequest.previousApproved.preparationTime !== selectedRequest.preparationTime && <span className="text-blue-500 ml-1">(Updated)</span>}
+                            </label>
+                            {selectedRequest.previousApproved && selectedRequest.previousApproved.preparationTime !== selectedRequest.preparationTime ? (
+                                <div className="flex flex-col gap-1 mt-1">
+                                    <p className="text-sm text-gray-500 line-through decoration-red-400">{selectedRequest.previousApproved.preparationTime || '-'}</p>
+                                    <p className="text-sm font-bold text-green-600 bg-green-50 px-2 py-1 rounded w-fit">{selectedRequest.preparationTime || '-'}</p>
+                                </div>
+                            ) : (
+                                <p className="text-sm text-gray-700">{selectedRequest.preparationTime}</p>
+                            )}
+                        </div>
+                    )}
+                    {selectedRequest.isAvailable !== undefined && (
+                        <div>
+                            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Availability</label>
+                            <p className="text-sm text-gray-700">
+                                {selectedRequest.isAvailable ? (
+                                    <span className="text-green-600 font-semibold">Available</span>
+                                ) : (
+                                    <span className="text-red-500 font-semibold">Not Available</span>
+                                )}
+                            </p>
                         </div>
                     )}
                     {selectedRequest.requestedAt && (
@@ -473,32 +571,93 @@ export default function FoodApproval() {
                     )}
                 </div>
 
-                {selectedRequest.description && (
+                {(selectedRequest.description || selectedRequest.previousApproved?.description) && (
                   <div className="col-span-full">
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Description</label>
-                    <p className="text-sm text-gray-700 leading-relaxed bg-slate-50 p-3 rounded-lg border border-slate-100">{selectedRequest.description}</p>
+                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">
+                        Description
+                        {selectedRequest.previousApproved && selectedRequest.previousApproved.description !== selectedRequest.description && <span className="text-blue-500 ml-1">(Updated)</span>}
+                    </label>
+                    {selectedRequest.previousApproved && selectedRequest.previousApproved.description !== selectedRequest.description ? (
+                        <div className="flex flex-col gap-2 mt-1">
+                            <p className="text-sm text-gray-500 line-through decoration-red-400 bg-slate-50 p-2 rounded">{selectedRequest.previousApproved.description || '-'}</p>
+                            <p className="text-sm text-green-700 bg-green-50 p-2 rounded">{selectedRequest.description || '-'}</p>
+                        </div>
+                    ) : (
+                        <p className="text-sm text-gray-700 leading-relaxed bg-slate-50 p-3 rounded-lg border border-slate-100">{selectedRequest.description}</p>
+                    )}
                   </div>
                 )}
 
                 {/* Variants */}
-                {selectedRequest.variants && selectedRequest.variants.length > 0 && (
+                {(selectedRequest.variants?.length > 0 || selectedRequest.previousApproved?.variants?.length > 0) && (
                   <div className="col-span-full">
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Variants / Sizes</label>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {selectedRequest.variants.map((variant, idx) => (
-                        <div key={idx} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
-                          <span className="text-sm font-medium text-gray-900">{variant.name || variant.variantName || '-'}</span>
-                          <div className="text-right flex flex-col items-end gap-1">
-                            <span className="text-sm font-bold text-green-600">₹{variant.price || 0}</span>
-                            {variant.otherPrice > 0 && (
-                              <span className="text-[9px] font-medium text-gray-500 bg-gray-100 px-1 py-0.5 rounded border border-gray-200">
-                                Other: ₹{variant.otherPrice}
-                              </span>
-                            )}
-                          </div>
+                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">
+                        Variants / Sizes
+                        {selectedRequest.previousApproved && variantDiff.changed && <span className="text-blue-500 ml-1">(Updated)</span>}
+                    </label>
+                    {selectedRequest.previousApproved && variantDiff.changed ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <p className="text-xs font-semibold text-gray-500 mb-2">Previous Variants</p>
+                                <div className="space-y-2">
+                                    {variantDiff.rows.map((row, idx) => row.prev ? (
+                                        <div
+                                          key={idx}
+                                          className={`flex items-center justify-between p-2 rounded border ${
+                                            row.changed
+                                              ? 'bg-red-50 border-red-200 line-through text-red-500'
+                                              : 'bg-slate-50 border-slate-200 opacity-70'
+                                          }`}
+                                        >
+                                            <span className="text-xs">{row.prev.name || '-'}{row.prev.unit ? ` (${row.prev.unit})` : ''}</span>
+                                            <span className="text-xs font-bold">₹{row.prev.price || 0}</span>
+                                        </div>
+                                    ) : null)}
+                                    {(!selectedRequest.previousApproved.variants || selectedRequest.previousApproved.variants.length === 0) && <p className="text-xs text-gray-400">None</p>}
+                                </div>
+                            </div>
+                            <div>
+                                <p className="text-xs font-semibold text-green-600 mb-2">New Variants</p>
+                                <div className="space-y-2">
+                                    {variantDiff.rows.map((row, idx) => row.next ? (
+                                        <div
+                                          key={idx}
+                                          className={`flex items-center justify-between p-2 rounded border ${
+                                            row.changed
+                                              ? 'bg-green-50 border-green-200'
+                                              : 'bg-slate-50 border-slate-200'
+                                          }`}
+                                        >
+                                            <span className={`text-xs font-medium ${row.changed ? 'text-green-800' : 'text-gray-700'}`}>{row.next.name || row.next.variantName || '-'}{row.next.unit ? ` (${row.next.unit})` : ''}</span>
+                                            <span className={`text-xs font-bold ${row.changed ? 'text-green-600' : 'text-gray-700'}`}>₹{row.next.price || 0}</span>
+                                        </div>
+                                    ) : null)}
+                                    {(!selectedRequest.variants || selectedRequest.variants.length === 0) && <p className="text-xs text-gray-400">None</p>}
+                                </div>
+                            </div>
                         </div>
-                      ))}
-                    </div>
+                    ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {selectedRequest.variants?.map((variant, idx) => (
+                            <div key={idx} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
+                              <div className="flex flex-col">
+                                <span className="text-sm font-medium text-gray-900">{variant.name || variant.variantName || '-'}</span>
+                                {variant.unit && (
+                                  <span className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">{variant.unit}</span>
+                                )}
+                              </div>
+                              <div className="text-right flex flex-col items-end gap-1">
+                                <span className="text-sm font-bold text-green-600">₹{variant.price || 0}</span>
+                                {variant.otherPrice > 0 && (
+                                  <span className="text-[9px] font-medium text-gray-500 bg-gray-100 px-1 py-0.5 rounded border border-gray-200">
+                                    Other: ₹{variant.otherPrice}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                    )}
                   </div>
                 )}
 

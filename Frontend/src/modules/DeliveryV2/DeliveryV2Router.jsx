@@ -74,6 +74,7 @@ const DeliveryV2Router = () => {
         <Route path="signup/documents" element={<SignupStep2 />} />
         <Route path="verification" element={<PendingVerification />} />
         <Route path="terms" element={<TermsAndConditionsV2 />} />
+        <Route path="privacy" element={<PrivacyPolicyV2 />} />
 
         {/* Protected Core Routes */}
         <Route path="/" element={<ProtectedRoute><DeliveryHomeV2 tab="feed" /></ProtectedRoute>} />

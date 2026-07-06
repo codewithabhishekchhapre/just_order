@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useCallback } from "react"
 import { useSearchParams } from "react-router-dom"
 import { Search, Trash2, Loader2, Eye, Pencil, Plus, Save, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react"
 import { adminAPI, uploadAPI } from "@food/api"
+import useCachedPaginatedQuery from "@food/hooks/useCachedPaginatedQuery"
 import { toast } from "sonner"
 import { useAuth } from "@core/context/AuthContext"
 import { getCurrentUser } from "@food/utils/auth"
@@ -91,9 +92,7 @@ export default function FoodsList() {
 
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedRestaurant, setSelectedRestaurant] = useState("all")
-  const [foods, setFoods] = useState([])
   const [restaurantsForFilter, setRestaurantsForFilter] = useState([])
-  const [loading, setLoading] = useState(true)
   const [deleting, setDeleting] = useState(false)
   const [selectedFood, setSelectedFood] = useState(null)
   const [showDetailModal, setShowDetailModal] = useState(false)
@@ -107,7 +106,6 @@ export default function FoodsList() {
   const [categoryPopoverOpen, setCategoryPopoverOpen] = useState(false)
   const [selectedImageFile, setSelectedImageFile] = useState(null)
   const [imagePreviewUrl, setImagePreviewUrl] = useState("")
-  const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
   const [imageVersion, setImageVersion] = useState(() => Date.now())
 
@@ -132,10 +130,8 @@ export default function FoodsList() {
     return `${url}${url.includes("?") ? "&" : "?"}v=${imageVersion}`
   }
 
-  const fetchAllFoods = useCallback(async () => {
+  const fetchRestaurantOptions = useCallback(async () => {
     try {
-      setLoading(true)
-
       const [activeRestaurantsResponse, inactiveRestaurantsResponse] = await Promise.all([
         adminAPI.getRestaurants({ limit: 1000 }),
         adminAPI.getRestaurants({ limit: 1000, status: "inactive" }),
@@ -167,61 +163,88 @@ export default function FoodsList() {
           .sort((a, b) => a.name.localeCompare(b.name))
       )
 
-      if (restaurants.length === 0) {
-        setFoods([])
-        return
-      }
-
-      const foodsRes = await adminAPI.getFoods({ limit: 1000 })
-      const list = foodsRes?.data?.data?.foods || []
-      const approvedOnly = Array.isArray(list)
-        ? list.filter((f) => String(f?.approvalStatus || "").toLowerCase() === "approved")
-        : []
-      setFoods(
-                Array.isArray(approvedOnly)
-                  ? approvedOnly.map((f) => ({
-                      id: String(f.id || f._id || ""),
-                      _id: f._id || f.id,
-                      name: f.name || "Unnamed Item",
-                      image: f.image || "https://via.placeholder.com/40",
-                      status: f.isAvailable !== false && String(f.approvalStatus || "").toLowerCase() !== "rejected",
-                      restaurantId: String(f.restaurantId || ""),
-                      restaurantName: f.restaurantName || "Unknown Restaurant",
-                      categoryId: String(f.categoryId || ""),
-                      categoryName: f.categoryName || "",
-                      basePrice: f.price != null ? Number(f.price) : null,
-                      price: getFoodDisplayPrice(f),
-                      otherPrice: f.otherPrice || 0,
-                      variants: getFoodVariants(f),
-                      foodType: f.foodType || "Non-Veg",
-                      approvalStatus: f.approvalStatus || "approved",
-                      rejectionReason: f.rejectionReason || "",
-                      approvedAt: f.approvedAt || null,
-                      rejectedAt: f.rejectedAt || null,
-                      approvedBy: f.approvedBy || null,
-                      rejectedBy: f.rejectedBy || null,
-                      description: f.description || "",
-                      preparationTime: f.preparationTime || "",
-                      isAvailable: f.isAvailable !== false,
-                      createdAt: f.createdAt,
-                      updatedAt: f.updatedAt,
-                    }))
-                  : []
-              )
       setImageVersion(Date.now())
     } catch (error) {
-      debugError("Error fetching foods:", error)
-      toast.error("Failed to load foods")
-      setFoods([])
+      debugError("Error fetching restaurants for food filter:", error)
       setRestaurantsForFilter([])
-    } finally {
-      setLoading(false)
     }
   }, [])
 
   useEffect(() => {
-    fetchAllFoods()
-  }, [fetchAllFoods])
+    fetchRestaurantOptions()
+  }, [fetchRestaurantOptions])
+
+  const foodQueryFilters = useMemo(() => ({
+    approvalStatus: "approved",
+    ...(selectedRestaurant !== "all" && { restaurantId: selectedRestaurant }),
+  }), [selectedRestaurant])
+
+  const {
+    items: foods,
+    setItems: setFoods,
+    total: totalFoods,
+    page: currentPage,
+    setPage: setCurrentPage,
+    pageSize: effectivePageSize,
+    totalPages,
+    loading,
+    search: cachedSearchQuery,
+    setSearch: setCachedSearchQuery,
+    refresh: refreshFoods,
+  } = useCachedPaginatedQuery(
+    async (params, config) => {
+      const foodsRes = await adminAPI.getFoods(params, config)
+      const data = foodsRes?.data?.data || foodsRes?.data
+      const list = data?.foods || []
+      const mappedFoods = Array.isArray(list)
+        ? list.map((f) => ({
+            id: String(f.id || f._id || ""),
+            _id: f._id || f.id,
+            name: f.name || "Unnamed Item",
+            image: f.image || "https://via.placeholder.com/40",
+            status: f.isAvailable !== false && String(f.approvalStatus || "").toLowerCase() !== "rejected",
+            restaurantId: String(f.restaurantId || ""),
+            restaurantName: f.restaurantName || "Unknown Restaurant",
+            categoryId: String(f.categoryId || ""),
+            categoryName: f.categoryName || "",
+            basePrice: f.price != null ? Number(f.price) : null,
+            price: getFoodDisplayPrice(f),
+            otherPrice: f.otherPrice || 0,
+            variants: getFoodVariants(f),
+            foodType: f.foodType || "Non-Veg",
+            approvalStatus: f.approvalStatus || "approved",
+            rejectionReason: f.rejectionReason || "",
+            approvedAt: f.approvedAt || null,
+            rejectedAt: f.rejectedAt || null,
+            approvedBy: f.approvedBy || null,
+            rejectedBy: f.rejectedBy || null,
+            description: f.description || "",
+            preparationTime: f.preparationTime || "",
+            isAvailable: f.isAvailable !== false,
+            createdAt: f.createdAt,
+            updatedAt: f.updatedAt,
+          }))
+        : []
+      return {
+        items: mappedFoods,
+        total: data?.total || data?.pagination?.total || mappedFoods.length,
+      }
+    },
+    {
+      pageSize,
+      filters: foodQueryFilters,
+      cacheKey: "admin-foods",
+    },
+  )
+
+  useEffect(() => {
+    setSearchQuery(cachedSearchQuery)
+  }, [cachedSearchQuery])
+
+  const fetchAllFoods = useCallback(() => {
+    refreshFoods()
+    fetchRestaurantOptions()
+  }, [fetchRestaurantOptions, refreshFoods])
 
   const [searchParams] = useSearchParams()
   const productIdFromUrl = searchParams.get("productId")
@@ -269,45 +292,10 @@ export default function FoodsList() {
   }
 
   const filteredFoods = useMemo(() => {
-    let result = [...foods]
-    
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase().trim()
-      result = result.filter(food =>
-        food.name.toLowerCase().includes(query) ||
-        food.id.toString().includes(query) ||
-        food.restaurantName?.toLowerCase().includes(query) ||
-        food.categoryName?.toLowerCase().includes(query)
-      )
-    }
+    return [...foods].sort((a, b) => getItemCreatedMs(b) - getItemCreatedMs(a))
+  }, [foods])
 
-    if (selectedRestaurant !== "all") {
-      result = result.filter((food) => String(food.restaurantId) === selectedRestaurant)
-    }
-
-    result.sort((a, b) => getItemCreatedMs(b) - getItemCreatedMs(a))
-    return result
-  }, [foods, searchQuery, selectedRestaurant])
-
-  const totalPages = useMemo(() => {
-    if (filteredFoods.length === 0) return 1
-    return Math.ceil(filteredFoods.length / pageSize)
-  }, [filteredFoods.length, pageSize])
-
-  const paginatedFoods = useMemo(() => {
-    const start = (currentPage - 1) * pageSize
-    return filteredFoods.slice(start, start + pageSize)
-  }, [filteredFoods, currentPage, pageSize])
-
-  useEffect(() => {
-    setCurrentPage(1)
-  }, [searchQuery, selectedRestaurant, pageSize])
-
-  useEffect(() => {
-    if (currentPage > totalPages) {
-      setCurrentPage(totalPages)
-    }
-  }, [currentPage, totalPages])
+  const paginatedFoods = filteredFoods
 
   const restaurantOptions = useMemo(() => {
     return restaurantsForFilter
@@ -566,7 +554,7 @@ export default function FoodsList() {
           <div className="flex items-center gap-2">
             <h2 className="text-lg font-semibold text-slate-900">Food List</h2>
             <span className="px-3 py-1 rounded-full text-sm font-semibold bg-slate-100 text-slate-700">
-              {filteredFoods.length}
+              {totalFoods}
             </span>
           </div>
 
@@ -586,7 +574,7 @@ export default function FoodsList() {
                 type="text"
                 placeholder="Ex : Foods"
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => setCachedSearchQuery(e.target.value)}
                 className="pl-10 pr-4 py-2.5 w-full text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-slate-400"
               />
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -659,7 +647,7 @@ export default function FoodsList() {
                     className="hover:bg-slate-50 transition-colors"
                   >
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm font-medium text-slate-700">{(currentPage - 1) * pageSize + index + 1}</span>
+                      <span className="text-sm font-medium text-slate-700">{(currentPage - 1) * effectivePageSize + index + 1}</span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="w-10 h-10 rounded-full overflow-hidden bg-slate-100 flex items-center justify-center">
@@ -731,17 +719,17 @@ export default function FoodsList() {
           </table>
         </div>
 
-        {!loading && filteredFoods.length > 0 && (
+        {!loading && totalFoods > 0 && (
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50">
             <div className="text-sm text-slate-600">
               Showing{" "}
-              <span className="font-semibold text-slate-800">{(currentPage - 1) * pageSize + 1}</span>
+              <span className="font-semibold text-slate-800">{(currentPage - 1) * effectivePageSize + 1}</span>
               {" "}to{" "}
               <span className="font-semibold text-slate-800">
-                {Math.min(currentPage * pageSize, filteredFoods.length)}
+                {Math.min(currentPage * effectivePageSize, totalFoods)}
               </span>
               {" "}of{" "}
-              <span className="font-semibold text-slate-800">{filteredFoods.length}</span>
+              <span className="font-semibold text-slate-800">{totalFoods}</span>
             </div>
 
             <div className="flex items-center gap-2">

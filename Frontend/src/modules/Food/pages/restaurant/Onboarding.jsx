@@ -25,6 +25,11 @@ import { getGoogleMapsApiKey } from "@food/utils/googleMapsApiKey"
 import { clearModuleAuth, clearAuthData, getRestaurantPendingPhone } from "@food/utils/auth"
 import { ImageSourcePicker } from "@food/components/ImageSourcePicker"
 import { convertBase64ToFile, isFlutterBridgeAvailable, openCamera } from "@food/utils/imageUploadUtils"
+import {
+  filterValidOnboardingImages,
+  ONBOARDING_IMAGE_ACCEPT,
+  validateOnboardingImageFile,
+} from "@food/utils/onboardingImageValidation"
 const debugLog = (...args) => { }
 const debugWarn = (...args) => { }
 const debugError = (...args) => { }
@@ -43,6 +48,14 @@ const ESTIMATED_DELIVERY_TIME_OPTIONS = [
   "50-60 mins",
 ]
 
+const ALL_CUISINES = [
+  "Burger", "Chinese", "Momos", "North Indian", "Pizza", "Rolls", 
+  "Sandwich", "Shawarma", "South Indian", "Biryani", "Desserts", 
+  "Ice Cream", "Fast Food", "Cafe", "Italian", "Mexican", "Thai", 
+  "Seafood", "Salad", "Healthy Food", "Juices", "Beverages", 
+  "Punjabi", "Gujarati", "Rajasthani", "Mughlai", "Street Food", "Bakery",
+]
+
 const ONBOARDING_STORAGE_KEY = "restaurant_onboarding_data"
 const PAN_NUMBER_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]$/
 const GST_NUMBER_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/
@@ -57,10 +70,8 @@ const OWNER_EMAIL_REGEX = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/
 const PHONE_NUMBER_REGEX = /^\d{10,12}$/
 const PRIMARY_PHONE_NUMBER_REGEX = /^\d{10}$/
 const PINCODE_REGEX = /^\d{6}$/
-const LOCAL_IMAGE_FILE_ACCEPT = ".jpg,.jpeg,.png,.webp,.heic,.heif"
-const GALLERY_IMAGE_ACCEPT =
-  ".jpg,.jpeg,.png,.webp,.heic,.heif,image/jpeg,image/png,image/webp,image/heic,image/heif"
-const ONBOARDING_DRAFT_FILE_MAX_SIZE = 2.5 * 1024 * 1024
+const LOCAL_IMAGE_FILE_ACCEPT = ONBOARDING_IMAGE_ACCEPT
+const GALLERY_IMAGE_ACCEPT = `${ONBOARDING_IMAGE_ACCEPT},image/jpeg,image/png,image/webp,image/heic,image/heif`
 let onboardingFileCache = {
   step2: {
     menuImages: [],
@@ -137,11 +148,20 @@ const buildOnboardingStepFormData = (stepNum, { step1, step2, step3 }) => {
   }
 
   if (stepNum === 2) {
+    const computedOpenDays = step2.dayTimings ? step2.dayTimings.filter(dt => dt.isOpen).map(dt => dt.day) : [];
+    const firstOpenDay = step2.dayTimings ? step2.dayTimings.find(dt => dt.isOpen) : null;
+    const computedOpeningTime = firstOpenDay ? firstOpenDay.openingTime : "09:00";
+    const computedClosingTime = firstOpenDay ? firstOpenDay.closingTime : "23:59";
+
     formData.append("cuisines", (step2.cuisines || []).join(","))
-    formData.append("openingTime", normalizeTimeValue(step2.openingTime) || "")
-    formData.append("closingTime", normalizeTimeValue(step2.closingTime) || "")
-    formData.append("openDays", (step2.openDays || []).join(","))
+    formData.append("openingTime", normalizeTimeValue(step2.openingTime || computedOpeningTime) || "")
+    formData.append("closingTime", normalizeTimeValue(step2.closingTime || computedClosingTime) || "")
+    formData.append("openDays", (step2.openDays?.length ? step2.openDays : computedOpenDays).join(","))
     formData.append("dayTimings", JSON.stringify(step2.dayTimings || []))
+    formData.append(
+      "showRestaurantToUsersWithoutItems",
+      step2.showRestaurantToUsersWithoutItems ? "true" : "false",
+    )
 
     const menuFiles = (step2.menuImages || []).filter((f) => isUploadableFile(f))
     menuFiles.forEach((file) => formData.append("menuImages", file))
@@ -770,6 +790,7 @@ export default function RestaurantOnboarding() {
     closingTime: "21:00",
     openDays: [],
     dayTimings: defaultDayTimings,
+    showRestaurantToUsersWithoutItems: false,
   })
 
   const [step3, setStep3] = useState({
@@ -995,6 +1016,7 @@ export default function RestaurantOnboarding() {
           closingTime: "21:00",
           openDays: [],
           dayTimings: defaultDayTimings,
+          showRestaurantToUsersWithoutItems: false,
         }
 
         let initialStep3 = {
@@ -1068,6 +1090,7 @@ export default function RestaurantOnboarding() {
             openingTime: normalizeTimeValue(serverData.openingTime),
             closingTime: normalizeTimeValue(serverData.closingTime),
             openDays: serverData.openDays || [],
+            showRestaurantToUsersWithoutItems: !!serverData.showRestaurantToUsersWithoutItems,
             dayTimings: Array.isArray(serverData.dayTimings) && serverData.dayTimings.length > 0 
               ? serverData.dayTimings 
               : defaultDayTimings,
@@ -1448,16 +1471,25 @@ export default function RestaurantOnboarding() {
     if (!step1.zoneId?.trim()) {
       errors.push("Service zone is required")
     }
+    if (!step1.location?.addressLine1?.trim()) {
+      errors.push("Address line 1 is required")
+    }
     if (!step1.location?.area?.trim()) {
       errors.push("Area/Sector/Locality is required")
     }
     if (!step1.location?.city?.trim()) {
       errors.push("City is required")
     }
+    if (!step1.location?.state?.trim()) {
+      errors.push("State is required")
+    }
     if (!step1.location?.pincode?.trim()) {
       errors.push("Pincode is required")
     } else if (!PINCODE_REGEX.test(step1.location.pincode.trim())) {
       errors.push("Pincode must contain exactly 6 digits")
+    }
+    if (!step1.location?.latitude || !step1.location?.longitude) {
+      errors.push("Map coordinates are required")
     }
 
     // Geofencing Validation: Ensure coordinates are inside the selected zone
@@ -1480,6 +1512,10 @@ export default function RestaurantOnboarding() {
 
   const validateStep2 = () => {
     const errors = []
+
+    if (!step2.cuisines || step2.cuisines.length === 0) {
+      errors.push("At least one cuisine is required")
+    }
 
     // Check menu images - must have at least one File or existing URL
     const hasMenuImages = step2.menuImages && step2.menuImages.length > 0
@@ -1703,15 +1739,24 @@ export default function RestaurantOnboarding() {
       },
     }
 
+    const computedOpenDays = step2.dayTimings ? step2.dayTimings.filter(dt => dt.isOpen).map(dt => dt.day) : [];
+    const firstOpenDay = step2.dayTimings ? step2.dayTimings.find(dt => dt.isOpen) : null;
+    const computedOpeningTime = firstOpenDay ? firstOpenDay.openingTime : "09:00";
+    const computedClosingTime = firstOpenDay ? firstOpenDay.closingTime : "23:59";
+
     const mergedStep2 = {
       ...step2,
       cuisines: (step2.cuisines?.length ? step2.cuisines : draft?.cuisines) || [],
-      openingTime: pickNonEmpty(step2.openingTime, draft?.openingTime),
-      closingTime: pickNonEmpty(step2.closingTime, draft?.closingTime),
-      openDays: (step2.openDays?.length ? step2.openDays : draft?.openDays) || [],
+      openingTime: step2.openingTime || draft?.openingTime || computedOpeningTime,
+      closingTime: step2.closingTime || draft?.closingTime || computedClosingTime,
+      openDays: (step2.openDays?.length ? step2.openDays : (draft?.openDays?.length ? draft.openDays : computedOpenDays)) || [],
       dayTimings: step2.dayTimings || draft?.dayTimings || defaultDayTimings,
       menuImages: (step2.menuImages?.length ? step2.menuImages : draft?.menuImages) || [],
       profileImage: step2.profileImage || draft?.profileImage || null,
+      showRestaurantToUsersWithoutItems:
+        typeof step2.showRestaurantToUsersWithoutItems === "boolean"
+          ? step2.showRestaurantToUsersWithoutItems
+          : !!draft?.showRestaurantToUsersWithoutItems,
     }
 
     const mergedStep3 = {
@@ -1867,17 +1912,20 @@ export default function RestaurantOnboarding() {
     try {
       if (step === 1) {
         const formData = buildOnboardingStepFormData(1, { step1, step2, step3 })
-        await restaurantAPI.saveOnboardingStep(1, formData)
+        const response = await restaurantAPI.saveOnboardingStep(1, formData)
+        onboardingDraftRef.current = response?.data?.data?.restaurant || response?.data?.restaurant || onboardingDraftRef.current
         goToStep(2)
         window.scrollTo({ top: 0, behavior: "instant" })
       } else if (step === 2) {
         const formData = buildOnboardingStepFormData(2, { step1, step2, step3 })
-        await restaurantAPI.saveOnboardingStep(2, formData)
+        const response = await restaurantAPI.saveOnboardingStep(2, formData)
+        onboardingDraftRef.current = response?.data?.data?.restaurant || response?.data?.restaurant || onboardingDraftRef.current
         goToStep(3)
         window.scrollTo({ top: 0, behavior: "instant" })
       } else if (step === 3) {
         const formData = buildOnboardingStepFormData(3, { step1, step2, step3 })
-        await restaurantAPI.saveOnboardingStep(3, formData)
+        const response = await restaurantAPI.saveOnboardingStep(3, formData)
+        onboardingDraftRef.current = response?.data?.data?.restaurant || response?.data?.restaurant || onboardingDraftRef.current
         goToStep(4)
         window.scrollTo({ top: 0, behavior: "instant" })
       } else if (step === 4) {
@@ -1918,6 +1966,10 @@ export default function RestaurantOnboarding() {
         formData.append("closingTime", normalizeTimeValue(mergedStep2.closingTime) || "")
         formData.append("openDays", (mergedStep2.openDays || []).join(","))
         formData.append("dayTimings", JSON.stringify(mergedStep2.dayTimings || []))
+        formData.append(
+          "showRestaurantToUsersWithoutItems",
+          mergedStep2.showRestaurantToUsersWithoutItems ? "true" : "false",
+        )
 
         const menuFiles = (mergedStep2.menuImages || []).filter((f) => isUploadableFile(f))
         const hasExistingMenuImages = (mergedStep2.menuImages || []).some(hasValidMenuImageAsset)
@@ -2660,11 +2712,17 @@ export default function RestaurantOnboarding() {
                   title: "Add menu image",
                   fallbackInputRef: menuImagesInputRef,
                   fileNamePrefix: "menu-image",
-                  onSelectFile: (file) =>
+                  onSelectFile: (file) => {
+                    const error = validateOnboardingImageFile(file, "menu", "Menu image")
+                    if (error) {
+                      toast.error(error)
+                      return
+                    }
                     setStep2((prev) => ({
                       ...prev,
                       menuImages: [...(prev.menuImages || []), file],
-                    })),
+                    }))
+                  },
                 })
               }
             >
@@ -2681,9 +2739,15 @@ export default function RestaurantOnboarding() {
               onChange={(e) => {
                 const files = Array.from(e.target.files || [])
                 if (!files.length) return
+                const { valid, errors } = filterValidOnboardingImages(files, "menu", "Menu image")
+                errors.forEach((error) => toast.error(error))
+                if (!valid.length) {
+                  e.target.value = ''
+                  return
+                }
                 setStep2((prev) => ({
                   ...prev,
-                  menuImages: [...(prev.menuImages || []), ...files],
+                  menuImages: [...(prev.menuImages || []), ...valid].slice(0, 10),
                 }))
                 e.target.value = ''
               }}
@@ -2808,11 +2872,17 @@ export default function RestaurantOnboarding() {
                     title: "Upload profile image",
                     fallbackInputRef: profileImageInputRef,
                     fileNamePrefix: "restaurant-profile",
-                    onSelectFile: (file) =>
+                    onSelectFile: (file) => {
+                      const error = validateOnboardingImageFile(file, "document", "Profile image")
+                      if (error) {
+                        toast.error(error)
+                        return
+                      }
                       setStep2((prev) => ({
                         ...prev,
                         profileImage: file,
-                      })),
+                      }))
+                    },
                   })
                 }
               >
@@ -2828,6 +2898,12 @@ export default function RestaurantOnboarding() {
                 onChange={(e) => {
                   const file = e.target.files?.[0] || null
                   if (file) {
+                    const error = validateOnboardingImageFile(file, "document", "Profile image")
+                    if (error) {
+                      toast.error(error)
+                      e.target.value = ''
+                      return
+                    }
                     setStep2((prev) => ({
                       ...prev,
                       profileImage: file,
@@ -2841,11 +2917,79 @@ export default function RestaurantOnboarding() {
         </div>
       </section>
 
+      {/* Cuisines section */}
+      <section className="bg-white dark:bg-[#121212] border border-gray-150/40 dark:border-gray-900/60 p-6 sm:p-8 rounded-[28px] shadow-[0_8px_30px_rgba(0,0,0,0.015)] space-y-5">
+        <div className="border-b border-gray-100 dark:border-gray-900 pb-3">
+          <h2 className="text-lg font-extrabold text-gray-900 dark:text-white tracking-tight">Cuisines</h2>
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Select the cuisines your restaurant serves (at least one required)</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {ALL_CUISINES.map((cuisine) => {
+            const isSelected = step2.cuisines?.includes(cuisine);
+            return (
+              <button
+                key={cuisine}
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setStep2(prev => ({
+                    ...prev,
+                    cuisines: isSelected 
+                      ? prev.cuisines.filter(c => c !== cuisine)
+                      : [...(prev.cuisines || []), cuisine]
+                  }));
+                }}
+                className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors border ${
+                  isSelected 
+                    ? "bg-[#FF6A00] text-white border-[#FF6A00]" 
+                    : "bg-gray-50 dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-800 hover:border-[#FF6A00] hover:text-[#FF6A00]"
+                }`}
+              >
+                {cuisine}
+              </button>
+            )
+          })}
+        </div>
+      </section>
+
       {/* Operational details */}
       <section className="bg-white dark:bg-[#121212] border border-gray-150/40 dark:border-gray-900/60 p-6 sm:p-8 rounded-[28px] shadow-[0_8px_30px_rgba(0,0,0,0.015)] space-y-5">
         <div className="border-b border-gray-100 dark:border-gray-900 pb-3">
           <h2 className="text-lg font-extrabold text-gray-900 dark:text-white tracking-tight">Business Hours & Days</h2>
           <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Specify your operational delivery hours and open days</p>
+        </div>
+
+        <div className="rounded-2xl border border-orange-100 bg-orange-50/60 p-4 dark:border-orange-900/40 dark:bg-orange-950/20">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <Label className="text-sm font-extrabold text-gray-900 dark:text-white">
+                Show restaurant to users without items?
+              </Label>
+              <p className="mt-1 text-xs font-medium text-gray-500 dark:text-gray-400">
+                Enable this if you want the restaurant listing visible before any active menu item is added.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() =>
+                setStep2((prev) => ({
+                  ...prev,
+                  showRestaurantToUsersWithoutItems: !prev.showRestaurantToUsersWithoutItems,
+                }))
+              }
+              className={`relative inline-flex h-7 w-13 shrink-0 items-center rounded-full transition-colors ${
+                step2.showRestaurantToUsersWithoutItems ? "bg-[#FF6A00]" : "bg-gray-300 dark:bg-gray-700"
+              }`}
+              aria-pressed={step2.showRestaurantToUsersWithoutItems}
+            >
+              <span
+                className={`block h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                  step2.showRestaurantToUsersWithoutItems ? "translate-x-7" : "translate-x-1"
+                }`}
+              />
+            </button>
+          </div>
         </div>
 
         {/* Timings */}
@@ -2953,8 +3097,14 @@ export default function RestaurantOnboarding() {
                   title: "Upload PAN image",
                   fallbackInputRef: panImageInputRef,
                   fileNamePrefix: "pan-image",
-                  onSelectFile: (file) =>
-                    setStep3((prev) => ({ ...prev, panImage: file })),
+                  onSelectFile: (file) => {
+                    const error = validateOnboardingImageFile(file, "document", "PAN image")
+                    if (error) {
+                      toast.error(error)
+                      return
+                    }
+                    setStep3((prev) => ({ ...prev, panImage: file }))
+                  },
                 })
               }
             >
@@ -2966,9 +3116,19 @@ export default function RestaurantOnboarding() {
               accept={GALLERY_IMAGE_ACCEPT}
               className="hidden"
               ref={panImageInputRef}
-              onChange={(e) =>
-                setStep3((prev) => ({ ...prev, panImage: e.target.files?.[0] || null }))
-              }
+              onChange={(e) => {
+                const file = e.target.files?.[0] || null
+                if (file) {
+                  const error = validateOnboardingImageFile(file, "document", "PAN image")
+                  if (error) {
+                    toast.error(error)
+                    e.target.value = ''
+                    return
+                  }
+                }
+                setStep3((prev) => ({ ...prev, panImage: file }))
+                e.target.value = ''
+              }}
             />
             
             {step3.panImage && (
@@ -3091,8 +3251,14 @@ export default function RestaurantOnboarding() {
                       title: "Upload GST certificate",
                       fallbackInputRef: gstImageInputRef,
                       fileNamePrefix: "gst-image",
-                      onSelectFile: (file) =>
-                        setStep3((prev) => ({ ...prev, gstImage: file })),
+                      onSelectFile: (file) => {
+                        const error = validateOnboardingImageFile(file, "document", "GST image")
+                        if (error) {
+                          toast.error(error)
+                          return
+                        }
+                        setStep3((prev) => ({ ...prev, gstImage: file }))
+                      },
                     })
                   }
                 >
@@ -3104,9 +3270,19 @@ export default function RestaurantOnboarding() {
                   accept={GALLERY_IMAGE_ACCEPT}
                   className="hidden"
                   ref={gstImageInputRef}
-                  onChange={(e) =>
-                    setStep3((prev) => ({ ...prev, gstImage: e.target.files?.[0] || null }))
-                  }
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null
+                    if (file) {
+                      const error = validateOnboardingImageFile(file, "document", "GST image")
+                      if (error) {
+                        toast.error(error)
+                        e.target.value = ''
+                        return
+                      }
+                    }
+                    setStep3((prev) => ({ ...prev, gstImage: file }))
+                    e.target.value = ''
+                  }}
                 />
                 
                 {step3.gstImage && (
@@ -3217,8 +3393,14 @@ export default function RestaurantOnboarding() {
                   title: "Upload FSSAI image",
                   fallbackInputRef: fssaiImageInputRef,
                   fileNamePrefix: "fssai-image",
-                  onSelectFile: (file) =>
-                    setStep3((prev) => ({ ...prev, fssaiImage: file })),
+                  onSelectFile: (file) => {
+                    const error = validateOnboardingImageFile(file, "document", "FSSAI image")
+                    if (error) {
+                      toast.error(error)
+                      return
+                    }
+                    setStep3((prev) => ({ ...prev, fssaiImage: file }))
+                  },
                 })
               }
             >
@@ -3230,9 +3412,19 @@ export default function RestaurantOnboarding() {
               accept={GALLERY_IMAGE_ACCEPT}
               className="hidden"
               ref={fssaiImageInputRef}
-              onChange={(e) =>
-                setStep3((prev) => ({ ...prev, fssaiImage: e.target.files?.[0] || null }))
-              }
+              onChange={(e) => {
+                const file = e.target.files?.[0] || null
+                if (file) {
+                  const error = validateOnboardingImageFile(file, "document", "FSSAI image")
+                  if (error) {
+                    toast.error(error)
+                    e.target.value = ''
+                    return
+                  }
+                }
+                setStep3((prev) => ({ ...prev, fssaiImage: file }))
+                e.target.value = ''
+              }}
             />
             
             {step3.fssaiImage && (

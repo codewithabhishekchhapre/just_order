@@ -13,6 +13,9 @@ export const cacheResponse = (ttlInSeconds = 300, prefix = 'api_cache') => {
         // Skip caching if Redis is disabled or not a GET request
         if (!config.redisEnabled || req.method !== 'GET') return next();
 
+        // Allow clients to bypass cache explicitly (e.g. restaurant details menu refresh).
+        if (req.query?._ts) return next();
+
         const redis = getRedisClient();
         if (!redis || !redis.isReady) return next();
 

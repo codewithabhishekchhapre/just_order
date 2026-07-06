@@ -169,7 +169,7 @@ export default function RestaurantsList() {
   const [selectedRestaurant, setSelectedRestaurant] = useState(null)
   const [restaurantDetails, setRestaurantDetails] = useState(null)
   const [loadingDetails, setLoadingDetails] = useState(false)
-  const [banConfirmDialog, setBanConfirmDialog] = useState(null) // { restaurant, action: 'ban' | 'unban' }
+  const [banConfirmDialog, setBanConfirmDialog] = useState(null) // { restaurant, action: 'show' | 'hide' }
   const [banning, setBanning] = useState(false)
   const [deleteConfirmDialog, setDeleteConfirmDialog] = useState(null) // { restaurant }
   const [deleting, setDeleting] = useState(false)
@@ -322,7 +322,10 @@ export default function RestaurantsList() {
             ownerPhone: restaurant.ownerPhone || restaurant.phone || "N/A",
             zone: zoneLabelFromRestaurant(restaurant),
             approvalStatus: normalizeApprovalStatus(restaurant),
-            isActive: restaurant.isActive !== false,
+            isActive: restaurant.isVisibleToUsers !== false,
+            isVisibleToUsers: restaurant.isVisibleToUsers !== false,
+            showRestaurantToUsersWithoutItems: !!restaurant.showRestaurantToUsersWithoutItems,
+            hasHadActiveItems: !!restaurant.hasHadActiveItems,
             rating: restaurant.ratings?.average || restaurant.rating || 0,
             logo: getPrimaryRestaurantImage(restaurant, PLACEHOLDER_40),
             originalData: restaurant,
@@ -1157,7 +1160,7 @@ export default function RestaurantsList() {
       estimatedDeliveryTime: estimatedDeliveryTimeValue,
       openingTime: openingTimeValue,
       closingTime: closingTimeValue,
-      isActive: restaurant.isActive !== false,
+      isActive: restaurant.isVisibleToUsers !== false,
     }
   }
 
@@ -1228,7 +1231,7 @@ export default function RestaurantsList() {
         estimatedDeliveryTime: detailsForm.estimatedDeliveryTime.trim(),
         openingTime: normalizedOpeningTime,
         closingTime: normalizedClosingTime,
-        isActive: detailsForm.isActive,
+        isVisibleToUsers: detailsForm.isActive,
       }
 
       if (profileImage) {
@@ -1249,7 +1252,8 @@ export default function RestaurantsList() {
                 ownerName: updatedRestaurant.ownerName || item.ownerName,
                 ownerPhone: updatedRestaurant.ownerPhone || updatedRestaurant.phone || item.ownerPhone,
                 zone: updatedRestaurant.location?.area || updatedRestaurant.location?.city || item.zone,
-                isActive: updatedRestaurant.isActive !== false,
+                isActive: updatedRestaurant.isVisibleToUsers !== false,
+                isVisibleToUsers: updatedRestaurant.isVisibleToUsers !== false,
                 logo: getPrimaryRestaurantImage(updatedRestaurant, item.logo),
                 originalData: {
                   ...(item.originalData || {}),
@@ -1282,7 +1286,7 @@ export default function RestaurantsList() {
     setRestaurantDetails(null)
   }
 
-  // Handle ban/unban restaurant
+  // Handle manual user visibility toggle
   const handleBanRestaurant = (restaurant) => {
     if (!canEdit) {
       toast.error("Permission denied")
@@ -1291,7 +1295,7 @@ export default function RestaurantsList() {
     const isBanned = !restaurant.isActive
     setBanConfirmDialog({
       restaurant,
-      action: isBanned ? 'unban' : 'ban'
+      action: isBanned ? 'show' : 'hide'
     })
   }
 
@@ -1303,14 +1307,14 @@ export default function RestaurantsList() {
     if (!banConfirmDialog) return
 
     const { restaurant, action } = banConfirmDialog
-    const isBanning = action === 'ban'
-    const newStatus = !isBanning // false for ban, true for unban
+    const isHiding = action === 'hide'
+    const newStatus = !isHiding
 
     try {
       setBanning(true)
       const restaurantId = restaurant._id || restaurant.id
 
-      // Update restaurant status via API
+      // Update manual user visibility via API
       try {
         await adminAPI.updateRestaurantStatus(restaurantId, newStatus)
 
@@ -1318,7 +1322,7 @@ export default function RestaurantsList() {
         setRestaurants(prevRestaurants =>
           prevRestaurants.map(r =>
             r.id === restaurant.id || r._id === restaurant._id
-              ? { ...r, isActive: newStatus }
+              ? { ...r, isActive: newStatus, isVisibleToUsers: newStatus, originalData: { ...(r.originalData || {}), isVisibleToUsers: newStatus } }
               : r
           )
         )
@@ -1327,24 +1331,24 @@ export default function RestaurantsList() {
         setBanConfirmDialog(null)
 
         // Show success message
-        debugLog(`Restaurant ${isBanning ? 'banned' : 'unbanned'} successfully`)
+        debugLog(`Restaurant ${isHiding ? 'hidden from users' : 'visible to users'} successfully`)
       } catch (apiErr) {
         debugError("API Error:", apiErr)
         // If API fails, still update locally for better UX
         setRestaurants(prevRestaurants =>
           prevRestaurants.map(r =>
             r.id === restaurant.id || r._id === restaurant._id
-              ? { ...r, isActive: newStatus }
+              ? { ...r, isActive: newStatus, isVisibleToUsers: newStatus, originalData: { ...(r.originalData || {}), isVisibleToUsers: newStatus } }
               : r
           )
         )
         setBanConfirmDialog(null)
-        alert(`Restaurant ${isBanning ? 'banned' : 'unbanned'} locally. Please check backend connection.`)
+        alert("Restaurant visibility updated locally. Please check backend connection.")
       }
 
     } catch (err) {
-      debugError("Error banning/unbanning restaurant:", err)
-      alert(`Failed to ${action} restaurant. Please try again.`)
+      debugError("Error updating restaurant visibility:", err)
+      alert(`Failed to ${action} restaurant visibility. Please try again.`)
     } finally {
       setBanning(false)
     }
@@ -1448,7 +1452,7 @@ export default function RestaurantsList() {
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-600 mb-1">Active restaurants</p>
+                <p className="text-sm font-medium text-slate-600 mb-1">Visible restaurants</p>
                 <p className="text-2xl font-bold text-slate-900">{activeRestaurants}</p>
               </div>
               <div className="w-12 h-12 rounded-lg bg-green-100 flex items-center justify-center">
@@ -1461,7 +1465,7 @@ export default function RestaurantsList() {
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-600 mb-1">Inactive restaurants</p>
+                <p className="text-sm font-medium text-slate-600 mb-1">Hidden restaurants</p>
                 <p className="text-2xl font-bold text-slate-900">{inactiveRestaurants}</p>
               </div>
               <div className="w-12 h-12 rounded-lg bg-red-100 flex items-center justify-center">
@@ -1666,7 +1670,7 @@ export default function RestaurantsList() {
                               {approvalStatusLabel(restaurant.approvalStatus)}
                             </span>
                             <span className="text-[11px] text-slate-500">
-                              Outlet: {restaurant.isActive ? "Active" : "Inactive"}
+                              Visible to Users: {restaurant.isActive ? "Yes" : "No"}
                             </span>
                           </div>
                         </td>
@@ -1686,7 +1690,7 @@ export default function RestaurantsList() {
                                 ? "text-green-600 hover:bg-green-50"
                                 : "text-red-600 hover:bg-red-50")
                                 }`}
-                              title={!restaurant.isActive ? "Unban Restaurant" : "Ban Restaurant"}
+                              title={!restaurant.isActive ? "Show to Users" : "Hide from Users"}
                             >
                               <ShieldX className="w-4 h-4" />
                             </button>
@@ -1879,7 +1883,7 @@ export default function RestaurantsList() {
                         className="h-4 w-4 rounded border-slate-300 text-blue-600"
                       />
                       <label htmlFor="restaurant-status-active" className="text-sm text-slate-700">
-                        Restaurant is active
+                        Visible to Users
                       </label>
                     </div>
                   </div>
@@ -1960,7 +1964,7 @@ export default function RestaurantsList() {
                         </h3>
                         <div className="flex items-center justify-center md:justify-start gap-2">
                           <span className={`px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider ${r?.isActive !== false ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                            {r?.isActive !== false ? 'Active' : 'Inactive'}
+                            {r?.isActive !== false ? 'Visible' : 'Hidden'}
                           </span>
                         </div>
                       </div>
@@ -2139,7 +2143,7 @@ export default function RestaurantsList() {
                             {approvalStatusLabel(detailsApprovalStatus)}
                           </span>
                           <p className="mt-2 text-xs text-slate-500">
-                            Outlet: {(r?.isActive !== false) ? "Active" : "Inactive"}
+                            Visible to Users: {(r?.isActive !== false) ? "Yes" : "No"}
                           </p>
                         </div>
                         <ApprovalAuditCard
@@ -2842,20 +2846,20 @@ export default function RestaurantsList() {
         </div>
       )}
 
-      {/* Ban/Unban Confirmation Dialog */}
+      {/* Visibility Confirmation Dialog */}
       {banConfirmDialog && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4" onClick={cancelBanRestaurant}>
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
             <div className="p-6">
               <div className="flex items-center gap-4 mb-4">
-                <div className={`w-12 h-12 rounded-full flex items-center justify-center ${banConfirmDialog.action === 'ban' ? 'bg-red-100' : 'bg-green-100'
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center ${banConfirmDialog.action === 'hide' ? 'bg-red-100' : 'bg-green-100'
                   }`}>
-                  <AlertTriangle className={`w-6 h-6 ${banConfirmDialog.action === 'ban' ? 'text-red-600' : 'text-green-600'
+                  <AlertTriangle className={`w-6 h-6 ${banConfirmDialog.action === 'hide' ? 'text-red-600' : 'text-green-600'
                     }`} />
                 </div>
                 <div>
                   <h3 className="text-lg font-bold text-slate-900">
-                    {banConfirmDialog.action === 'ban' ? 'Ban Restaurant' : 'Unban Restaurant'}
+                    {banConfirmDialog.action === 'hide' ? 'Hide Restaurant from Users' : 'Show Restaurant to Users'}
                   </h3>
                   <p className="text-sm text-slate-600">
                     {banConfirmDialog.restaurant.name}
@@ -2864,9 +2868,9 @@ export default function RestaurantsList() {
               </div>
 
               <p className="text-sm text-slate-700 mb-6">
-                {banConfirmDialog.action === 'ban'
-                  ? 'Are you sure you want to ban this restaurant? They will not be able to receive orders or access their account.'
-                  : 'Are you sure you want to unban this restaurant? They will be able to receive orders and access their account again.'
+                {banConfirmDialog.action === 'hide'
+                  ? 'Are you sure you want to hide this restaurant from user-facing listings?'
+                  : 'Are you sure you want to show this restaurant to users?'
                 }
               </p>
 
@@ -2881,7 +2885,7 @@ export default function RestaurantsList() {
                 <button
                   onClick={confirmBanRestaurant}
                   disabled={banning}
-                  className={`flex-1 px-4 py-2.5 text-sm font-medium rounded-lg text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${banConfirmDialog.action === 'ban'
+                  className={`flex-1 px-4 py-2.5 text-sm font-medium rounded-lg text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${banConfirmDialog.action === 'hide'
                     ? 'bg-red-600 hover:bg-red-700'
                     : 'bg-green-600 hover:bg-green-700'
                     }`}
@@ -2889,10 +2893,10 @@ export default function RestaurantsList() {
                   {banning ? (
                     <span className="flex items-center justify-center gap-2">
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      {banConfirmDialog.action === 'ban' ? 'Banning...' : 'Unbanning...'}
+                      {banConfirmDialog.action === 'hide' ? 'Hiding...' : 'Showing...'}
                     </span>
                   ) : (
-                    banConfirmDialog.action === 'ban' ? 'Ban Restaurant' : 'Unban Restaurant'
+                    banConfirmDialog.action === 'hide' ? 'Hide Restaurant' : 'Show Restaurant'
                   )}
                 </button>
               </div>

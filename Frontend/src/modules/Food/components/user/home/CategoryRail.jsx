@@ -9,22 +9,42 @@ const CategoryRail = memo(({
   displayCategories,
   showCategorySkeleton,
   navigate,
+  setShowAllCategoriesModal,
   backendOrigin = ""
 }) => {
+  const openAllCategories = () => {
+    if (typeof setShowAllCategoriesModal === "function") {
+      setShowAllCategoriesModal(true);
+      return;
+    }
+    navigate("/user/categories");
+  };
+
   return (
-    <section className="mt-5 px-4" data-purpose="mind-categories">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-base font-extrabold text-gray-900 dark:text-white tracking-tight">What's on your mind?</h3>
-        <span className="text-[11px] font-bold text-[#FF6A00] cursor-pointer hover:underline" onClick={() => navigate("/user/categories")}>See all</span>
+    <section className="mt-4 px-3 sm:mt-5 sm:px-4" data-purpose="mind-categories">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h3 className="min-w-0 truncate text-[15px] font-extrabold tracking-tight text-gray-900 dark:text-white sm:text-base">
+          What's on your mind?
+        </h3>
+        <button
+          type="button"
+          className="shrink-0 rounded-full bg-orange-50 px-3 py-1 text-[11px] font-black text-[#FF6A00] transition active:scale-95 dark:bg-[#FF6A00]/10"
+          onClick={openAllCategories}
+        >
+          See all
+        </button>
       </div>
 
-      <div className="flex overflow-x-auto gap-3 pb-2 scrollbar-none" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
+      <div
+        className="-mx-3 flex snap-x gap-3 overflow-x-auto px-3 pb-2 scrollbar-none sm:-mx-4 sm:px-4"
+        style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+      >
         {/* Offers Card */}
         <div
-          className="flex-shrink-0 flex flex-col items-center gap-2 cursor-pointer group"
+          className="group flex w-[64px] shrink-0 snap-start cursor-pointer flex-col items-center gap-1.5 sm:w-[74px] sm:gap-2"
           onClick={() => navigate("/user/under-250")}
         >
-          <div className="w-[70px] h-[70px] rounded-2xl overflow-hidden shadow-sm border border-[#FF6A00]/20 transition-all duration-300 group-hover:scale-105 group-hover:shadow-[0_6px_18px_rgba(255,106,0,0.18)]">
+          <div className="h-16 w-16 overflow-hidden rounded-2xl border border-[#FF6A00]/20 shadow-sm transition-all duration-300 group-hover:scale-105 group-hover:shadow-[0_6px_18px_rgba(255,106,0,0.18)] sm:h-[74px] sm:w-[74px]">
             <div className="bg-gradient-to-br from-[#FF6A00] to-[#C84B00] w-full h-full flex flex-col items-center justify-center text-white">
               <span className="text-[8px] font-black uppercase tracking-wider opacity-90">Under</span>
               <span className="text-base font-black tracking-tight leading-none">₹250</span>
@@ -38,9 +58,9 @@ const CategoryRail = memo(({
           <Link
             key={category.id || index}
             to={`/user/category/${category.slug || category.name.toLowerCase().replace(/\s+/g, "-")}`}
-            className="flex-shrink-0 flex flex-col items-center gap-2 group"
+            className="group flex w-[64px] shrink-0 snap-start flex-col items-center gap-1.5 sm:w-[74px] sm:gap-2"
           >
-            <div className="w-[70px] h-[70px] rounded-2xl overflow-hidden border border-gray-100 dark:border-gray-800 shadow-sm transition-all duration-300 group-hover:scale-105 group-hover:shadow-[0_6px_18px_rgba(255,106,0,0.12)] group-hover:border-[#FF6A00]/30 bg-gray-50 dark:bg-gray-900">
+            <div className="h-16 w-16 overflow-hidden rounded-2xl border border-gray-100 bg-gray-50 shadow-sm transition-all duration-300 group-hover:scale-105 group-hover:border-[#FF6A00]/30 group-hover:shadow-[0_6px_18px_rgba(255,106,0,0.12)] dark:border-gray-800 dark:bg-gray-900 sm:h-[74px] sm:w-[74px]">
               <OptimizedImage
                 src={category.image}
                 alt={category.name}
@@ -48,7 +68,7 @@ const CategoryRail = memo(({
                 backendOrigin={backendOrigin}
               />
             </div>
-            <span className="text-[11px] font-bold text-gray-600 dark:text-gray-400 truncate max-w-[70px] text-center group-hover:text-[#FF6A00] transition-colors">
+            <span className="line-clamp-2 max-w-full text-center text-[10px] font-bold leading-tight text-gray-600 transition-colors group-hover:text-[#FF6A00] dark:text-gray-400 sm:text-[11px]">
               {category.name}
             </span>
           </Link>

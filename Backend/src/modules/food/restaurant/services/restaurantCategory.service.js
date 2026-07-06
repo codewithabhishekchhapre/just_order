@@ -243,6 +243,16 @@ export async function updateRestaurantCategory(restaurantId, id, body = {}) {
     const doc = await FoodCategory.findOne({ _id: id, restaurantId: context.restaurantId });
     if (!doc) return null;
 
+    const approvalBeforeEdit = String(doc.approvalStatus || '').trim();
+    const beforeEditSnapshot = {
+        name: doc.name || '',
+        image: doc.image || '',
+        type: doc.type || '',
+        foodTypeScope: doc.foodTypeScope || 'Both'
+    };
+
+    let needsApproval = false;
+
     const nextFoodTypeScope = body.foodTypeScope !== undefined
         ? normalizeCategoryFoodTypeScope(body.foodTypeScope, '')
         : normalizeCategoryFoodTypeScope(doc.foodTypeScope, 'Both');
@@ -257,10 +267,25 @@ export async function updateRestaurantCategory(restaurantId, id, body = {}) {
         const name = String(body.name || '').trim();
         if (!name) throw new ValidationError('Category name is required');
         if (name.length > 200) throw new ValidationError('Category name is too long');
-        doc.name = name;
+        if (doc.name !== name) {
+            doc.name = name;
+            needsApproval = true;
+        }
     }
-    if (body.image !== undefined) doc.image = String(body.image || '').trim();
-    if (body.type !== undefined) doc.type = String(body.type || '').trim();
+    if (body.image !== undefined) {
+        const image = String(body.image || '').trim();
+        if (doc.image !== image) {
+            doc.image = image;
+            needsApproval = true;
+        }
+    }
+    if (body.type !== undefined) {
+        const type = String(body.type || '').trim();
+        if (doc.type !== type) {
+            doc.type = type;
+            needsApproval = true;
+        }
+    }
     if (body.isActive !== undefined) doc.isActive = body.isActive !== false;
     if (body.sortOrder !== undefined) doc.sortOrder = Number(body.sortOrder) || 0;
     if (body.foodTypeScope !== undefined) {
@@ -273,16 +298,27 @@ export async function updateRestaurantCategory(restaurantId, id, body = {}) {
         if (incompatibleFoods > 0) {
             throw new ValidationError(`This category already has ${incompatibleFoods} food item(s) outside the selected diet type`);
         }
-        doc.foodTypeScope = nextFoodTypeScope;
+        if (doc.foodTypeScope !== nextFoodTypeScope) {
+            doc.foodTypeScope = nextFoodTypeScope;
+            needsApproval = true;
+        }
     }
 
     doc.createdByRestaurantId = doc.createdByRestaurantId || context.restaurantId;
-    doc.approvalStatus = 'pending';
-    doc.isApproved = false;
-    doc.rejectionReason = '';
-    doc.requestedAt = new Date();
-    doc.approvedAt = undefined;
-    doc.rejectedAt = undefined;
+    
+    if (needsApproval) {
+        doc.approvalStatus = 'pending';
+        doc.isApproved = false;
+        doc.rejectionReason = '';
+        doc.requestedAt = new Date();
+        doc.approvedAt = undefined;
+        doc.rejectedAt = undefined;
+        // Capture the pre-edit snapshot whenever a restaurant resubmits from an
+        // approved or rejected state so admin can review exactly what changed.
+        if (approvalBeforeEdit === 'approved' || approvalBeforeEdit === 'rejected') {
+            doc.previousApproved = beforeEditSnapshot;
+        }
+    }
 
     await doc.save();
     return doc.toObject();

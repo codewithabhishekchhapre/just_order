@@ -909,6 +909,16 @@ export async function createOrUpdateFeeSettings(req, res, next) {
     }
 }
 
+// Public (user-facing, no admin auth) - powers the cart's delivery-speed selector.
+export async function getPublicFeeSummary(req, res, next) {
+    try {
+        const data = await adminService.getPublicFeeSummary();
+        res.status(200).json({ success: true, message: 'Fee summary fetched successfully', data });
+    } catch (error) {
+        next(error);
+    }
+}
+
 // ----- Referral Settings (admin) -----
 export async function getReferralSettings(req, res, next) {
     try {
@@ -1002,6 +1012,79 @@ export async function createRestaurant(req, res, next) {
             success: true,
             message: 'Restaurant created successfully',
             data: restaurant
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function saveRestaurantDraft(req, res, next) {
+    try {
+        const performer = await resolveActionPerformerSnapshot(req.user);
+        const restaurant = await adminService.saveRestaurantDraftByAdmin(req.body || {}, performer);
+        res.status(200).json({
+            success: true,
+            message: 'Restaurant draft saved successfully',
+            data: { restaurant, draft: restaurant }
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function getRestaurantDraft(req, res, next) {
+    try {
+        const performer = await resolveActionPerformerSnapshot(req.user);
+        const restaurant = await adminService.getRestaurantDraftByAdmin(req.query || {}, performer);
+        if (!restaurant) {
+            return res.status(404).json({
+                success: false,
+                message: 'Restaurant draft not found'
+            });
+        }
+        res.status(200).json({
+            success: true,
+            message: 'Restaurant draft fetched successfully',
+            data: { restaurant, draft: restaurant }
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function finalizeRestaurantDraft(req, res, next) {
+    try {
+        const performer = await resolveActionPerformerSnapshot(req.user);
+        const restaurant = await adminService.finalizeRestaurantDraftByAdmin(req.params.id, performer);
+        if (!restaurant) {
+            return res.status(404).json({
+                success: false,
+                message: 'Restaurant draft not found'
+            });
+        }
+        res.status(200).json({
+            success: true,
+            message: 'Restaurant draft finalized successfully',
+            data: { restaurant }
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function discardRestaurantDraft(req, res, next) {
+    try {
+        const restaurant = await adminService.discardRestaurantDraftByAdmin(req.params.id);
+        if (!restaurant) {
+            return res.status(404).json({
+                success: false,
+                message: 'Restaurant draft not found'
+            });
+        }
+        res.status(200).json({
+            success: true,
+            message: 'Restaurant draft discarded successfully',
+            data: { restaurant }
         });
     } catch (error) {
         next(error);

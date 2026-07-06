@@ -272,6 +272,32 @@ const restaurantSchema = new mongoose.Schema(
       max: 5,
       default: 1,
     },
+    onboardingSource: {
+      type: String,
+      enum: ["restaurant", "admin"],
+      default: "restaurant",
+      index: true,
+    },
+    onboardingDraftCreatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+      index: true,
+    },
+    showRestaurantToUsersWithoutItems: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    isVisibleToUsers: {
+      type: Boolean,
+      default: true,
+      index: true,
+    },
+    hasHadActiveItems: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
     approvedAt: { type: Date, default: null },
     rejectedAt: { type: Date, default: null },
     approvedBy: { type: actionPerformerSchema, default: null },
@@ -310,7 +336,7 @@ const restaurantSchema = new mongoose.Schema(
     },
     commissionPercentage: {
       type: Number,
-      default: 0,
+      default: 15,
       min: 0,
       max: 100
     },

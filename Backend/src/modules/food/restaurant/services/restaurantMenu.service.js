@@ -20,7 +20,7 @@ const buildMenuFromFoods = async (foods = []) => {
 
     const categoryDocs = categoryIds.length
         ? await FoodCategory.find({ _id: { $in: categoryIds } })
-            .select('name image sortOrder')
+            .select('name image sortOrder isActive')
             .lean()
         : [];
     const categoryMap = new Map(categoryDocs.map((doc) => [String(doc._id), doc]));
@@ -29,6 +29,9 @@ const buildMenuFromFoods = async (foods = []) => {
     for (const food of foods) {
         const categoryId = food?.categoryId ? String(food.categoryId) : '';
         const categoryDoc = categoryMap.get(categoryId) || null;
+        
+        if (categoryDoc && categoryDoc.isActive === false) continue;
+        
         const sectionName = (categoryDoc?.name || food?.categoryName || food?.category || 'Menu').trim() || 'Menu';
         const groupKey = categoryId || `name:${sectionName.toLowerCase()}`;
 
@@ -154,5 +157,15 @@ export async function getPublicApprovedRestaurantMenu(restaurantIdOrSlug) {
 export async function syncMenuItemApprovalStatus(restaurantId, itemId, status, rejectionReason = '') {
     // No-op in Option A (menu snapshots removed). Approval status lives only in food_items.
     // Kept to avoid breaking admin approval flows that call this helper.
-    return;
+    await invalidatePublicRestaurantMenuCache();
+}
+
+export async function invalidatePublicRestaurantMenuCache() {
+    try {
+        const { invalidateCache } = await import('../../../../middleware/cache.js');
+        await invalidateCache('restaurant_menu:*');
+    } catch (error) {
+        // eslint-disable-next-line no-console
+        console.error('Failed to invalidate restaurant menu cache:', error);
+    }
 }

@@ -109,6 +109,7 @@ export const useFoodHomeData = ({
             name: cat?.name || "",
             slug: cat?.slug || String(cat?.name || "").toLowerCase().replace(/\s+/g, "-"),
             image: normalizeImageUrl(cat?.image || cat?.imageUrl) || foodImages[idx % foodImages.length],
+            foodTypeScope: cat?.foodTypeScope || "Both",
           }));
         })(),
         publicGetOnce("/food/explore-icons/public"),
@@ -324,9 +325,8 @@ export const useFoodHomeData = ({
 
   // --- Memoized Derived Data ---
   const filteredRestaurants = useMemo(() => {
-    // If vegMode is 'pure', only show 100% vegetarian restaurants.
-    // If vegMode is 'all' or false, show all restaurants (dish level filtering handles 'all' mode).
-    let filtered = [...deferredRestaurants].filter(r => vegMode !== "pure" || r.pureVegRestaurant);
+    // If vegMode is on, only show 100% vegetarian restaurants.
+    let filtered = [...deferredRestaurants].filter(r => !vegMode || r.pureVegRestaurant);
     
     // Compute availability status for sorting rather than strictly filtering out closed ones
     filtered = filtered.map(r => {
@@ -352,13 +352,18 @@ export const useFoodHomeData = ({
     filteredRestaurants.slice(0, visibleRestaurantCount), [filteredRestaurants, visibleRestaurantCount]);
 
   const displayCategories = useMemo(() => {
-    if (realCategories.length > 0) return realCategories;
-    if (menuCategories.length > 0) return menuCategories;
-    return (landingCategories || []).map((cat, idx) => ({
-      ...cat,
-      image: normalizeImageUrl(cat.image) || foodImages[idx % foodImages.length],
-    }));
-  }, [realCategories, menuCategories, landingCategories, normalizeImageUrl]);
+    const base = realCategories.length > 0
+      ? realCategories
+      : menuCategories.length > 0
+        ? menuCategories
+        : (landingCategories || []).map((cat, idx) => ({
+          ...cat,
+          image: normalizeImageUrl(cat.image) || foodImages[idx % foodImages.length],
+        }));
+
+    if (!vegMode) return base;
+    return base.filter(cat => (cat.foodTypeScope || "Both") !== "Non-Veg");
+  }, [realCategories, menuCategories, landingCategories, normalizeImageUrl, vegMode]);
 
   const recommendedForYouRestaurants = useMemo(() => {
     const fetchedByMongoId = new Map(restaurantsData.map(r => [String(r.mongoId || r.id), r]));

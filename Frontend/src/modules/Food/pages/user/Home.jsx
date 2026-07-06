@@ -509,17 +509,21 @@ export default function Home() {
         {showAllCategoriesModal && (
           <div className="fixed inset-0 z-[9999] flex flex-col bg-white dark:bg-[#1a1a1a]">
             <HomeHeader embedded location={location} savedAddressText="All Categories" handleLocationClick={() => setShowAllCategoriesModal(false)} />
-            <div className="flex-1 overflow-y-auto p-6 grid grid-cols-3 gap-6">
-              {categories.display.map(cat => (
-                <Link key={cat.id} to={`/user/category/${cat.slug}`} className="flex flex-col items-center gap-2" onClick={() => setShowAllCategoriesModal(false)}>
-                  <div className="w-20 h-20 rounded-full overflow-hidden shadow-sm bg-gray-50">
-                    <OptimizedImage src={cat.image} className="w-full h-full object-cover" backendOrigin={BACKEND_ORIGIN} />
-                  </div>
-                  <span className="text-xs font-semibold text-center">{cat.name}</span>
-                </Link>
-              ))}
+            <div className="flex-1 overflow-y-auto px-4 pb-24 pt-4 sm:px-6">
+              <div className="grid grid-cols-3 gap-x-3 gap-y-5 min-[430px]:grid-cols-4 sm:grid-cols-4 sm:gap-x-5 sm:gap-y-6 md:grid-cols-5 lg:grid-cols-6">
+                {categories.display.map(cat => (
+                  <Link key={cat.id} to={`/user/category/${cat.slug}`} className="flex min-w-0 flex-col items-center gap-2" onClick={() => setShowAllCategoriesModal(false)}>
+                    <div className="h-16 w-16 overflow-hidden rounded-2xl bg-gray-50 shadow-sm ring-1 ring-gray-100 dark:bg-gray-900 dark:ring-gray-800 sm:h-20 sm:w-20">
+                      <OptimizedImage src={cat.image} className="w-full h-full object-cover" backendOrigin={BACKEND_ORIGIN} />
+                    </div>
+                    <span className="line-clamp-2 max-w-full text-center text-[11px] font-bold leading-tight text-gray-700 dark:text-gray-300 sm:text-xs">{cat.name}</span>
+                  </Link>
+                ))}
+              </div>
             </div>
-            <Button className="m-6 rounded-2xl" variant="secondary" onClick={() => setShowAllCategoriesModal(false)}>Close</Button>
+            <div className="fixed bottom-0 left-0 right-0 border-t border-gray-100 bg-white/95 p-4 backdrop-blur dark:border-gray-800 dark:bg-[#1a1a1a]/95">
+              <Button className="h-12 w-full rounded-2xl font-bold" variant="secondary" onClick={() => setShowAllCategoriesModal(false)}>Close</Button>
+            </div>
           </div>
         )}
       </AnimatePresence>

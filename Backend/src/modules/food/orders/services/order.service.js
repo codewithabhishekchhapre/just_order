@@ -8,6 +8,8 @@ import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { FoodDeliveryPartner } from '../../delivery/models/deliveryPartner.model.js';
 import { FoodZone } from '../../admin/models/zone.model.js';
 import { FoodFeeSettings } from '../../admin/models/feeSettings.model.js';
+import { resolveDeliverySpeedOptions, pickDeliverySpeedOption } from '../../admin/utils/deliverySpeedDefaults.js';
+import { resolveRestaurantCommissionPercentage } from '../../shared/restaurantCommissionDefaults.js';
 import { ValidationError, ForbiddenError, NotFoundError } from '../../../../core/auth/errors.js';
 import { buildPaginationOptions, buildPaginatedResult } from '../../../../utils/helpers.js';
 import { FoodOffer } from '../../admin/models/offer.model.js';
@@ -377,6 +379,7 @@ function normalizeFoodFeeSettings(feeDoc = null) {
   feeSettings.deliveryDistanceSlabs = Array.isArray(feeSettings.deliveryDistanceSlabs)
     ? feeSettings.deliveryDistanceSlabs
     : [];
+  feeSettings.deliverySpeedOptions = resolveDeliverySpeedOptions(feeDoc);
 
   return feeSettings;
 }
@@ -590,7 +593,7 @@ async function fetchPickupSourcesByType(items = []) {
       status: restaurant.status,
       location: restaurant.location,
       zoneId: restaurant.zoneId || null,
-      commissionPercentage: restaurant.commissionPercentage || 0,
+      commissionPercentage: resolveRestaurantCommissionPercentage(restaurant.commissionPercentage),
       address:
         restaurant.location?.address ||
         restaurant.location?.formattedAddress ||
@@ -2027,9 +2030,22 @@ export async function calculateOrder(userId, dto) {
     orderType === "mixed" ? deliveryFee + quickDeliveryFee : deliveryFee;
   const selectedDeliveryFee =
     orderType === "mixed" ? normalDeliveryFee : deliveryFee;
+
+  // Delivery speed tier (Eco/Standard/Express) - food orders only. Rider payout
+  // (deliveryFee/totalDeliveryFee/restaurantDeliveryFee above) is untouched;
+  // this is a separate customer-facing surcharge for faster handling.
+  const deliverySpeedOptionsList = orderType === "food" ? feeSettings.deliverySpeedOptions : [];
+  const selectedDeliverySpeedOption =
+    orderType === "food"
+      ? pickDeliverySpeedOption(deliverySpeedOptionsList, dto.deliveryFleet)
+      : null;
+  const deliverySpeedFee = selectedDeliverySpeedOption
+    ? Number(selectedDeliverySpeedOption.extraFee || 0)
+    : 0;
+
   const total = Math.max(
     0,
-    subtotal + packagingFee + selectedDeliveryFee + platformFee + tax - discount,
+    subtotal + packagingFee + selectedDeliveryFee + deliverySpeedFee + platformFee + tax - discount,
   );
   const deliveryOptions =
     orderType === "mixed" && eligibility.eligible
@@ -2088,6 +2104,35 @@ export async function calculateOrder(userId, dto) {
         orderType === "food" ? deliverySponsorType : "USER_FULL",
       platformFee,
       discount,
+      deliverySpeedFee,
+      deliverySpeed: selectedDeliverySpeedOption
+        ? {
+            code: selectedDeliverySpeedOption.code,
+            label: selectedDeliverySpeedOption.label,
+            fee: deliverySpeedFee,
+            etaMinutesMin: selectedDeliverySpeedOption.etaMinutesMin,
+            etaMinutesMax: selectedDeliverySpeedOption.etaMinutesMax,
+          }
+        : null,
+      deliverySpeedOptions: deliverySpeedOptionsList.map((option) => ({
+        code: option.code,
+        label: option.label,
+        description: option.description || "",
+        fee: Number(option.extraFee || 0),
+        etaMinutesMin: option.etaMinutesMin,
+        etaMinutesMax: option.etaMinutesMax,
+        isDefault: Boolean(option.isDefault),
+        total: Math.max(
+          0,
+          subtotal +
+            packagingFee +
+            selectedDeliveryFee +
+            Number(option.extraFee || 0) +
+            platformFee +
+            tax -
+            discount,
+        ),
+      })),
       total,
       currency: "INR",
         couponCode: appliedCoupon?.code || codeRaw || null,
@@ -2203,7 +2248,9 @@ export async function createOrder(userId, dto) {
     if (!Number.isFinite(price) || !Number.isFinite(qty)) return sum;
     return sum + Math.max(0, price) * Math.max(0, qty);
   }, 0);
-  const commissionPercentage = primaryRestaurant ? Number(primaryRestaurant.commissionPercentage || 0) : 0;
+  const commissionPercentage = primaryRestaurant
+    ? resolveRestaurantCommissionPercentage(primaryRestaurant.commissionPercentage)
+    : resolveRestaurantCommissionPercentage(0);
   const restaurantCommission = Math.round(computedSubtotal * (commissionPercentage / 100) * 100) / 100;
 
   const normalizedPricing = {
@@ -2230,6 +2277,21 @@ export async function createOrder(userId, dto) {
     ),
     platformFee: Number(dto.pricing?.platformFee ?? 0),
     discount: Number(dto.pricing?.discount ?? 0),
+    deliverySpeedFee: Number(dto.pricing?.deliverySpeedFee ?? dto.pricing?.deliverySpeed?.fee ?? 0),
+    deliverySpeed: dto.pricing?.deliverySpeed
+      ? {
+          code: String(dto.pricing.deliverySpeed.code || ""),
+          label: String(dto.pricing.deliverySpeed.label || ""),
+          etaMinutesMin:
+            dto.pricing.deliverySpeed.etaMinutesMin == null
+              ? null
+              : Number(dto.pricing.deliverySpeed.etaMinutesMin),
+          etaMinutesMax:
+            dto.pricing.deliverySpeed.etaMinutesMax == null
+              ? null
+              : Number(dto.pricing.deliverySpeed.etaMinutesMax),
+        }
+      : undefined,
     restaurantCommissionPercentage: Number(dto.pricing?.restaurantCommissionPercentage ?? commissionPercentage),
     restaurantCommission: Number(dto.pricing?.restaurantCommission ?? restaurantCommission),
     total: Number(dto.pricing?.total ?? 0),
@@ -2287,6 +2349,9 @@ export async function createOrder(userId, dto) {
         : 0) +
       (Number.isFinite(normalizedPricing.platformFee)
         ? normalizedPricing.platformFee
+        : 0) +
+      (Number.isFinite(normalizedPricing.deliverySpeedFee)
+        ? normalizedPricing.deliverySpeedFee
         : 0) -
       (Number.isFinite(normalizedPricing.discount)
         ? normalizedPricing.discount

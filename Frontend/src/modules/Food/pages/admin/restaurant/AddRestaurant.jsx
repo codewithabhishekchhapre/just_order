@@ -7,6 +7,11 @@ import { Input } from "@food/components/ui/input"
 import { Label } from "@food/components/ui/label"
 import { Button } from "@food/components/ui/button"
 import { adminAPI, uploadAPI, zoneAPI } from "@food/api"
+import {
+  filterValidOnboardingImages,
+  ONBOARDING_IMAGE_ACCEPT,
+  validateOnboardingImageFile,
+} from "@food/utils/onboardingImageValidation"
 import { toast } from "sonner"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => { console.warn(...args) }
@@ -72,87 +77,8 @@ const isUploadableFile = (value) => {
   )
 }
 
-const ADMIN_ADD_STORAGE_KEY = "admin_add_restaurant_form_data"
-const ADMIN_ADD_FILES_DB = "AdminAddRestaurantFiles"
-const ADMIN_ADD_FILES_STORE = "files"
 const MAX_MENU_FILES = 10
-
-const openAdminAddFilesDB = () =>
-  new Promise((resolve, reject) => {
-    try {
-      const request = indexedDB.open(ADMIN_ADD_FILES_DB, 1)
-      request.onupgradeneeded = (e) => {
-        const db = e.target.result
-        if (!db.objectStoreNames.contains(ADMIN_ADD_FILES_STORE)) {
-          db.createObjectStore(ADMIN_ADD_FILES_STORE)
-        }
-      }
-      request.onsuccess = (e) => resolve(e.target.result)
-      request.onerror = (e) => reject(e.target.error)
-    } catch (err) {
-      reject(err)
-    }
-  })
-
-const saveFileToDB = async (key, file) => {
-  if (!isUploadableFile(file)) return
-  try {
-    const db = await openAdminAddFilesDB()
-    const tx = db.transaction(ADMIN_ADD_FILES_STORE, "readwrite")
-    tx.objectStore(ADMIN_ADD_FILES_STORE).put(file, key)
-    await new Promise((resolve, reject) => {
-      tx.oncomplete = () => resolve(true)
-      tx.onerror = () => reject(tx.error || new Error("IndexedDB write failed"))
-      tx.onabort = () => reject(tx.error || new Error("IndexedDB write aborted"))
-    })
-  } catch (err) {
-    debugError("Failed to persist file in IndexedDB:", err)
-  }
-}
-
-const getFileFromDB = async (key) => {
-  try {
-    const db = await openAdminAddFilesDB()
-    const tx = db.transaction(ADMIN_ADD_FILES_STORE, "readonly")
-    const request = tx.objectStore(ADMIN_ADD_FILES_STORE).get(key)
-    return new Promise((resolve) => {
-      request.onsuccess = () => resolve(request.result)
-      request.onerror = () => resolve(null)
-    })
-  } catch {
-    return null
-  }
-}
-
-const deleteFileFromDB = async (key) => {
-  try {
-    const db = await openAdminAddFilesDB()
-    const tx = db.transaction(ADMIN_ADD_FILES_STORE, "readwrite")
-    tx.objectStore(ADMIN_ADD_FILES_STORE).delete(key)
-    await new Promise((resolve, reject) => {
-      tx.oncomplete = () => resolve(true)
-      tx.onerror = () => reject(tx.error || new Error("IndexedDB delete failed"))
-      tx.onabort = () => reject(tx.error || new Error("IndexedDB delete aborted"))
-    })
-  } catch (err) {
-    debugError("Failed to delete file from IndexedDB:", err)
-  }
-}
-
-const clearAllFilesFromDB = async () => {
-  try {
-    const db = await openAdminAddFilesDB()
-    const tx = db.transaction(ADMIN_ADD_FILES_STORE, "readwrite")
-    tx.objectStore(ADMIN_ADD_FILES_STORE).clear()
-    await new Promise((resolve, reject) => {
-      tx.oncomplete = () => resolve(true)
-      tx.onerror = () => reject(tx.error || new Error("IndexedDB clear failed"))
-      tx.onabort = () => reject(tx.error || new Error("IndexedDB clear aborted"))
-    })
-  } catch (err) {
-    debugError("Failed to clear IndexedDB files:", err)
-  }
-}
+const IMAGE_FILE_ACCEPT = ONBOARDING_IMAGE_ACCEPT
 
 const defaultDayTimings = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(day => ({
   day,
@@ -170,6 +96,7 @@ export default function AddRestaurant() {
   const [zones, setZones] = useState([])
   const [zonesLoading, setZonesLoading] = useState(false)
   const [isHydrated, setIsHydrated] = useState(false)
+  const [draftId, setDraftId] = useState("")
 
   // Step 1: Basic Info
   const [step1, setStep1] = useState({
@@ -204,6 +131,7 @@ export default function AddRestaurant() {
     closingTime: "",
     openDays: [],
     dayTimings: defaultDayTimings,
+    showRestaurantToUsersWithoutItems: false,
   })
 
   // Step 3: Documents
@@ -237,12 +165,14 @@ export default function AddRestaurant() {
   const mainContentRef = useRef(null)
 
   const clearPersistedFormData = async () => {
+    if (!draftId) return
     try {
-      localStorage.removeItem(ADMIN_ADD_STORAGE_KEY)
+      await adminAPI.discardRestaurantDraft(draftId)
     } catch (err) {
-      debugError("Failed to clear localStorage form cache:", err)
+      if (err?.response?.status !== 404) {
+        debugError("Failed to discard restaurant draft:", err)
+      }
     }
-    await clearAllFilesFromDB()
   }
 
   useEffect(() => {
@@ -250,47 +180,70 @@ export default function AddRestaurant() {
 
     const restoreFormData = async () => {
       try {
-        const storedRaw = localStorage.getItem(ADMIN_ADD_STORAGE_KEY)
-        if (storedRaw) {
-          const parsed = JSON.parse(storedRaw)
-          const safeStep = Math.min(Math.max(Number(parsed?.step) || 1, 1), 3)
-          if (!cancelled) setStep(safeStep)
-          if (parsed?.step1 && !cancelled) {
-            setStep1((prev) => ({ ...prev, ...parsed.step1, location: { ...prev.location, ...(parsed.step1.location || {}) } }))
-          }
-          if (parsed?.step2 && !cancelled) {
-            setStep2({
-              ...parsed.step2,
-              menuImages: [],
-              profileImage: null,
-              dayTimings: Array.isArray(parsed.step2.dayTimings) && parsed.step2.dayTimings.length > 0 ? parsed.step2.dayTimings : defaultDayTimings
-            })
-          }
-          if (parsed?.step3 && !cancelled) {
-            setStep3((prev) => ({ ...prev, ...parsed.step3 }))
-          }
-        }
+        const res = await adminAPI.getRestaurantDraft()
+        const draft = res?.data?.data?.restaurant || res?.data?.data?.draft || res?.data?.restaurant || null
+        if (!draft || cancelled) return
 
-        const [profileImage, panImage, gstImage, fssaiImage] = await Promise.all([
-          getFileFromDB("profileImage"),
-          getFileFromDB("panImage"),
-          getFileFromDB("gstImage"),
-          getFileFromDB("fssaiImage"),
-        ])
-        const menuFilePromises = Array.from({ length: MAX_MENU_FILES }, (_, i) => getFileFromDB(`menuImage_${i}`))
-        const menuFilesFromDB = (await Promise.all(menuFilePromises)).filter(Boolean)
-
-        if (!cancelled) {
-          if (profileImage) setStep2((prev) => ({ ...prev, profileImage }))
-          if (menuFilesFromDB.length) {
-            setStep2((prev) => ({ ...prev, menuImages: [...(prev.menuImages || []), ...menuFilesFromDB] }))
-          }
-          if (panImage) setStep3((prev) => ({ ...prev, panImage }))
-          if (gstImage) setStep3((prev) => ({ ...prev, gstImage }))
-          if (fssaiImage) setStep3((prev) => ({ ...prev, fssaiImage }))
-        }
+        setDraftId(String(draft._id || draft.id || ""))
+        setStep(Math.min(Math.max(Number(draft.onboardingStep || 1), 1), 3))
+        setStep1((prev) => ({
+          ...prev,
+          restaurantName: draft.restaurantName || draft.name || "",
+          pureVegRestaurant: typeof draft.pureVegRestaurant === "boolean" ? draft.pureVegRestaurant : null,
+          ownerName: draft.ownerName || "",
+          ownerEmail: draft.ownerEmail || "",
+          ownerPhone: draft.ownerPhone || "",
+          primaryContactNumber: draft.primaryContactNumber || draft.ownerPhone || "",
+          zoneId: String(draft.zoneId?._id || draft.zoneId || ""),
+          location: {
+            ...prev.location,
+            addressLine1: draft.location?.addressLine1 || draft.location?.address || "",
+            addressLine2: draft.location?.addressLine2 || "",
+            area: draft.location?.area || "",
+            city: draft.location?.city || "",
+            state: draft.location?.state || "",
+            pincode: draft.location?.pincode || "",
+            landmark: draft.location?.landmark || "",
+            formattedAddress: draft.location?.formattedAddress || draft.location?.address || "",
+            latitude: draft.location?.latitude ?? draft.location?.coordinates?.[1] ?? "",
+            longitude: draft.location?.longitude ?? draft.location?.coordinates?.[0] ?? "",
+          },
+        }))
+        setStep2((prev) => ({
+          ...prev,
+          menuImages: Array.isArray(draft.menuImages) ? draft.menuImages : [],
+          profileImage: draft.profileImage || null,
+          cuisines: Array.isArray(draft.cuisines) ? draft.cuisines : [],
+          estimatedDeliveryTime: draft.estimatedDeliveryTime || "",
+          openingTime: draft.openingTime || "",
+          closingTime: draft.closingTime || "",
+          openDays: Array.isArray(draft.openDays) ? draft.openDays : [],
+          showRestaurantToUsersWithoutItems: !!draft.showRestaurantToUsersWithoutItems,
+          dayTimings: Array.isArray(draft.dayTimings) && draft.dayTimings.length > 0 ? draft.dayTimings : defaultDayTimings,
+        }))
+        setStep3((prev) => ({
+          ...prev,
+          panNumber: draft.panNumber || "",
+          nameOnPan: draft.nameOnPan || "",
+          panImage: draft.panImage || null,
+          gstRegistered: !!draft.gstRegistered,
+          gstNumber: draft.gstNumber || "",
+          gstLegalName: draft.gstLegalName || "",
+          gstAddress: draft.gstAddress || "",
+          gstImage: draft.gstImage || null,
+          fssaiNumber: draft.fssaiNumber || "",
+          fssaiExpiry: draft.fssaiExpiry ? String(draft.fssaiExpiry).slice(0, 10) : "",
+          fssaiImage: draft.fssaiImage || null,
+          accountNumber: draft.accountNumber || "",
+          confirmAccountNumber: draft.accountNumber || "",
+          ifscCode: draft.ifscCode || "",
+          accountHolderName: draft.accountHolderName || "",
+          accountType: draft.accountType || "",
+        }))
       } catch (err) {
-        debugError("Failed to restore admin add form data:", err)
+        if (err?.response?.status !== 404) {
+          debugError("Failed to restore admin restaurant draft:", err)
+        }
       } finally {
         if (!cancelled) setIsHydrated(true)
       }
@@ -302,102 +255,6 @@ export default function AddRestaurant() {
       cancelled = true
     }
   }, [])
-
-  useEffect(() => {
-    if (!isHydrated) return
-    try {
-      const serializableStep2 = {
-        ...step2,
-        menuImages: (step2.menuImages || []).filter(
-          (img) => !isUploadableFile(img) && (img?.url || (typeof img === "string" && img.trim()))
-        ),
-        profileImage:
-          !isUploadableFile(step2.profileImage) &&
-          (step2.profileImage?.url || (typeof step2.profileImage === "string" && step2.profileImage.trim()))
-            ? step2.profileImage
-            : null,
-      }
-
-      const serializableStep3 = {
-        ...step3,
-        panImage:
-          !isUploadableFile(step3.panImage) &&
-          (step3.panImage?.url || (typeof step3.panImage === "string" && step3.panImage.trim()))
-            ? step3.panImage
-            : null,
-        gstImage:
-          !isUploadableFile(step3.gstImage) &&
-          (step3.gstImage?.url || (typeof step3.gstImage === "string" && step3.gstImage.trim()))
-            ? step3.gstImage
-            : null,
-        fssaiImage:
-          !isUploadableFile(step3.fssaiImage) &&
-          (step3.fssaiImage?.url || (typeof step3.fssaiImage === "string" && step3.fssaiImage.trim()))
-            ? step3.fssaiImage
-            : null,
-      }
-
-      localStorage.setItem(
-        ADMIN_ADD_STORAGE_KEY,
-        JSON.stringify({
-          step,
-          step1,
-          step2: serializableStep2,
-          step3: serializableStep3,
-          timestamp: Date.now(),
-        })
-      )
-    } catch (err) {
-      debugError("Failed to persist admin add form data:", err)
-    }
-  }, [isHydrated, step, step1, step2, step3])
-
-  useEffect(() => {
-    if (!isHydrated) return
-    const uploadableMenuFiles = (step2.menuImages || []).filter((img) => isUploadableFile(img)).slice(0, MAX_MENU_FILES)
-    uploadableMenuFiles.forEach((file, idx) => {
-      void saveFileToDB(`menuImage_${idx}`, file)
-    })
-    for (let i = uploadableMenuFiles.length; i < MAX_MENU_FILES; i += 1) {
-      void deleteFileFromDB(`menuImage_${i}`)
-    }
-  }, [isHydrated, step2.menuImages])
-
-  useEffect(() => {
-    if (!isHydrated) return
-    if (isUploadableFile(step2.profileImage)) {
-      void saveFileToDB("profileImage", step2.profileImage)
-    } else {
-      void deleteFileFromDB("profileImage")
-    }
-  }, [isHydrated, step2.profileImage])
-
-  useEffect(() => {
-    if (!isHydrated) return
-    if (isUploadableFile(step3.panImage)) {
-      void saveFileToDB("panImage", step3.panImage)
-    } else {
-      void deleteFileFromDB("panImage")
-    }
-  }, [isHydrated, step3.panImage])
-
-  useEffect(() => {
-    if (!isHydrated) return
-    if (isUploadableFile(step3.gstImage)) {
-      void saveFileToDB("gstImage", step3.gstImage)
-    } else {
-      void deleteFileFromDB("gstImage")
-    }
-  }, [isHydrated, step3.gstImage])
-
-  useEffect(() => {
-    if (!isHydrated) return
-    if (isUploadableFile(step3.fssaiImage)) {
-      void saveFileToDB("fssaiImage", step3.fssaiImage)
-    } else {
-      void deleteFileFromDB("fssaiImage")
-    }
-  }, [isHydrated, step3.fssaiImage])
 
   // Keep UX consistent: each step opens from top after Next/Back.
   useEffect(() => {
@@ -423,6 +280,118 @@ export default function AddRestaurant() {
     }
   }
 
+  const normalizeImageAsset = (value) => {
+    if (!value) return null
+    if (typeof value === "string") return value
+    if (value?.url) return value
+    return null
+  }
+
+  const resolveStep2ImagesForDraft = async () => {
+    let profileImage = normalizeImageAsset(step2.profileImage)
+    if (isUploadableFile(step2.profileImage)) {
+      profileImage = await handleUpload(step2.profileImage, "appzeto/restaurant/profile")
+    }
+
+    const menuImages = []
+    for (const image of (step2.menuImages || []).slice(0, MAX_MENU_FILES)) {
+      if (isUploadableFile(image)) {
+        menuImages.push(await handleUpload(image, "appzeto/restaurant/menu"))
+      } else {
+        const existing = normalizeImageAsset(image)
+        if (existing) menuImages.push(existing)
+      }
+    }
+
+    return { profileImage, menuImages }
+  }
+
+  const resolveStep3ImagesForDraft = async () => {
+    let panImage = normalizeImageAsset(step3.panImage)
+    if (isUploadableFile(step3.panImage)) {
+      panImage = await handleUpload(step3.panImage, "appzeto/restaurant/pan")
+    }
+
+    let gstImage = normalizeImageAsset(step3.gstImage)
+    if (step3.gstRegistered && isUploadableFile(step3.gstImage)) {
+      gstImage = await handleUpload(step3.gstImage, "appzeto/restaurant/gst")
+    }
+
+    let fssaiImage = normalizeImageAsset(step3.fssaiImage)
+    if (isUploadableFile(step3.fssaiImage)) {
+      fssaiImage = await handleUpload(step3.fssaiImage, "appzeto/restaurant/fssai")
+    }
+
+    return {
+      panImage,
+      gstImage: step3.gstRegistered ? gstImage : null,
+      fssaiImage,
+    }
+  }
+
+  const buildAdminDraftPayload = ({ onboardingStep, images = {} } = {}) => ({
+    draftId: draftId || undefined,
+    onboardingStep: onboardingStep || step,
+    step: onboardingStep || step,
+    restaurantName: step1.restaurantName,
+    pureVegRestaurant: step1.pureVegRestaurant,
+    ownerName: step1.ownerName,
+    ownerEmail: step1.ownerEmail,
+    ownerPhone: step1.ownerPhone,
+    primaryContactNumber: step1.primaryContactNumber,
+    zoneId: step1.zoneId,
+    location: step1.location,
+    menuImages: images.menuImages ?? step2.menuImages.filter((img) => !isUploadableFile(img)),
+    profileImage: images.profileImage ?? normalizeImageAsset(step2.profileImage),
+    cuisines: step2.cuisines,
+    estimatedDeliveryTime: step2.estimatedDeliveryTime,
+    openingTime: step2.openingTime,
+    closingTime: step2.closingTime,
+    openDays: step2.openDays,
+    dayTimings: step2.dayTimings,
+    showRestaurantToUsersWithoutItems: step2.showRestaurantToUsersWithoutItems,
+    panNumber: step3.panNumber,
+    nameOnPan: step3.nameOnPan,
+    panImage: images.panImage ?? normalizeImageAsset(step3.panImage),
+    gstRegistered: step3.gstRegistered,
+    gstNumber: step3.gstNumber,
+    gstLegalName: step3.gstLegalName,
+    gstAddress: step3.gstAddress,
+    gstImage: step3.gstRegistered ? (images.gstImage ?? normalizeImageAsset(step3.gstImage)) : null,
+    fssaiNumber: step3.fssaiNumber,
+    fssaiExpiry: step3.fssaiExpiry,
+    fssaiImage: images.fssaiImage ?? normalizeImageAsset(step3.fssaiImage),
+    accountNumber: step3.accountNumber,
+    ifscCode: step3.ifscCode,
+    accountHolderName: step3.accountHolderName,
+    accountType: step3.accountType,
+  })
+
+  const saveDraftStep = async (nextStep) => {
+    const images = {}
+    if (step >= 2) Object.assign(images, await resolveStep2ImagesForDraft())
+    if (step >= 3) Object.assign(images, await resolveStep3ImagesForDraft())
+    const response = await adminAPI.saveRestaurantDraft(buildAdminDraftPayload({ onboardingStep: nextStep, images }))
+    const draft = response?.data?.data?.restaurant || response?.data?.data?.draft || response?.data?.restaurant
+    if (draft?._id || draft?.id) setDraftId(String(draft._id || draft.id))
+    if (step >= 2) {
+      setStep2((prev) => ({
+        ...prev,
+        profileImage: images.profileImage ?? prev.profileImage,
+        menuImages: images.menuImages ?? prev.menuImages,
+      }))
+    }
+    if (step >= 3) {
+      setStep3((prev) => ({
+        ...prev,
+        panImage: images.panImage ?? prev.panImage,
+        gstImage: images.gstImage ?? prev.gstImage,
+        fssaiImage: images.fssaiImage ?? prev.fssaiImage,
+      }))
+    }
+    return draft
+  }
+
   // Validation functions
   const validateStep1 = () => {
     const errors = []
@@ -439,8 +408,12 @@ export default function AddRestaurant() {
     if (!step1.primaryContactNumber?.trim()) errors.push("Primary contact number is required")
     if (step1.primaryContactNumber?.trim() && !PHONE_REGEX.test(step1.primaryContactNumber.trim())) errors.push("Primary contact number must be 10 digits")
     if (!step1.zoneId?.trim()) errors.push("Service zone is required")
+    if (!step1.location?.addressLine1?.trim()) errors.push("Address line 1 is required")
     if (!step1.location?.area?.trim()) errors.push("Area/Sector/Locality is required")
     if (!step1.location?.city?.trim()) errors.push("City is required")
+    if (!step1.location?.state?.trim()) errors.push("State is required")
+    if (!/^\d{6}$/.test(step1.location?.pincode || "")) errors.push("Pincode must be exactly 6 digits")
+    if (!step1.location?.latitude || !step1.location?.longitude) errors.push("Map coordinates are required")
     return errors
   }
 
@@ -452,6 +425,9 @@ export default function AddRestaurant() {
     if (!step2.estimatedDeliveryTime?.trim()) errors.push("Estimated delivery time is required")
     const isAnyDayOpen = step2.dayTimings.some(d => d.isOpen)
     if (!isAnyDayOpen) errors.push("Please select at least one open day")
+    if (isAnyDayOpen && step2.dayTimings.some((d) => d.isOpen && (!d.openingTime || !d.closingTime))) {
+      errors.push("Opening and closing time are required for each open day")
+    }
     return errors
   }
 
@@ -498,7 +474,7 @@ export default function AddRestaurant() {
     return errors
   }
 
-  const handleNext = () => {
+  const handleNext = async () => {
     setFormErrors({})
     let validationErrors = []
 
@@ -518,9 +494,19 @@ export default function AddRestaurant() {
     }
 
     if (step < 3) {
-      setStep(step + 1)
+      setIsSubmitting(true)
+      try {
+        const nextStep = step + 1
+        await saveDraftStep(nextStep)
+        setStep(nextStep)
+      } catch (error) {
+        debugError("Failed to save restaurant draft:", error)
+        toast.error(error?.response?.data?.message || error?.message || "Failed to save restaurant draft")
+      } finally {
+        setIsSubmitting(false)
+      }
     } else {
-      handleSubmit()
+      await handleSubmit()
     }
   }
 
@@ -529,89 +515,13 @@ export default function AddRestaurant() {
     setFormErrors({})
 
     try {
-      // Upload all images first
-      let profileImageData = null
-      if (step2.profileImage instanceof File) {
-        profileImageData = await handleUpload(step2.profileImage, "appzeto/restaurant/profile")
-      } else if (step2.profileImage?.url) {
-        profileImageData = step2.profileImage
-      }
-
-      let menuImagesData = []
-      for (const file of step2.menuImages.filter(f => f instanceof File)) {
-        const uploaded = await handleUpload(file, "appzeto/restaurant/menu")
-        menuImagesData.push(uploaded)
-      }
-      const existingMenuUrls = step2.menuImages.filter(img => !(img instanceof File) && (img?.url || (typeof img === 'string' && img.startsWith('http'))))
-      menuImagesData = [...existingMenuUrls, ...menuImagesData]
-
-      let panImageData = null
-      if (step3.panImage instanceof File) {
-        panImageData = await handleUpload(step3.panImage, "appzeto/restaurant/pan")
-      } else if (step3.panImage?.url) {
-        panImageData = step3.panImage
-      }
-
-      let gstImageData = null
-      if (step3.gstRegistered && step3.gstImage) {
-        if (step3.gstImage instanceof File) {
-          gstImageData = await handleUpload(step3.gstImage, "appzeto/restaurant/gst")
-        } else if (step3.gstImage?.url) {
-          gstImageData = step3.gstImage
-        }
-      }
-
-      let fssaiImageData = null
-      if (step3.fssaiImage instanceof File) {
-        fssaiImageData = await handleUpload(step3.fssaiImage, "appzeto/restaurant/fssai")
-      } else if (step3.fssaiImage?.url) {
-        fssaiImageData = step3.fssaiImage
-      }
-
-      // Prepare payload
-      const payload = {
-        // Step 1
-        restaurantName: step1.restaurantName,
-        pureVegRestaurant: step1.pureVegRestaurant,
-        ownerName: step1.ownerName,
-        ownerEmail: step1.ownerEmail,
-        ownerPhone: step1.ownerPhone,
-        primaryContactNumber: step1.primaryContactNumber,
-        zoneId: step1.zoneId,
-        location: step1.location,
-        // Step 2
-        menuImages: menuImagesData,
-        profileImage: profileImageData,
-        cuisines: step2.cuisines,
-        estimatedDeliveryTime: step2.estimatedDeliveryTime,
-        openingTime: step2.openingTime,
-        closingTime: step2.closingTime,
-        openDays: step2.openDays,
-        dayTimings: step2.dayTimings,
-        // Step 3
-        panNumber: step3.panNumber,
-        nameOnPan: step3.nameOnPan,
-        panImage: panImageData,
-        gstRegistered: step3.gstRegistered,
-        gstNumber: step3.gstNumber,
-        gstLegalName: step3.gstLegalName,
-        gstAddress: step3.gstAddress,
-        gstImage: gstImageData,
-        fssaiNumber: step3.fssaiNumber,
-        fssaiExpiry: step3.fssaiExpiry,
-        fssaiImage: fssaiImageData,
-        accountNumber: step3.accountNumber,
-        ifscCode: step3.ifscCode,
-        accountHolderName: step3.accountHolderName,
-        accountType: step3.accountType,
-      }
-
-      // Call backend API
-      const response = await adminAPI.createRestaurant(payload)
+      const draft = await saveDraftStep(5)
+      const id = String(draft?._id || draft?.id || draftId || "")
+      if (!id) throw new Error("Draft id is required to finalize restaurant")
+      const response = await adminAPI.finalizeRestaurantDraft(id)
 
       const data = response?.data?.data ?? response?.data
       if (response?.data?.success !== false && data) {
-        await clearPersistedFormData()
         toast.success("Restaurant created successfully!")
         setShowSuccessDialog(true)
         setTimeout(() => {
@@ -1113,12 +1023,14 @@ export default function AddRestaurant() {
               id="menuImagesInput"
               type="file"
               multiple
-              accept="image/*"
+              accept={IMAGE_FILE_ACCEPT}
               className="hidden"
               onChange={(e) => {
                 const files = Array.from(e.target.files || [])
                 if (files.length) {
-                  setStep2((prev) => ({ ...prev, menuImages: [...(prev.menuImages || []), ...files] }))
+                  const { valid, errors } = filterValidOnboardingImages(files, "menu", "Menu image")
+                  errors.forEach((error) => toast.error(error))
+                  setStep2((prev) => ({ ...prev, menuImages: [...(prev.menuImages || []), ...valid].slice(0, MAX_MENU_FILES) }))
                   e.target.value = ''
                 }
               }}
@@ -1165,11 +1077,15 @@ export default function AddRestaurant() {
             <input
               id="profileImageInput"
               type="file"
-              accept="image/*"
+              accept={IMAGE_FILE_ACCEPT}
               className="hidden"
               onChange={(e) => {
                 const file = e.target.files?.[0] || null
-                if (file) setStep2((prev) => ({ ...prev, profileImage: file }))
+                if (file) {
+                  const error = validateOnboardingImageFile(file, "document", "Profile image")
+                  if (error) toast.error(error)
+                  else setStep2((prev) => ({ ...prev, profileImage: file }))
+                }
                 e.target.value = ''
               }}
             />
@@ -1201,6 +1117,38 @@ export default function AddRestaurant() {
                 </button>
               )
             })}
+          </div>
+        </div>
+
+        <div className="rounded-md border border-orange-100 bg-orange-50 p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <Label className="text-sm font-semibold text-black">
+                Show restaurant to users without items?
+              </Label>
+              <p className="mt-1 text-xs text-gray-600">
+                When enabled, the restaurant can appear to users before any active item is added.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() =>
+                setStep2((prev) => ({
+                  ...prev,
+                  showRestaurantToUsersWithoutItems: !prev.showRestaurantToUsersWithoutItems,
+                }))
+              }
+              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+                step2.showRestaurantToUsersWithoutItems ? "bg-orange-500" : "bg-gray-300"
+              }`}
+              aria-pressed={step2.showRestaurantToUsersWithoutItems}
+            >
+              <span
+                className={`block h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                  step2.showRestaurantToUsersWithoutItems ? "translate-x-5" : "translate-x-1"
+                }`}
+              />
+            </button>
           </div>
         </div>
 
@@ -1302,8 +1250,16 @@ export default function AddRestaurant() {
           <Label className="text-xs text-gray-700">PAN image*</Label>
           <Input
             type="file"
-            accept="image/*"
-            onChange={(e) => setStep3({ ...step3, panImage: e.target.files?.[0] || null })}
+            accept={IMAGE_FILE_ACCEPT}
+            onChange={(e) => {
+              const file = e.target.files?.[0] || null
+              if (file) {
+                const error = validateOnboardingImageFile(file, "document", "PAN image")
+                if (error) toast.error(error)
+                else setStep3({ ...step3, panImage: file })
+              }
+              e.target.value = ''
+            }}
             className="mt-1 bg-white text-sm text-black placeholder-black"
           />
           {step3.panImage && (
@@ -1341,7 +1297,20 @@ export default function AddRestaurant() {
             <Input value={step3.gstNumber || ""} onChange={(e) => setStep3({ ...step3, gstNumber: sanitizeGst(e.target.value) })} className="bg-white text-sm" placeholder="GST number*" maxLength={15} />
             <Input value={step3.gstLegalName || ""} onChange={(e) => setStep3({ ...step3, gstLegalName: normalizeName(e.target.value) })} className="bg-white text-sm" placeholder="Legal name*" />
             <Input value={step3.gstAddress || ""} onChange={(e) => setStep3({ ...step3, gstAddress: e.target.value })} className="bg-white text-sm" placeholder="Registered address*" />
-            <Input type="file" accept="image/*" onChange={(e) => setStep3({ ...step3, gstImage: e.target.files?.[0] || null })} className="bg-white text-sm" />
+            <Input
+              type="file"
+              accept={IMAGE_FILE_ACCEPT}
+              onChange={(e) => {
+                const file = e.target.files?.[0] || null
+                if (file) {
+                  const error = validateOnboardingImageFile(file, "document", "GST image")
+                  if (error) toast.error(error)
+                  else setStep3({ ...step3, gstImage: file })
+                }
+                e.target.value = ''
+              }}
+              className="bg-white text-sm"
+            />
             {step3.gstImage && (
               <div className="flex items-center gap-3">
                 <div className="h-14 w-14 overflow-hidden rounded-md border border-gray-200 bg-gray-50">
@@ -1370,7 +1339,20 @@ export default function AddRestaurant() {
             />
           </div>
         </div>
-        <Input type="file" accept="image/*" onChange={(e) => setStep3({ ...step3, fssaiImage: e.target.files?.[0] || null })} className="bg-white text-sm" />
+        <Input
+          type="file"
+          accept={IMAGE_FILE_ACCEPT}
+          onChange={(e) => {
+            const file = e.target.files?.[0] || null
+            if (file) {
+              const error = validateOnboardingImageFile(file, "document", "FSSAI image")
+              if (error) toast.error(error)
+              else setStep3({ ...step3, fssaiImage: file })
+            }
+            e.target.value = ''
+          }}
+          className="bg-white text-sm"
+        />
         {step3.fssaiImage && (
           <div className="flex items-center gap-3">
             <div className="h-14 w-14 overflow-hidden rounded-md border border-gray-200 bg-gray-50">

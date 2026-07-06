@@ -24,6 +24,7 @@ import BottomNavOrders from "@food/components/restaurant/BottomNavOrders"
 import { useNavigate } from "react-router-dom"
 import { restaurantAPI, uploadAPI } from "@food/api"
 import { toast } from "sonner"
+import NameSuggestionField from "@food/components/NameSuggestionField"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -98,6 +99,7 @@ export default function HubMenu() {
   const [addonImageFiles, setAddonImageFiles] = useState(new Map())
   const [uploadingAddonImages, setUploadingAddonImages] = useState(false)
   const [editingAddon, setEditingAddon] = useState(null) // Store addon being edited
+  const [isAddonNameDuplicate, setIsAddonNameDuplicate] = useState(false)
   const addonFileInputRef = useRef(null)
 
   // Restaurant info - fetch from backend
@@ -523,6 +525,10 @@ export default function HubMenu() {
       toast.error("Please enter a valid price")
       return
     }
+    if (isAddonNameDuplicate) {
+      toast.error("An add-on with this name already exists")
+      return
+    }
 
     try {
       setUploadingAddonImages(true)
@@ -650,6 +656,7 @@ export default function HubMenu() {
       setAddonImages([])
       setAddonImageFiles(new Map())
       setEditingAddon(null)
+      setIsAddonNameDuplicate(false)
       // Revoke blob URLs
       addonImages.forEach(img => {
         if (img.startsWith('blob:')) {
@@ -2251,12 +2258,15 @@ export default function HubMenu() {
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Add-on Name <span className="text-red-500">*</span>
                   </label>
-                  <input
-                    type="text"
+                  <NameSuggestionField
                     value={addonName}
-                    onChange={(e) => setAddonName(e.target.value)}
+                    onChange={setAddonName}
+                    items={addons}
+                    excludeId={editingAddon?._id || editingAddon?.id}
+                    entityLabel="add-on"
                     placeholder="e.g., Coke, Chips, Sauce"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                    inputClassName="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                    onDuplicateChange={setIsAddonNameDuplicate}
                   />
                 </div>
 
@@ -2353,7 +2363,7 @@ export default function HubMenu() {
                 </button>
                 <button
                   onClick={handleSaveAddon}
-                  disabled={!addonName.trim() || !addonPrice || uploadingAddonImages}
+                  disabled={!addonName.trim() || !addonPrice || uploadingAddonImages || isAddonNameDuplicate}
                   className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors font-medium flex items-center justify-center gap-2"
                 >
                   {uploadingAddonImages ? (

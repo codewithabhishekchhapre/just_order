@@ -166,6 +166,24 @@ export const serializeCategoryForResponse = (category = {}, options = {}) => {
         ? createdByRestaurantId === String(options.currentRestaurantId) || restaurantId === String(options.currentRestaurantId)
         : false;
 
+    const previousApproved = category?.previousApproved || null;
+    const changedFields = [];
+    if (previousApproved) {
+        const current = {
+            name: category.name || '',
+            image: category.image || '',
+            type: category.type || '',
+            foodTypeScope: normalizeCategoryFoodTypeScope(category.foodTypeScope, 'Both')
+        };
+        for (const field of ['name', 'image', 'type', 'foodTypeScope']) {
+            const before = previousApproved[field] || '';
+            const after = current[field] || '';
+            if (before !== after) {
+                changedFields.push({ field, before, after });
+            }
+        }
+    }
+
     return {
         id: category._id || category.id,
         _id: category._id || category.id,
@@ -185,6 +203,11 @@ export const serializeCategoryForResponse = (category = {}, options = {}) => {
         requestedAt: category.requestedAt || null,
         approvedAt: category.approvedAt || null,
         rejectedAt: category.rejectedAt || null,
+        previousApproved,
+        changedFields,
+        isEditOfApproved: Boolean(previousApproved),
+        isResubmission: approvalStatus === 'pending' && Boolean(previousApproved) && Boolean(restaurantId),
+        isNewSubmission: approvalStatus === 'pending' && !previousApproved && Boolean(restaurantId),
         ownedByRestaurant: isOwnedByRestaurant,
         canEdit: options.currentRestaurantId
             ? Boolean(restaurantId && restaurantId === String(options.currentRestaurantId))

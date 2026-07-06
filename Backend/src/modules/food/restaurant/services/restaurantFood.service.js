@@ -304,9 +304,27 @@ export async function updateRestaurantFood(restaurantId, foodId, body = {}) {
         update.categoryName = categoryName || '';
     }
 
-    const shouldResubmitForApproval = Object.keys(update).length > 0;
+    // Availability toggles are operational (on/off, in-stock/out-of-stock) and don't
+    // change the approved content, so they shouldn't force the item back into review.
+    const shouldResubmitForApproval = Object.keys(update).some((key) => key !== 'isAvailable');
 
     if (shouldResubmitForApproval) {
+        // Snapshot the pre-edit values whenever the item is resubmitted, whether it was
+        // previously approved or rejected, so the admin can always see what the
+        // restaurant changed since the last time they reviewed it.
+        if (existing.approvalStatus === 'approved' || existing.approvalStatus === 'rejected') {
+            update.previousApproved = {
+                name: existing.name,
+                description: existing.description,
+                price: existing.price,
+                otherPrice: existing.otherPrice,
+                image: existing.image,
+                images: existing.images,
+                foodType: existing.foodType,
+                preparationTime: existing.preparationTime,
+                variants: existing.variants
+            };
+        }
         update.approvalStatus = 'pending';
         update.requestedAt = new Date();
         update.rejectionReason = '';

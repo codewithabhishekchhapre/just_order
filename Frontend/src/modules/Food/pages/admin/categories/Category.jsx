@@ -3,7 +3,10 @@ import { createPortal } from "react-dom"
 import { AnimatePresence, motion } from "framer-motion"
 import {
   BadgeCheck,
+  ChevronLeft,
+  ChevronRight,
   Download,
+  Eye,
   Globe,
   Loader2,
   Pencil,
@@ -17,8 +20,10 @@ import { adminAPI, uploadAPI } from "@food/api"
 import { API_BASE_URL } from "@food/api/config"
 import { toast } from "sonner"
 import { useAuth } from "@core/context/AuthContext"
+import useCachedPaginatedQuery from "@food/hooks/useCachedPaginatedQuery"
 import { getCurrentUser } from "@food/utils/auth"
 import { canPerformAdminPermissionAction, extractAdminPermissions, extractAdminRoleId, fetchAdminRolePermissions } from "@food/utils/adminPermissions"
+import NameSuggestionField from "@food/components/NameSuggestionField"
 import jsPDF from "jspdf"
 import autoTable from "jspdf-autotable"
 
@@ -52,6 +57,189 @@ const zoneLabel = (zone) => {
     return value
   }
   return zone?.name || zone?.zoneName || zone?.serviceLocation || "Zone"
+}
+
+const categoryFieldLabel = (field) => {
+  if (field === "foodTypeScope") return "Diet type"
+  if (field === "image") return "Image"
+  if (field === "type") return "Category type"
+  return String(field || "").charAt(0).toUpperCase() + String(field || "").slice(1)
+}
+
+const formatDateTime = (value) => {
+  if (!value) return "—"
+  try {
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return "—"
+    return date.toLocaleString("en-IN", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    })
+  } catch {
+    return "—"
+  }
+}
+
+const DetailRow = ({ label, value, className = "" }) => (
+  <div className={`rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 sm:px-4 ${className}`}>
+    <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{label}</p>
+    <p className="mt-1 text-sm font-medium text-slate-900 break-words">{value ?? "—"}</p>
+  </div>
+)
+
+const CategoryChangesPanel = ({ category }) => {
+  const changedFields = Array.isArray(category?.changedFields) ? category.changedFields : []
+  if (!changedFields.length) return null
+
+  return (
+    <div className="mt-3 w-full max-w-full rounded-xl border border-amber-200 bg-amber-50 p-3 sm:p-4">
+      <p className="text-xs font-bold uppercase tracking-wide text-amber-800">
+        {category?.isResubmission ? "Restaurant resubmitted with updates" : "Pending changes"}
+      </p>
+      <p className="mt-1 text-xs text-amber-700">
+        Review what the restaurant changed before approving.
+      </p>
+      <ul className="mt-3 space-y-3">
+        {changedFields.map(({ field, before, after }) => (
+          <li key={field} className="rounded-lg border border-amber-200/80 bg-white/80 p-3">
+            <p className="text-xs font-semibold text-slate-700">{categoryFieldLabel(field)}</p>
+            {field === "image" ? (
+              <div className="mt-2 flex flex-wrap items-center gap-3">
+                <div className="text-center">
+                  <img src={before || "https://via.placeholder.com/64"} alt="Before" className="h-14 w-14 rounded-lg border border-slate-200 object-cover" />
+                  <p className="mt-1 text-[10px] text-slate-500">Before</p>
+                </div>
+                <span className="text-slate-400">→</span>
+                <div className="text-center">
+                  <img src={after || "https://via.placeholder.com/64"} alt="After" className="h-14 w-14 rounded-lg border border-amber-300 object-cover" />
+                  <p className="mt-1 text-[10px] font-semibold text-amber-800">After</p>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-2 flex flex-col gap-1 text-sm sm:flex-row sm:flex-wrap sm:items-center">
+                <span className="rounded-md bg-slate-100 px-2 py-1 text-slate-600 line-through">{before || "(empty)"}</span>
+                <span className="hidden text-slate-400 sm:inline">→</span>
+                <span className="rounded-md bg-amber-100 px-2 py-1 font-semibold text-amber-900">{after || "(empty)"}</span>
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+const CategoryViewDetails = ({ category }) => {
+  if (!category) return null
+
+  const approvalStatus = category?.approvalStatus || "pending"
+  const creatorName = category?.createdByRestaurant?.name || category?.restaurant?.name || "Admin"
+  const isRestaurantCategory = Boolean(category?.createdByRestaurantId || category?.restaurantId)
+  const zoneText = zoneLabel(category?.zoneId)
+  const changedFields = Array.isArray(category?.changedFields) ? category.changedFields : []
+  const previousApproved = category?.previousApproved || null
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+        <div className="mx-auto h-24 w-24 shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 sm:mx-0">
+          {category?.image ? (
+            <img src={category.image} alt={category.name} className="h-full w-full object-cover" />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center text-2xl font-bold text-slate-500">
+              {String(category?.name || "C").slice(0, 1).toUpperCase()}
+            </div>
+          )}
+        </div>
+        <div className="min-w-0 flex-1 text-center sm:text-left">
+          <h3 className="text-xl font-bold text-slate-900">{category?.name || "—"}</h3>
+          <div className="mt-2 flex flex-wrap items-center justify-center gap-2 sm:justify-start">
+            <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${approvalBadgeClass(approvalStatus)}`}>
+              {approvalStatus === "approved" && <BadgeCheck className="mr-1 h-3.5 w-3.5" />}
+              {approvalStatus.charAt(0).toUpperCase() + approvalStatus.slice(1)}
+            </span>
+            <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${scopeBadgeClass(category?.foodTypeScope)}`}>
+              {category?.foodTypeScope || "Both"}
+            </span>
+            {category?.isGlobal && (
+              <span className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-700">
+                <Globe className="mr-1 h-3.5 w-3.5" />
+                Global
+              </span>
+            )}
+          </div>
+          {category?.isNewSubmission && (
+            <p className="mt-2 text-sm text-amber-700">New restaurant category awaiting first approval.</p>
+          )}
+          {category?.isResubmission && (
+            <p className="mt-2 text-sm text-sky-700">Restaurant edited and resubmitted this category for approval.</p>
+          )}
+        </div>
+      </div>
+
+      {changedFields.length > 0 ? (
+        <CategoryChangesPanel category={category} />
+      ) : isRestaurantCategory && approvalStatus === "pending" ? (
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-600">Submitted details</p>
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <DetailRow label="Category name" value={category?.name} />
+            <DetailRow label="Category type" value={category?.type || "—"} />
+            <DetailRow label="Diet type" value={category?.foodTypeScope || "Both"} />
+            <DetailRow label="Zone" value={zoneText} />
+          </div>
+        </div>
+      ) : null}
+
+      {previousApproved && (
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-600">Previous version</p>
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <DetailRow label="Name" value={previousApproved?.name || "—"} />
+            <DetailRow label="Type" value={previousApproved?.type || "—"} />
+            <DetailRow label="Diet type" value={previousApproved?.foodTypeScope || "—"} />
+            {previousApproved?.image ? (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 sm:px-4">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Image</p>
+                <img src={previousApproved.image} alt="Previous" className="mt-2 h-16 w-16 rounded-lg border border-slate-200 object-cover" />
+              </div>
+            ) : (
+              <DetailRow label="Image" value="No image" />
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <DetailRow label="Owner" value={creatorName} />
+        <DetailRow label="Zone" value={zoneText} />
+        <DetailRow label="Category type" value={category?.type || "—"} />
+        <DetailRow label="Diet scope" value={category?.foodTypeScope || "Both"} />
+        <DetailRow label="Items linked" value={String(category?.itemCount ?? 0)} />
+        <DetailRow label="Visibility" value={category?.isGlobal ? "Global" : isRestaurantCategory ? "Restaurant private" : "Admin"} />
+        <DetailRow label="Active status" value={category?.status !== false ? "Active" : "Inactive"} />
+        <DetailRow label="Category ID" value={String(category?.id || category?._id || "—")} />
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <DetailRow label="Requested at" value={formatDateTime(category?.requestedAt)} />
+        <DetailRow label="Approved at" value={formatDateTime(category?.approvedAt)} />
+        <DetailRow label="Rejected at" value={formatDateTime(category?.rejectedAt)} />
+        <DetailRow label="Last updated" value={formatDateTime(category?.updatedAt)} />
+        <DetailRow label="Created at" value={formatDateTime(category?.createdAt)} />
+      </div>
+
+      {category?.rejectionReason && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 p-4">
+          <p className="text-xs font-bold uppercase tracking-wide text-rose-700">Rejection reason</p>
+          <p className="mt-2 text-sm leading-6 text-rose-800 whitespace-pre-wrap">{category.rejectionReason}</p>
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function Category() {
@@ -108,8 +296,6 @@ export default function Category() {
   }, [currentUser, resolvedPermissions])
 
   const [searchQuery, setSearchQuery] = useState("")
-  const [categories, setCategories] = useState([])
-  const [loading, setLoading] = useState(true)
   const [showPendingOnly, setShowPendingOnly] = useState(false)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingCategory, setEditingCategory] = useState(null)
@@ -119,16 +305,55 @@ export default function Category() {
   const [selectedImageFile, setSelectedImageFile] = useState(null)
   const [imagePreview, setImagePreview] = useState(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isNameDuplicate, setIsNameDuplicate] = useState(false)
+  const [rejectTarget, setRejectTarget] = useState(null)
+  const [rejectReason, setRejectReason] = useState("")
+  const [isRejecting, setIsRejecting] = useState(false)
+  const [viewCategory, setViewCategory] = useState(null)
   const fileInputRef = useRef(null)
+
+  const categoryQueryFilters = useMemo(
+    () => (showPendingOnly ? { approvalStatus: "pending" } : {}),
+    [showPendingOnly],
+  )
+
+  const {
+    items: categories,
+    total: totalCategories,
+    page: currentPage,
+    setPage: setCurrentPage,
+    totalPages,
+    loading,
+    search: cachedSearchQuery,
+    setSearch: setCachedSearchQuery,
+    refresh: refreshCategories,
+  } = useCachedPaginatedQuery(
+    async (params, config) => {
+      const response = await adminAPI.getCategories(params, config)
+      const data = response?.data?.data || response?.data
+      const list = data?.categories || data?.data?.categories || data?.categories || []
+      return {
+        items: Array.isArray(list) ? list : [],
+        total: data?.total || data?.pagination?.total || list.length || 0,
+      }
+    },
+    {
+      pageSize: 20,
+      filters: categoryQueryFilters,
+      cacheKey: "admin-categories",
+    },
+  )
+
+  useEffect(() => {
+    setSearchQuery(cachedSearchQuery)
+  }, [cachedSearchQuery])
 
   useEffect(() => {
     const adminToken = localStorage.getItem("admin_accessToken")
     if (!adminToken) {
       toast.error("Please login to access categories")
-      setLoading(false)
       return
     }
-    fetchCategories()
   }, [])
 
   useEffect(() => {
@@ -156,53 +381,12 @@ export default function Category() {
     }
   }, [])
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      fetchCategories()
-    }, 300)
-    return () => window.clearTimeout(timer)
-  }, [searchQuery, showPendingOnly])
-
   const filteredCategories = useMemo(() => {
-    const query = String(searchQuery || "").trim().toLowerCase()
-    if (!query) return categories
-    return categories.filter((category) => {
-      const creator = category?.createdByRestaurant?.name || category?.restaurant?.name || ""
-      return (
-        String(category?.name || "").toLowerCase().includes(query) ||
-        String(category?.foodTypeScope || "").toLowerCase().includes(query) ||
-        String(creator || "").toLowerCase().includes(query) ||
-        String(category?.id || "").toLowerCase().includes(query)
-      )
-    })
-  }, [categories, searchQuery])
+    return categories
+  }, [categories])
 
   const fetchCategories = async () => {
-    try {
-      setLoading(true)
-      const params = {}
-      if (searchQuery) params.search = searchQuery
-      if (showPendingOnly) params.approvalStatus = "pending"
-
-      const response = await adminAPI.getCategories(params)
-      const list = response?.data?.data?.categories || response?.data?.categories || []
-      setCategories(Array.isArray(list) ? list : [])
-    } catch (error) {
-      if (error?.response?.status === 401) {
-        toast.error("Authentication required. Please login again.")
-      } else if (error?.response?.status === 403) {
-        toast.error("Access denied. You do not have permission.")
-      } else if (error?.response?.status === 404) {
-        toast.error("Categories endpoint not found. Please check backend server.")
-      } else if (error?.code === "ERR_NETWORK" || error?.message === "Network Error") {
-        toast.error("Cannot connect to server. Please check if backend is running on " + API_BASE_URL.replace("/api", ""))
-      } else {
-        toast.error(error?.response?.data?.message || "Failed to load categories")
-      }
-      setCategories([])
-    } finally {
-      setLoading(false)
-    }
+    refreshCategories()
   }
 
   const resetModal = () => {
@@ -211,6 +395,7 @@ export default function Category() {
     setFormData(defaultFormData)
     setSelectedImageFile(null)
     setImagePreview(null)
+    setIsNameDuplicate(false)
     if (fileInputRef.current) fileInputRef.current.value = ""
   }
 
@@ -304,26 +489,45 @@ export default function Category() {
     }
   }
 
-  const handleReject = async (category) => {
+  const resetRejectModal = () => {
+    setRejectTarget(null)
+    setRejectReason("")
+    setIsRejecting(false)
+  }
+
+  const openRejectModal = (category) => {
     if (!canEdit) {
       toast.error("Permission denied")
       return
     }
-    const reason = window.prompt(`Reject "${category?.name}" with a reason:`)
-    if (reason == null) return
-    if (!String(reason).trim()) {
+    setRejectTarget(category)
+    setRejectReason("")
+  }
+
+  const handleReject = async (event) => {
+    event?.preventDefault?.()
+    if (!rejectTarget) return
+    const reason = String(rejectReason || "").trim()
+    if (!reason) {
       toast.error("Rejection reason is required")
       return
     }
 
     try {
-      const response = await adminAPI.rejectCategory(String(category?.id || category?._id), reason)
+      setIsRejecting(true)
+      const response = await adminAPI.rejectCategory(
+        String(rejectTarget?.id || rejectTarget?._id),
+        reason,
+      )
       if (response?.data?.success) {
         toast.success("Category rejected successfully")
+        resetRejectModal()
         fetchCategories()
       }
     } catch (error) {
       toast.error(error?.response?.data?.message || "Failed to reject category")
+    } finally {
+      setIsRejecting(false)
     }
   }
 
@@ -417,6 +621,10 @@ export default function Category() {
       toast.error("Permission denied")
       return
     }
+    if (isNameDuplicate) {
+      toast.error("A category with this name already exists")
+      return
+    }
 
     try {
       setIsSubmitting(true)
@@ -494,7 +702,7 @@ export default function Category() {
                 type="text"
                 placeholder="Search categories"
                 value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
+                onChange={(event) => setCachedSearchQuery(event.target.value)}
                 className="w-full rounded-xl border border-slate-300 bg-white py-2.5 pl-10 pr-4 text-sm outline-none focus:border-slate-900"
               />
             </div>
@@ -519,11 +727,44 @@ export default function Category() {
             )}
           </div>
         </div>
+        {!loading && totalCategories > 0 && (
+          <div className="flex flex-col gap-3 border-t border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-slate-500">
+              Showing <span className="font-semibold text-slate-800">{(currentPage - 1) * 20 + 1}</span>
+              {" - "}
+              <span className="font-semibold text-slate-800">{Math.min(currentPage * 20, totalCategories)}</span>
+              {" "}of <span className="font-semibold text-slate-800">{totalCategories}</span> categories
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                disabled={currentPage === 1}
+                className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50 hover:bg-slate-50"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Prev
+              </button>
+              <span className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-900">
+                {currentPage} / {totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                disabled={currentPage >= totalPages}
+                className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50 hover:bg-slate-50"
+              >
+                Next
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="overflow-x-auto">
-          <table className="min-w-full table-fixed">
+          <table className="min-w-full">
             <thead className="border-b border-slate-200 bg-slate-50">
               <tr>
                 <th className="w-[25%] px-5 py-4 text-left text-[11px] font-bold uppercase tracking-wider text-slate-600">Category</th>
@@ -577,6 +818,16 @@ export default function Category() {
                               <span className="text-slate-300">•</span>
                               <span>Items linked: {category?.itemCount || 0}</span>
                             </div>
+                            {category?.isNewSubmission && (
+                              <span className="mt-2 inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-700">
+                                New category — awaiting first approval
+                              </span>
+                            )}
+                            {category?.isResubmission && (
+                              <span className="mt-2 inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-1 text-[11px] font-semibold text-sky-700">
+                                Resubmitted — open view for changes
+                              </span>
+                            )}
                           </div>
                         </div>
                       </td>
@@ -622,8 +873,10 @@ export default function Category() {
                             {approvalStatus === "approved" && <BadgeCheck className="mr-1 h-3.5 w-3.5" />}
                             {approvalStatus.charAt(0).toUpperCase() + approvalStatus.slice(1)}
                           </span>
-                          {category?.rejectionReason && (
-                            <p className="max-w-[180px] text-xs leading-5 text-rose-600">{category.rejectionReason}</p>
+                          {category?.rejectionReason && approvalStatus === "rejected" && (
+                            <p className="max-w-[220px] text-xs leading-5 text-rose-600">
+                              Last rejection: {category.rejectionReason}
+                            </p>
                           )}
                         </div>
                       </td>
@@ -638,9 +891,9 @@ export default function Category() {
                                 Approve
                               </button>
                             )}
-                            {canEdit && isRestaurantCategory && approvalStatus !== "rejected" && (
+                            {canEdit && isRestaurantCategory && approvalStatus === "pending" && (
                               <button
-                                onClick={() => handleReject(category)}
+                                onClick={() => openRejectModal(category)}
                                 className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm"
                               >
                                 Reject
@@ -656,6 +909,13 @@ export default function Category() {
                             )}
                           </div>
                           <div className="flex items-center justify-end gap-1">
+                            <button
+                              onClick={() => setViewCategory(category)}
+                              className="rounded-lg p-2 text-slate-600 hover:bg-slate-100"
+                              title="View details"
+                            >
+                              <Eye className="h-4 w-4" />
+                            </button>
                             {canEdit && (
                               <button
                                 onClick={() => handleEdit(category)}
@@ -760,13 +1020,16 @@ export default function Category() {
 
                         <div>
                           <label className="mb-2 block text-sm font-medium text-slate-700">Category Name</label>
-                          <input
-                            type="text"
+                          <NameSuggestionField
                             required
                             value={formData.name}
-                            onChange={(event) => setFormData((prev) => ({ ...prev, name: event.target.value }))}
-                            className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-slate-900"
+                            onChange={(value) => setFormData((prev) => ({ ...prev, name: value }))}
+                            items={categories}
+                            excludeId={editingCategory?.id}
+                            entityLabel="category"
                             placeholder="Enter category name"
+                            inputClassName="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-slate-900"
+                            onDuplicateChange={setIsNameDuplicate}
                           />
                         </div>
 
@@ -823,11 +1086,157 @@ export default function Category() {
                         </button>
                         <button
                           type="submit"
-                          disabled={isSubmitting}
-                          className={`flex-1 rounded-xl bg-blue-600 px-4 py-3 text-white flex items-center justify-center gap-2 ${isSubmitting ? "opacity-70 cursor-not-allowed" : "hover:bg-blue-700"}`}
+                          disabled={isSubmitting || isNameDuplicate}
+                          className={`flex-1 rounded-xl bg-blue-600 px-4 py-3 text-white flex items-center justify-center gap-2 ${isSubmitting || isNameDuplicate ? "opacity-70 cursor-not-allowed" : "hover:bg-blue-700"}`}
                         >
                           {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
                           {editingCategory ? "Update" : "Create"}
+                        </button>
+                      </div>
+                    </form>
+                  </motion.div>
+                </div>
+              </div>
+            )}
+          </AnimatePresence>,
+          document.body,
+        )}
+
+      {typeof window !== "undefined" &&
+        createPortal(
+          <AnimatePresence>
+            {viewCategory && (
+              <div className="fixed inset-0 z-[205]">
+                <div className="absolute inset-0 bg-black/50" onClick={() => setViewCategory(null)} />
+                <div className="absolute inset-0 flex items-center justify-center p-4 sm:p-6">
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    className="flex w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl max-h-[min(90vh,calc(100vh-32px))]"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <div className="flex items-start justify-between gap-3 border-b px-5 py-4 sm:px-6">
+                      <div className="min-w-0">
+                        <h2 className="text-lg font-bold text-slate-900 sm:text-xl">Category Details</h2>
+                        <p className="mt-1 text-sm text-slate-500">
+                          Full submission details and restaurant updates
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setViewCategory(null)}
+                        className="shrink-0 rounded-lg p-1.5 hover:bg-slate-100"
+                        aria-label="Close"
+                      >
+                        <X className="h-5 w-5 text-slate-500" />
+                      </button>
+                    </div>
+
+                    <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 sm:px-6">
+                      <CategoryViewDetails category={viewCategory} />
+                    </div>
+
+                    <div className="flex flex-col-reverse gap-3 border-t bg-white px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
+                      <button
+                        type="button"
+                        onClick={() => setViewCategory(null)}
+                        className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 sm:w-auto"
+                      >
+                        Close
+                      </button>
+                      {canEdit && String(viewCategory?.approvalStatus || "") === "pending" && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const id = viewCategory?.id || viewCategory?._id
+                              setViewCategory(null)
+                              openRejectModal(viewCategory)
+                            }}
+                            className="w-full rounded-xl bg-rose-600 px-4 py-3 text-sm font-semibold text-white sm:w-auto"
+                          >
+                            Reject
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const id = viewCategory?.id || viewCategory?._id
+                              setViewCategory(null)
+                              handleApprove(id)
+                            }}
+                            className="w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white sm:w-auto"
+                          >
+                            Approve
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </motion.div>
+                </div>
+              </div>
+            )}
+          </AnimatePresence>,
+          document.body,
+        )}
+
+      {typeof window !== "undefined" &&
+        createPortal(
+          <AnimatePresence>
+            {rejectTarget && (
+              <div className="fixed inset-0 z-[210]">
+                <div className="absolute inset-0 bg-black/50" onClick={resetRejectModal} />
+                <div className="absolute inset-0 flex items-center justify-center p-4 sm:p-6">
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    className="flex w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-xl max-h-[min(90vh,calc(100vh-32px))]"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <div className="border-b px-5 py-4 sm:px-6">
+                      <h2 className="text-lg font-bold text-slate-900 sm:text-xl">Reject Category</h2>
+                      <p className="mt-1 text-sm text-slate-500">
+                        Tell the restaurant why <span className="font-semibold text-slate-800">{rejectTarget?.name}</span> was rejected.
+                      </p>
+                    </div>
+
+                    <form onSubmit={handleReject} className="flex min-h-0 flex-1 flex-col">
+                      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 sm:px-6">
+                        <label className="mb-2 block text-sm font-medium text-slate-700">
+                          Rejection reason <span className="text-rose-500">*</span>
+                        </label>
+                        <textarea
+                          value={rejectReason}
+                          onChange={(event) => setRejectReason(event.target.value)}
+                          rows={5}
+                          required
+                          autoFocus
+                          placeholder="Explain what needs to be fixed before approval..."
+                          className="w-full resize-y rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-100"
+                        />
+                        {Array.isArray(rejectTarget?.changedFields) && rejectTarget.changedFields.length > 0 && (
+                          <div className="mt-4">
+                            <CategoryChangesPanel category={rejectTarget} />
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex flex-col-reverse gap-3 border-t bg-white px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
+                        <button
+                          type="button"
+                          onClick={resetRejectModal}
+                          className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 sm:w-auto"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={isRejecting || !rejectReason.trim()}
+                          className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-rose-600 px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+                        >
+                          {isRejecting && <Loader2 className="h-4 w-4 animate-spin" />}
+                          Reject Category
                         </button>
                       </div>
                     </form>

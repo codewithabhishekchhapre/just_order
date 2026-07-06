@@ -57,6 +57,7 @@ import {
   getDefaultFoodVariant,
   getFoodDisplayPrice,
   getFoodPriceLabel,
+  getFoodVariantLabel,
   getFoodVariants,
   hasFoodVariants,
 } from "@food/utils/foodVariants"
@@ -877,9 +878,10 @@ function RestaurantDetailsContent() {
                   menuSections: finalMenuSections,
                 }))
 
-                // Set first 3 sections (Recommended, Starters, Main Course) as expanded by default
+                // Expand every section so newly approved categories (often last in sort order)
+                // are visible without requiring a manual expand click.
                 const defaultExpandedSections = new Set(
-                  Array.from({ length: Math.min(3, finalMenuSections.length) }, (_, idx) => idx)
+                  finalMenuSections.map((_, idx) => idx)
                 )
                 setExpandedSections(defaultExpandedSections)
 
@@ -1190,8 +1192,7 @@ function RestaurantDetailsContent() {
       price: resolvedVariant?.price ?? item.price,
       otherPrice: resolvedVariant?.otherPrice ?? item.otherPrice ?? item.originalPrice ?? 0,
       variantId: resolvedVariant?.id || "",
-      variantName: resolvedVariant?.name || "",
-      variantPrice: resolvedVariant?.price ?? item.price,
+      variantName: resolvedVariant ? getFoodVariantLabel(resolvedVariant) : "",      variantPrice: resolvedVariant?.price ?? item.price,
       image: item.image,
       restaurant: restaurant.name, // Use restaurant.name directly (already validated)
       restaurantId: validRestaurantId, // Use validated restaurantId
@@ -1402,6 +1403,25 @@ function RestaurantDetailsContent() {
       setSelectedMenuCategory("all")
     }
   }, [menuCategories, selectedMenuCategory])
+
+  useEffect(() => {
+    if (selectedMenuCategory === "all" || !restaurant?.menuSections?.length) return
+
+    const matchingSectionIndex = restaurant.menuSections.findIndex((section) => {
+      if (isRecommendedSection(section)) return false
+      const sectionCategoryId = normalizeMenuCategoryId(section?.categoryId || getSectionDisplayName(section))
+      return sectionCategoryId === selectedMenuCategory
+    })
+
+    if (matchingSectionIndex < 0) return
+
+    setExpandedSections((prev) => {
+      if (prev.has(matchingSectionIndex)) return prev
+      const next = new Set(prev)
+      next.add(matchingSectionIndex)
+      return next
+    })
+  }, [selectedMenuCategory, restaurant?.menuSections])
 
   // Handle bookmark click
   const handleBookmarkClick = (item) => {
@@ -2284,6 +2304,7 @@ function RestaurantDetailsContent() {
               const sectionSubsections = toRenderableArray(section?.subsections)
 
               const isExpanded = expandedSections.has(originalIndex)
+              const shouldRenderSectionContents = isExpanded || selectedMenuCategory !== "all"
 
               return (
                 <div key={sectionIndex} id={sectionId} className="space-y-1 scroll-mt-20">
@@ -2355,20 +2376,20 @@ function RestaurantDetailsContent() {
                   )}
 
                   {/* Direct Items */}
-                  {isExpanded && isRecommended && !loadingMenuItems && sectionItems.length === 0 && (
+                  {shouldRenderSectionContents && isRecommended && !loadingMenuItems && sectionItems.length === 0 && (
                     <div className="text-center py-8">
                       <p className="text-gray-500 dark:text-gray-400 text-sm md:text-base">
                         No dish recommended
                       </p>
                     </div>
                   )}
-                  {isExpanded && loadingMenuItems && (
+                  {shouldRenderSectionContents && loadingMenuItems && (
                     <div className="space-y-3 px-1 py-2 animate-pulse">
                       <div className="h-24 rounded-2xl bg-gray-100 dark:bg-gray-800" />
                       <div className="h-24 rounded-2xl bg-gray-100 dark:bg-gray-800" />
                     </div>
                   )}
-                  {isExpanded && sectionItems.length > 0 && (
+                  {shouldRenderSectionContents && sectionItems.length > 0 && (
                     <div className="space-y-0">
                       {sectionItems.map((item) => {
                         const quantity = getDishQuantity(item)
@@ -2390,7 +2411,7 @@ function RestaurantDetailsContent() {
                                 delete dishCardRefs.current[item.id]
                               }
                             }}
-                            className={`flex gap-4 p-4 border-b border-gray-100 last:border-none relative cursor-pointer transition-all duration-300 ${highlightedDishId === item.id ? "bg-red-50 ring-2 ring-[#FF6A00] ring-inset dark:bg-red-950/20" : ""}`}
+                            className={`flex items-start gap-3 p-3 border-b border-gray-100 last:border-none relative cursor-pointer transition-all duration-300 ${highlightedDishId === item.id ? "bg-red-50 ring-2 ring-[#FF6A00] ring-inset dark:bg-red-950/20" : ""}`}
                             onClick={() => handleItemClick(item)}
                           >
                             {/* Left Side - Details */}
@@ -2409,7 +2430,7 @@ function RestaurantDetailsContent() {
                                 {item.isSpicy && <span className="text-xs font-semibold text-red-500">Spicy</span>}
                               </div>
 
-                              <h3 className="font-bold text-gray-800 dark:text-white text-lg leading-tight">{item.name}</h3>
+                              <h3 className="font-bold text-gray-800 dark:text-white text-sm leading-tight line-clamp-1">{item.name}</h3>
 
                               {/* Highly Reordered Progress Bar - Show if recommended */}
                               {isRecommendedItem(item) && (
@@ -2478,13 +2499,8 @@ function RestaurantDetailsContent() {
                                 )}
                               </div>
 
-                              {/* Description - Show if available */}
-                              {item.description && (
-                                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">{item.description}</p>
-                              )}
-
                               {/* Mobile-only action buttons */}
-                              <div className="flex gap-4 mt-3">
+                              <div className="flex gap-2 mt-1.5">
                                 <button
                                   type="button"
                                   onClick={(e) => {
@@ -2492,13 +2508,13 @@ function RestaurantDetailsContent() {
                                     e.stopPropagation()
                                     handleBookmarkClick(item)
                                   }}
-                                  className={`p-1.5 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors ${isMenuItemBookmarked(item)
+                                  className={`p-1 border rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors ${isMenuItemBookmarked(item)
                                     ? "border-red-500 text-red-500 bg-red-50 dark:bg-red-900/20"
                                     : "border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-400"
                                     }`}
                                 >
                                   <Heart
-                                    size={18}
+                                    size={14}
                                     className={isMenuItemBookmarked(item) ? "fill-red-500" : ""}
                                   />
                                 </button>
@@ -2508,21 +2524,21 @@ function RestaurantDetailsContent() {
                                     e.stopPropagation()
                                     handleShareClick(item)
                                   }}
-                                  className="p-1.5 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                                  className="p-1 border border-gray-300 dark:border-gray-700 rounded-md text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
                                 >
-                                  <Share2 size={18} />
+                                  <Share2 size={14} />
                                 </button>
                               </div>
 
                             </div>
 
                             {/* Right Side - Image and Add Button */}
-                            <div className="relative w-32 h-32 flex-shrink-0">
+                            <div className="relative w-24 h-24 flex-shrink-0">
                               {item.image ? (
                                 <img
                                   src={item.image}
                                   alt={item.name}
-                                  className="w-full h-full object-cover rounded-2xl shadow-sm"
+                                  className="w-full h-full object-cover rounded-xl shadow-sm"
                                   onError={(e) => {
                                     if (e.currentTarget.src !== FOOD_IMAGE_FALLBACK) {
                                       e.currentTarget.src = FOOD_IMAGE_FALLBACK
@@ -2530,7 +2546,7 @@ function RestaurantDetailsContent() {
                                   }}
                                 />
                               ) : (
-                                <div className="w-full h-full bg-gray-200 dark:bg-gray-700 rounded-2xl flex items-center justify-center">
+                                <div className="w-full h-full bg-gray-200 dark:bg-gray-700 rounded-xl flex items-center justify-center">
                                   <span className="text-xs text-gray-400">No image</span>
                                 </div>
                               )}
@@ -2538,7 +2554,7 @@ function RestaurantDetailsContent() {
                                 <motion.div
                                   initial={{ opacity: 0, scale: 0.8 }}
                                   animate={{ opacity: 1, scale: 1 }}
-                                  className={`absolute -bottom-2 left-1/2 -translate-x-1/2 bg-white border font-bold px-4 py-1.5 rounded-lg shadow-md flex items-center gap-1 ${shouldShowGrayscale
+                                  className={`absolute -bottom-2 left-1/2 -translate-x-1/2 bg-white border font-bold px-3 py-1 rounded-lg shadow-md flex items-center gap-1 ${shouldShowGrayscale
                                     ? 'border-gray-300 text-gray-400 cursor-not-allowed opacity-50'
                                     : 'border-[#FF6A00] text-[#FF6A00] hover:bg-red-50'
                                     }`}
@@ -2553,9 +2569,9 @@ function RestaurantDetailsContent() {
                                     disabled={shouldShowGrayscale}
                                     className={shouldShowGrayscale ? 'text-gray-400 cursor-not-allowed' : 'text-[#FF6A00] hover:text-[#C83C00]'}
                                   >
-                                    <Minus size={14} />
+                                    <Minus size={13} />
                                   </button>
-                                  <span className={`mx-2 text-sm ${shouldShowGrayscale ? 'text-gray-400' : ''}`}>{quantity}</span>
+                                  <span className={`mx-1.5 text-xs ${shouldShowGrayscale ? 'text-gray-400' : ''}`}>{quantity}</span>
                                   <button
                                     onClick={(e) => {
                                       e.stopPropagation()
@@ -2566,7 +2582,7 @@ function RestaurantDetailsContent() {
                                     disabled={shouldShowGrayscale}
                                     className={shouldShowGrayscale ? 'text-gray-400 cursor-not-allowed' : 'text-[#FF6A00] hover:text-[#C83C00]'}
                                   >
-                                    <Plus size={14} className="stroke-[3px]" />
+                                    <Plus size={13} className="stroke-[3px]" />
                                   </button>
                                 </motion.div>
                               ) : (
@@ -2577,17 +2593,20 @@ function RestaurantDetailsContent() {
                                   transition={{ duration: 0.3, type: "spring", damping: 20, stiffness: 300 }}
                                   onClick={(e) => {
                                     e.stopPropagation()
-                                    if (!shouldShowGrayscale) {
-                                      updateItemQuantity(item, 1, e)
+                                    if (shouldShowGrayscale) return
+                                    if (hasFoodVariants(item)) {
+                                      handleItemClick(item)
+                                      return
                                     }
+                                    updateItemQuantity(item, 1, e)
                                   }}
                                   disabled={shouldShowGrayscale}
-                                  className={`absolute -bottom-2 left-1/2 -translate-x-1/2 bg-white border font-bold px-6 py-1.5 rounded-lg shadow-md flex items-center gap-1 transition-colors ${shouldShowGrayscale
+                                  className={`absolute -bottom-2 left-1/2 -translate-x-1/2 bg-white border font-bold px-5 py-1 rounded-lg shadow-md flex items-center gap-1 transition-colors ${shouldShowGrayscale
                                     ? 'border-gray-300 text-gray-400 cursor-not-allowed opacity-50'
                                     : 'border-[#FF6A00] text-[#FF6A00] hover:bg-red-50'
                                     }`}
                                 >
-                                  ADD <Plus size={14} className="stroke-[3px]" />
+                                  ADD <Plus size={13} className="stroke-[3px]" />
                                 </motion.button>
                               )}
                             </div>
@@ -2598,7 +2617,7 @@ function RestaurantDetailsContent() {
                   )}
 
                   {/* Subsections */}
-                  {isExpanded && sectionSubsections.length > 0 && (
+                  {shouldRenderSectionContents && sectionSubsections.length > 0 && (
                     <div className="space-y-4">
                       {sectionSubsections.map((subsection, subIndex) => {
                         const subsectionKey = `${originalIndex}-${subIndex}`
@@ -2657,7 +2676,7 @@ function RestaurantDetailsContent() {
                                           delete dishCardRefs.current[item.id]
                                         }
                                       }}
-                                      className={`flex gap-4 p-4 border-b border-gray-100 last:border-none relative cursor-pointer transition-all duration-300 ${highlightedDishId === item.id ? "bg-red-50 ring-2 ring-[#FF6A00] ring-inset dark:bg-red-950/20" : ""}`}
+                                      className={`flex items-start gap-3 p-3 border-b border-gray-100 last:border-none relative cursor-pointer transition-all duration-300 ${highlightedDishId === item.id ? "bg-red-50 ring-2 ring-[#FF6A00] ring-inset dark:bg-red-950/20" : ""}`}
                                       onClick={() => handleItemClick(item)}
                                     >
                                       {/* Left Side - Details */}
@@ -2676,7 +2695,7 @@ function RestaurantDetailsContent() {
                                           {item.isSpicy && <span className="text-xs font-semibold text-red-500">Spicy</span>}
                                         </div>
 
-                                        <h3 className="font-bold text-gray-800 dark:text-white text-lg leading-tight">{item.name}</h3>
+                                        <h3 className="font-bold text-gray-800 dark:text-white text-sm leading-tight line-clamp-1">{item.name}</h3>
 
                                         {/* Highly Reordered Progress Bar - Show if recommended */}
                                         {isRecommendedItem(item) && (
@@ -2745,13 +2764,8 @@ function RestaurantDetailsContent() {
                                           )}
                                         </div>
 
-                                        {/* Description - Show if available */}
-                                        {item.description && (
-                                          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">{item.description}</p>
-                                        )}
-
                                         {/* Mobile-only action buttons */}
-                                        <div className="flex gap-4 mt-3">
+                                        <div className="flex gap-2 mt-1.5">
                                           <button
                                             type="button"
                                             onClick={(e) => {
@@ -2759,13 +2773,13 @@ function RestaurantDetailsContent() {
                                               e.stopPropagation()
                                               handleBookmarkClick(item)
                                             }}
-                                            className={`p-1.5 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors ${isMenuItemBookmarked(item)
+                                            className={`p-1 border rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors ${isMenuItemBookmarked(item)
                                               ? "border-red-500 text-red-500 bg-red-50 dark:bg-red-900/20"
                                               : "border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-400"
                                               }`}
                                           >
                                             <Heart
-                                              size={18}
+                                              size={14}
                                               className={isMenuItemBookmarked(item) ? "fill-red-500" : ""}
                                             />
                                           </button>
@@ -2775,21 +2789,21 @@ function RestaurantDetailsContent() {
                                               e.stopPropagation()
                                               handleShareClick(item)
                                             }}
-                                            className="p-1.5 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                                            className="p-1 border border-gray-300 dark:border-gray-700 rounded-md text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
                                           >
-                                            <Share2 size={18} />
+                                            <Share2 size={14} />
                                           </button>
                                         </div>
 
                                       </div>
 
                                       {/* Right Side - Image and Add Button */}
-                                      <div className="relative w-32 h-32 flex-shrink-0">
+                                      <div className="relative w-24 h-24 flex-shrink-0">
                                         {item.image ? (
                                           <img
                                             src={item.image}
                                             alt={item.name}
-                                            className="w-full h-full object-cover rounded-2xl shadow-sm"
+                                            className="w-full h-full object-cover rounded-xl shadow-sm"
                                             onError={(e) => {
                                               if (e.currentTarget.src !== FOOD_IMAGE_FALLBACK) {
                                                 e.currentTarget.src = FOOD_IMAGE_FALLBACK
@@ -2797,7 +2811,7 @@ function RestaurantDetailsContent() {
                                             }}
                                           />
                                         ) : (
-                                          <div className="w-full h-full bg-gray-200 dark:bg-gray-700 rounded-2xl flex items-center justify-center">
+                                          <div className="w-full h-full bg-gray-200 dark:bg-gray-700 rounded-xl flex items-center justify-center">
                                             <span className="text-xs text-gray-400">No image</span>
                                           </div>
                                         )}
@@ -2805,7 +2819,7 @@ function RestaurantDetailsContent() {
                                           <motion.div
                                             initial={{ opacity: 0, scale: 0.8 }}
                                             animate={{ opacity: 1, scale: 1 }}
-                                            className={`absolute -bottom-2 left-1/2 -translate-x-1/2 bg-white border font-bold px-4 py-1.5 rounded-lg shadow-md flex items-center gap-1 ${shouldShowGrayscale
+                                            className={`absolute -bottom-2 left-1/2 -translate-x-1/2 bg-white border font-bold px-3 py-1 rounded-lg shadow-md flex items-center gap-1 ${shouldShowGrayscale
                                               ? 'border-gray-300 text-gray-400 cursor-not-allowed opacity-50'
                                               : 'border-[#FF6A00] text-[#FF6A00] hover:bg-red-50'
                                               }`}
@@ -2820,9 +2834,9 @@ function RestaurantDetailsContent() {
                                               disabled={shouldShowGrayscale}
                                               className={shouldShowGrayscale ? 'text-gray-400 cursor-not-allowed' : 'text-[#FF6A00] hover:text-[#C83C00]'}
                                             >
-                                              <Minus size={14} />
+                                              <Minus size={13} />
                                             </button>
-                                            <span className={`mx-2 text-sm ${shouldShowGrayscale ? 'text-gray-400' : ''}`}>{quantity}</span>
+                                            <span className={`mx-1.5 text-xs ${shouldShowGrayscale ? 'text-gray-400' : ''}`}>{quantity}</span>
                                             <button
                                               onClick={(e) => {
                                                 e.stopPropagation()
@@ -2833,7 +2847,7 @@ function RestaurantDetailsContent() {
                                               disabled={shouldShowGrayscale}
                                               className={shouldShowGrayscale ? 'text-gray-400 cursor-not-allowed' : 'text-[#FF6A00] hover:text-[#C83C00]'}
                                             >
-                                              <Plus size={14} className="stroke-[3px]" />
+                                              <Plus size={13} className="stroke-[3px]" />
                                             </button>
                                           </motion.div>
                                         ) : (
@@ -2844,17 +2858,20 @@ function RestaurantDetailsContent() {
                                             transition={{ duration: 0.3, type: "spring", damping: 20, stiffness: 300 }}
                                             onClick={(e) => {
                                               e.stopPropagation()
-                                              if (!shouldShowGrayscale) {
-                                                updateItemQuantity(item, 1, e)
+                                              if (shouldShowGrayscale) return
+                                              if (hasFoodVariants(item)) {
+                                                handleItemClick(item)
+                                                return
                                               }
+                                              updateItemQuantity(item, 1, e)
                                             }}
                                             disabled={shouldShowGrayscale}
-                                            className={`absolute -bottom-2 left-1/2 -translate-x-1/2 bg-white border font-bold px-6 py-1.5 rounded-lg shadow-md flex items-center gap-1 transition-colors ${shouldShowGrayscale
+                                            className={`absolute -bottom-2 left-1/2 -translate-x-1/2 bg-white border font-bold px-5 py-1 rounded-lg shadow-md flex items-center gap-1 transition-colors ${shouldShowGrayscale
                                               ? 'border-gray-300 text-gray-400 cursor-not-allowed opacity-50'
                                               : 'border-[#FF6A00] text-[#FF6A00] hover:bg-red-50'
                                               }`}
                                           >
-                                            ADD <Plus size={14} className="stroke-[3px]" />
+                                            ADD <Plus size={13} className="stroke-[3px]" />
                                           </motion.button>
                                         )}
                                       </div>
@@ -2900,7 +2917,7 @@ function RestaurantDetailsContent() {
 
       {/* Menu Button - Sticky at page bottom right (hidden when filter or menu sheet open) */}
       {!showFilterSheet && !showMenuSheet && !showMenuOptionsSheet && (
-        <div className="sticky dark:bg-[#1a1a1a] bottom-4 flex justify-end px-4 z-50 mt-auto">
+        <div className={`fixed right-4 z-[60] transition-all duration-300 ${cart.length > 0 ? 'bottom-[150px] md:bottom-[100px]' : 'bottom-[80px] md:bottom-8'}`}>
           <Button
             className="bg-[#1a1a1a] dark:bg-[#FF6A00] hover:bg-black dark:hover:bg-[#C83C00] text-white flex items-center gap-2 shadow-[0_8px_30px_rgb(0,0,0,0.12)] border border-white/10 dark:border-[#FF6A00]/20 px-6 py-6 rounded-full font-bold transform transition-all duration-300 hover:scale-110 active:scale-95 group"
             size="lg"
@@ -3610,7 +3627,7 @@ function RestaurantDetailsContent() {
                                   : "border-gray-200 bg-white text-gray-700 dark:border-gray-700 dark:bg-[#2a2a2a] dark:text-gray-300"
                                 }`}
                             >
-                              {variant.name} · {RUPEE_SYMBOL}{Math.round(variant.price)}
+                              {getFoodVariantLabel(variant)} · {RUPEE_SYMBOL}{Math.round(variant.price)}
                             </button>
                           ))}
                         </div>
@@ -3700,7 +3717,7 @@ function RestaurantDetailsContent() {
                           )}
                           <span className="text-base font-bold">
                             {hasFoodVariants(selectedItem)
-                              ? `${getVariantForDish(selectedItem, selectedVariantId)?.name || "Default"} · ${RUPEE_SYMBOL}${Math.round(getVariantForDish(selectedItem, selectedVariantId)?.price || selectedItem.price)}`
+                              ? `${getFoodVariantLabel(getVariantForDish(selectedItem, selectedVariantId) || { name: "Default" })} · ${RUPEE_SYMBOL}${Math.round(getVariantForDish(selectedItem, selectedVariantId)?.price || selectedItem.price)}`
                               : `${RUPEE_SYMBOL}${Math.round(selectedItem.price)}`}
                           </span>
                         </div>

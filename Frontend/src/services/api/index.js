@@ -17,8 +17,8 @@ const stub = () =>
 
 /** Search API - unified search for user app */
 export const searchAPI = {
-  unifiedSearch: (params = {}) =>
-    apiClient.get("/food/search/unified", { params }),
+  unifiedSearch: (params = {}, config = {}) =>
+    apiClient.get("/food/search/unified", { params, ...config }),
   getAdminCategories: (params = {}) =>
     apiClient.get("/food/search/categories/admin", { params }),
 };
@@ -445,8 +445,8 @@ export const adminAPI = {
       contextModule: "admin",
     }),
   /** Categories (admin) */
-  getCategories: (params = {}) =>
-    apiClient.get("/food/admin/categories", { params, contextModule: "admin" }),
+  getCategories: (params = {}, config = {}) =>
+    apiClient.get("/food/admin/categories", { params, contextModule: "admin", ...config }),
   /** Dining categories (admin) */
   getDiningCategories: (params = {}) =>
     apiClient.get("/food/admin/dining/categories", {
@@ -525,11 +525,11 @@ export const adminAPI = {
     apiClient.patch(`/food/admin/restaurants/${String(id)}`, body ?? {}, {
       contextModule: "admin",
     }),
-  /** Update restaurant status (admin). Body: { status: boolean } */
+  /** Update manual user visibility (admin). Body: { isVisibleToUsers: boolean } */
   updateRestaurantStatus: (id, status) =>
     apiClient.patch(
       `/food/admin/restaurants/${String(id)}/status`,
-      { status: status !== false },
+      { isVisibleToUsers: status !== false },
       { contextModule: "admin" },
     ),
   /** Update restaurant location (admin). Body includes lat/lng + address fields. */
@@ -550,8 +550,8 @@ export const adminAPI = {
       contextModule: "admin",
     }),
   /** Foods (admin) - separate collection */
-  getFoods: (params = {}) =>
-    apiClient.get("/food/admin/foods", { params, contextModule: "admin" }),
+  getFoods: (params = {}, config = {}) =>
+    apiClient.get("/food/admin/foods", { params, contextModule: "admin", ...config }),
   createFood: (body) =>
     apiClient.post("/food/admin/foods", body ?? {}, { contextModule: "admin" }),
   updateFood: (id, body) =>
@@ -579,8 +579,8 @@ export const adminAPI = {
       { contextModule: "admin" },
     ),
   /** Customers (admin) */
-  getCustomers: (params = {}) =>
-    apiClient.get("/food/admin/customers", { params, contextModule: "admin" }),
+  getCustomers: (params = {}, config = {}) =>
+    apiClient.get("/food/admin/customers", { params, contextModule: "admin", ...config }),
   getCustomerById: (id) =>
     apiClient.get(`/food/admin/customers/${String(id)}`, {
       contextModule: "admin",
@@ -612,10 +612,11 @@ export const adminAPI = {
       { contextModule: "admin" },
     ),
   /** Orders (admin) – list, get by id, assign delivery partner */
-  getOrders: (params = {}) =>
+  getOrders: (params = {}, config = {}) =>
     apiClient.get("/food/admin/orders", {
       params: { limit: 50, page: 1, ...params },
       contextModule: "admin",
+      ...config,
     }),
   getOrderById: (orderId) =>
     apiClient.get(`/food/admin/orders/${String(orderId)}`, {
@@ -633,6 +634,23 @@ export const adminAPI = {
   /** Create restaurant (admin). Single API: POST /food/admin/restaurants. Body: JSON with image URLs. */
   createRestaurant: (body) =>
     apiClient.post("/food/admin/restaurants", body ?? {}, {
+      contextModule: "admin",
+    }),
+  getRestaurantDraft: (params = {}) =>
+    apiClient.get("/food/admin/restaurants/onboarding-draft", {
+      params,
+      contextModule: "admin",
+    }),
+  saveRestaurantDraft: (body) =>
+    apiClient.post("/food/admin/restaurants/onboarding-draft", body ?? {}, {
+      contextModule: "admin",
+    }),
+  finalizeRestaurantDraft: (id) =>
+    apiClient.patch(`/food/admin/restaurants/onboarding-draft/${String(id)}/finalize`, {}, {
+      contextModule: "admin",
+    }),
+  discardRestaurantDraft: (id) =>
+    apiClient.delete(`/food/admin/restaurants/onboarding-draft/${String(id)}`, {
       contextModule: "admin",
     }),
   /** List delivery zones. Query: limit, page, isActive, search */
@@ -876,10 +894,11 @@ export const adminAPI = {
     }),
 
   /** Backward-compatible alias used in UI */
-  getApprovedRestaurants: (params = {}) =>
+  getApprovedRestaurants: (params = {}, config = {}) =>
     apiClient.get("/food/admin/restaurants", {
       params: { status: "approved", limit: 1000, ...params },
       contextModule: "admin",
+      ...config,
     }),
 
   /** Delivery Boy Commission Rules (admin) */
@@ -1704,6 +1723,8 @@ const getPublicRestaurantMenuOnce = (id, config = {}) => {
   if (noCache) {
     return apiClient.get(`/food/restaurant/restaurants/${safeId}/menu`, {
       ...axiosConfig,
+      headers: { ...axiosConfig.headers, 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0' },
+      params: { ...axiosConfig.params, _ts: Date.now() }
     });
   }
   const key = `menu:${safeId}`;
@@ -2465,6 +2486,9 @@ export const orderAPI = {
     apiClient.post("/food/orders/calculate", payload ?? {}, {
       contextModule: "user",
     }),
+  /** Public fee summary (platform fee / GST fallback + delivery speed options) for the cart. */
+  getPublicFeeSummary: () =>
+    apiClient.get("/food/admin/fee-settings/public", { contextModule: "user" }),
   createOrder: (payload) =>
     apiClient.post("/food/orders", payload ?? {}, { contextModule: "user" }),
   verifyPayment: (body) =>

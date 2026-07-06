@@ -7,6 +7,8 @@ const phoneSchema = z
     .max(15, 'Phone must be at most 15 digits');
 
 const emailSchema = z.string().email('Invalid email').optional().or(z.literal(''));
+const requiredEmailSchema = z.string().email('Invalid email');
+const pincodeSchema = z.string().regex(/^\d{6}$/, 'Pincode must be exactly 6 digits');
 const requiredBooleanSchema = z.preprocess((value) => {
     if (typeof value === 'boolean') return value;
     if (typeof value === 'string') {
@@ -16,6 +18,16 @@ const requiredBooleanSchema = z.preprocess((value) => {
     }
     return value;
 }, z.boolean({ required_error: 'Please select whether the restaurant is pure veg' }));
+const optionalBooleanSchema = z.preprocess((value) => {
+    if (value === undefined || value === null || value === '') return undefined;
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') {
+        const normalized = value.trim().toLowerCase();
+        if (normalized === 'true' || normalized === '1' || normalized === 'yes') return true;
+        if (normalized === 'false' || normalized === '0' || normalized === 'no') return false;
+    }
+    return value;
+}, z.boolean().optional());
 
 const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
 
@@ -189,20 +201,20 @@ export const validateRestaurantRegisterDto = (body) => {
 const onboardingStep1Schema = z.object({
     restaurantName: z.string().min(1, 'Restaurant name is required'),
     ownerName: z.string().min(1, 'Owner name is required'),
-    ownerEmail: emailSchema,
+    ownerEmail: requiredEmailSchema,
     ownerPhone: phoneSchema,
-    primaryContactNumber: phoneSchema.optional(),
+    primaryContactNumber: z.string().regex(/^\d{10}$/, 'Primary contact number must be exactly 10 digits'),
     pureVegRestaurant: requiredBooleanSchema,
-    addressLine1: z.string().optional(),
+    addressLine1: z.string().min(1, 'Address line 1 is required'),
     addressLine2: z.string().optional(),
-    area: z.string().optional(),
-    city: z.string().optional(),
-    state: z.string().optional(),
-    pincode: z.string().optional(),
+    area: z.string().min(1, 'Area is required'),
+    city: z.string().min(1, 'City is required'),
+    state: z.string().min(1, 'State is required'),
+    pincode: pincodeSchema,
     landmark: z.string().optional(),
     formattedAddress: z.string().optional(),
-    latitude: z.string().optional(),
-    longitude: z.string().optional(),
+    latitude: z.string().min(1, 'Latitude is required'),
+    longitude: z.string().min(1, 'Longitude is required'),
     zoneId: z.string().min(1, 'Zone is required'),
 });
 
@@ -214,9 +226,10 @@ const onboardingStep2Schema = z.object({
         .transform((val) => {
             if (Array.isArray(val)) return val.map((c) => c.trim()).filter(Boolean);
             return val ? val.split(',').map((c) => c.trim()).filter(Boolean) : [];
-        }),
-    openingTime: z.string().optional(),
-    closingTime: z.string().optional(),
+        })
+        .refine((value) => value.length > 0, 'At least one cuisine is required'),
+    openingTime: z.string().min(1, 'Opening time is required'),
+    closingTime: z.string().min(1, 'Closing time is required'),
     dayTimings: dayTimingsArraySchema,
     openDays: z
         .union([z.string(), z.array(z.string())])
@@ -224,17 +237,17 @@ const onboardingStep2Schema = z.object({
         .transform((val) => {
             if (Array.isArray(val)) return val.map((d) => d.trim()).filter(Boolean);
             return val ? val.split(',').map((d) => d.trim()).filter(Boolean) : [];
-        }),
+        })
+        .refine((value) => value.length > 0, 'At least one open day is required'),
+    showRestaurantToUsersWithoutItems: optionalBooleanSchema,
 });
 
 const onboardingStep3Schema = z.object({
     ownerPhone: phoneSchema,
     panNumber: z
         .string()
-        .regex(panRegex, 'Invalid PAN format')
-        .optional()
-        .or(z.literal('')),
-    nameOnPan: z.string().optional(),
+        .regex(panRegex, 'Invalid PAN format'),
+    nameOnPan: z.string().min(1, 'Name on PAN is required'),
     gstRegistered: z
         .string()
         .optional()
@@ -242,12 +255,12 @@ const onboardingStep3Schema = z.object({
     gstNumber: z.string().optional(),
     gstLegalName: z.string().optional(),
     gstAddress: z.string().optional(),
-    fssaiNumber: z.string().optional(),
-    fssaiExpiry: z.string().optional(),
-    accountNumber: z.string().optional(),
-    ifscCode: z.string().optional(),
-    accountHolderName: z.string().optional(),
-    accountType: z.string().optional(),
+    fssaiNumber: z.string().regex(/^\d{14}$/, 'FSSAI number must be 14 digits'),
+    fssaiExpiry: z.string().min(1, 'FSSAI expiry is required'),
+    accountNumber: z.string().regex(/^\d{9,18}$/, 'Account number must be 9 to 18 digits'),
+    ifscCode: z.string().regex(/^[A-Z0-9]{11}$/, 'IFSC code must be 11 characters'),
+    accountHolderName: z.string().min(1, 'Account holder name is required'),
+    accountType: z.string().min(1, 'Account type is required'),
 });
 
 export const validateOnboardingStepDto = (stepNum, body) => {

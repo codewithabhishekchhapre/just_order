@@ -14,6 +14,8 @@ import { FoodEarningAddon } from '../models/earningAddon.model.js';
 import { FoodEarningAddonHistory } from '../models/earningAddonHistory.model.js';
 import { FoodDeliveryCommissionRule } from '../models/deliveryCommissionRule.model.js';
 import { FoodFeeSettings } from '../models/feeSettings.model.js';
+import { resolveDeliverySpeedOptions } from '../utils/deliverySpeedDefaults.js';
+import { resolveRestaurantCommissionPercentage } from '../../shared/restaurantCommissionDefaults.js';
 import { FeedbackExperience } from '../models/feedbackExperience.model.js';
 import { FoodUser } from '../../../../core/users/user.model.js';
 import { FoodRefreshToken } from '../../../../core/refreshTokens/refreshToken.model.js';
@@ -348,12 +350,20 @@ export async function getRestaurants(query) {
             .sort({ createdAt: -1 })
             .skip(skip)
             .limit(limit)
-            .select('restaurantId restaurantName location area city profileImage coverImages menuImages status ownerName ownerPhone zoneId commissionPercentage')
+            .select('restaurantId restaurantName location area city profileImage coverImages menuImages status ownerName ownerPhone zoneId commissionPercentage isVisibleToUsers showRestaurantToUsersWithoutItems hasHadActiveItems')
             .populate('zoneId', 'name zoneName')
             .lean(),
         FoodRestaurant.countDocuments(filter)
     ]);
-    return { restaurants, total, page, limit };
+    return {
+        restaurants: restaurants.map((restaurant) => ({
+            ...restaurant,
+            commissionPercentage: resolveRestaurantCommissionPercentage(restaurant.commissionPercentage),
+        })),
+        total,
+        page,
+        limit,
+    };
 }
 
 const CANCELLED_ORDER_STATUSES = ['cancelled_by_user', 'cancelled_by_restaurant', 'cancelled_by_admin'];
@@ -1762,6 +1772,27 @@ export async function getFeeSettings() {
     return { feeSettings: stripLegacyFoodFeeSettingsFields(doc) || null };
 }
 
+// Lean, public-facing summary used by the user cart (not admin-authenticated):
+// just enough to render the delivery-speed selector and a sane fallback
+// platform fee / GST rate before the authoritative calculateOrder pricing
+// call resolves.
+export async function getPublicFeeSummary() {
+    const doc = await FoodFeeSettings.findOne({ isActive: true }).sort({ createdAt: -1 }).lean();
+    return {
+        platformFee: Number(doc?.platformFee ?? 5),
+        gstRate: Number(doc?.gstRate ?? 5),
+        deliverySpeedOptions: resolveDeliverySpeedOptions(doc).map((option) => ({
+            code: option.code,
+            label: option.label,
+            description: option.description || '',
+            etaMinutesMin: option.etaMinutesMin,
+            etaMinutesMax: option.etaMinutesMax,
+            extraFee: option.extraFee,
+            isDefault: Boolean(option.isDefault),
+        })),
+    };
+}
+
 export async function upsertFeeSettings(body) {
     // Single active doc pattern: keep only one active record.
     const existing = await FoodFeeSettings.findOne({ isActive: true }).sort({ createdAt: -1 });
@@ -1788,6 +1819,7 @@ export async function upsertFeeSettings(body) {
             $set.deliveryDistanceSlabs = body.deliveryDistanceSlabs;
             $set.sponsorRules = []; // Clear sponsorRules to ensure distance-based slabs are authoritative
         }
+        if (body.deliverySpeedOptions !== undefined) $set.deliverySpeedOptions = body.deliverySpeedOptions;
 
         if (body.platformFee === null) $unset.platformFee = 1;
         else if (body.platformFee !== undefined) $set.platformFee = body.platformFee;
@@ -1835,6 +1867,7 @@ export async function upsertFeeSettings(body) {
         payload.deliveryDistanceSlabs = body.deliveryDistanceSlabs ?? [];
         payload.sponsorRules = []; // Clear sponsorRules on new doc creation
     }
+    if (body.deliverySpeedOptions !== undefined) payload.deliverySpeedOptions = body.deliverySpeedOptions ?? [];
     if (body.platformFee !== undefined && body.platformFee !== null) payload.platformFee = body.platformFee;
     if (body.gstRate !== undefined && body.gstRate !== null) payload.gstRate = body.gstRate;
     if (body.mixedOrderDistanceLimit !== undefined) payload.mixedOrderDistanceLimit = body.mixedOrderDistanceLimit;
@@ -2344,6 +2377,12 @@ export async function updateRestaurantById(id, body = {}) {
     if (body.isAcceptingOrders !== undefined) {
         doc.isAcceptingOrders = parseBooleanLike(body.isAcceptingOrders, 'isAcceptingOrders');
     }
+    if (body.showRestaurantToUsersWithoutItems !== undefined) {
+        doc.showRestaurantToUsersWithoutItems = parseBooleanLike(body.showRestaurantToUsersWithoutItems, 'showRestaurantToUsersWithoutItems');
+    }
+    if (body.isVisibleToUsers !== undefined) {
+        doc.isVisibleToUsers = parseBooleanLike(body.isVisibleToUsers, 'isVisibleToUsers');
+    }
 
     if (body.cuisines !== undefined) {
         if (Array.isArray(body.cuisines)) {
@@ -2435,18 +2474,16 @@ export async function updateRestaurantById(id, body = {}) {
 
 export async function updateRestaurantStatus(id, body = {}) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
-    const raw = body.status !== undefined ? body.status : body.isActive;
-    const isActive = parseBooleanLike(raw, 'status');
-    const status = isActive ? 'approved' : 'rejected';
+    const rawVisibility = body.isVisibleToUsers !== undefined
+        ? body.isVisibleToUsers
+        : (body.visibleToUsers !== undefined ? body.visibleToUsers : (body.status !== undefined ? body.status : body.isActive));
+    const isVisibleToUsers = parseBooleanLike(rawVisibility, 'isVisibleToUsers');
 
     return FoodRestaurant.findByIdAndUpdate(
         id,
         {
             $set: {
-                status,
-                approvedAt: isActive ? new Date() : undefined,
-                rejectedAt: isActive ? undefined : new Date(),
-                rejectionReason: isActive ? undefined : 'Disabled by admin'
+                isVisibleToUsers
             }
         },
         { new: true, runValidators: false }
@@ -2651,7 +2688,14 @@ export async function approveCategory(id) {
     doc.approvedAt = new Date();
     doc.rejectedAt = undefined;
     doc.rejectionReason = '';
+    doc.previousApproved = undefined;
     await doc.save();
+    try {
+        const { invalidatePublicRestaurantMenuCache } = await import('../../restaurant/services/restaurantMenu.service.js');
+        await invalidatePublicRestaurantMenuCache();
+    } catch (cacheError) {
+        console.error('Failed to invalidate restaurant menu cache after category approval:', cacheError);
+    }
     return doc.toObject();
 }
 
@@ -2671,6 +2715,7 @@ export async function rejectCategory(id, reason) {
     doc.rejectionReason = String(reason || '').trim();
     doc.rejectedAt = new Date();
     doc.approvedAt = undefined;
+    doc.previousApproved = undefined;
     await doc.save();
     return doc.toObject();
 }
@@ -3287,6 +3332,12 @@ export async function createRestaurantByAdmin(body) {
                 diningType: toStr(body.diningSettings.diningType) || 'family-dining'
             }
             : undefined,
+        showRestaurantToUsersWithoutItems: body.showRestaurantToUsersWithoutItems !== undefined
+            ? parseBooleanLike(body.showRestaurantToUsersWithoutItems, 'showRestaurantToUsersWithoutItems')
+            : false,
+        isVisibleToUsers: body.isVisibleToUsers !== undefined
+            ? parseBooleanLike(body.isVisibleToUsers, 'isVisibleToUsers')
+            : true,
         status: 'approved',
         approvedAt: new Date()
     };
@@ -3331,6 +3382,196 @@ export async function createRestaurantByAdmin(body) {
     return restaurant.toObject();
 }
 
+const normalizeAdminDraftBody = (body = {}, performer = null) => {
+    const loc = body.location || {};
+    const toStr = (v) => (v != null && v !== undefined ? String(v).trim() : '');
+    const toUrl = (v) => (v && (typeof v === 'string' ? v : v.url)) ? (typeof v === 'string' ? v : v.url) : undefined;
+    const coordinates = Array.isArray(loc.coordinates) ? loc.coordinates : [];
+    const lngFromCoordinates = toFiniteNumber(coordinates[0]);
+    const latFromCoordinates = toFiniteNumber(coordinates[1]);
+    const latitude = toFiniteNumber(loc.latitude ?? latFromCoordinates);
+    const longitude = toFiniteNumber(loc.longitude ?? lngFromCoordinates);
+    const normalizedOpeningTime = normalizeRestaurantTime(body.openingTime) || undefined;
+    const normalizedClosingTime = normalizeRestaurantTime(body.closingTime) || undefined;
+    if (normalizedOpeningTime && normalizedClosingTime) {
+        validateOpeningClosingTimes(normalizedOpeningTime, normalizedClosingTime);
+    }
+
+    const doc = {
+        restaurantName: toStr(body.restaurantName || body.name),
+        ownerName: toStr(body.ownerName),
+        ownerEmail: toStr(body.ownerEmail),
+        ownerPhone: toStr(body.ownerPhone),
+        primaryContactNumber: toStr(body.primaryContactNumber || body.ownerPhone),
+        pureVegRestaurant: body.pureVegRestaurant !== undefined
+            ? parseBooleanLike(body.pureVegRestaurant, 'pureVegRestaurant')
+            : false,
+        addressLine1: toStr(loc.addressLine1),
+        addressLine2: toStr(loc.addressLine2),
+        area: toStr(loc.area),
+        city: toStr(loc.city),
+        state: toStr(loc.state),
+        pincode: toStr(loc.pincode),
+        landmark: toStr(loc.landmark),
+        cuisines: Array.isArray(body.cuisines) ? body.cuisines : [],
+        openingTime: normalizedOpeningTime,
+        closingTime: normalizedClosingTime,
+        openDays: Array.isArray(body.openDays) ? body.openDays : [],
+        dayTimings: Array.isArray(body.dayTimings) ? body.dayTimings : [],
+        panNumber: toStr(body.panNumber),
+        nameOnPan: toStr(body.nameOnPan),
+        gstRegistered: Boolean(body.gstRegistered),
+        gstNumber: toStr(body.gstNumber),
+        gstLegalName: toStr(body.gstLegalName),
+        gstAddress: toStr(body.gstAddress),
+        fssaiNumber: toStr(body.fssaiNumber),
+        fssaiExpiry: body.fssaiExpiry ? new Date(body.fssaiExpiry) : undefined,
+        accountNumber: toStr(body.accountNumber),
+        ifscCode: toStr(body.ifscCode),
+        accountHolderName: toStr(body.accountHolderName),
+        accountType: toStr(body.accountType),
+        menuImages: Array.isArray(body.menuImages) ? body.menuImages.map((m) => toUrl(m)).filter(Boolean) : [],
+        profileImage: toUrl(body.profileImage),
+        panImage: toUrl(body.panImage),
+        gstImage: toUrl(body.gstImage),
+        fssaiImage: toUrl(body.fssaiImage),
+        estimatedDeliveryTime: toStr(body.estimatedDeliveryTime),
+        featuredDish: toStr(body.featuredDish),
+        featuredPrice: typeof body.featuredPrice === 'number' ? body.featuredPrice : (parseFloat(body.featuredPrice) || undefined),
+        offer: toStr(body.offer),
+        showRestaurantToUsersWithoutItems: body.showRestaurantToUsersWithoutItems !== undefined
+            ? parseBooleanLike(body.showRestaurantToUsersWithoutItems, 'showRestaurantToUsersWithoutItems')
+            : false,
+        isVisibleToUsers: body.isVisibleToUsers !== undefined
+            ? parseBooleanLike(body.isVisibleToUsers, 'isVisibleToUsers')
+            : true,
+        status: 'onboarding',
+        onboardingSource: 'admin',
+        onboardingStep: Math.min(Math.max(Number(body.onboardingStep || body.step || 1), 1), 5),
+        onboardingDraftCreatedBy: performer?.userId || performer?._id || performer?.id || null,
+        isActive: false
+    };
+
+    if (body.zoneId !== undefined && String(body.zoneId || '').trim()) {
+        const zoneId = String(body.zoneId || '').trim();
+        if (!mongoose.Types.ObjectId.isValid(zoneId)) throw new ValidationError('Invalid zoneId');
+        doc.zoneId = new mongoose.Types.ObjectId(zoneId);
+    }
+
+    if (latitude !== null && longitude !== null) {
+        doc.location = {
+            type: 'Point',
+            coordinates: [longitude, latitude],
+            latitude,
+            longitude,
+            formattedAddress: toStr(loc.formattedAddress || loc.address || loc.addressLine1),
+            address: toStr(loc.address || loc.formattedAddress || loc.addressLine1),
+            addressLine1: toStr(loc.addressLine1 || loc.formattedAddress || loc.address),
+            addressLine2: toStr(loc.addressLine2),
+            area: toStr(loc.area),
+            city: toStr(loc.city),
+            state: toStr(loc.state),
+            pincode: toStr(loc.pincode || loc.zipCode || loc.postalCode),
+            landmark: toStr(loc.landmark),
+        };
+    }
+
+    return doc;
+};
+
+const normalizeDraftPhone = (value) => {
+    const digits = String(value || '').replace(/\D/g, '').slice(-15);
+    return {
+        digits,
+        last10: digits.length >= 10 ? digits.slice(-10) : ''
+    };
+};
+
+export async function saveRestaurantDraftByAdmin(body = {}, performer = null) {
+    const draftId = String(body.draftId || body._id || body.id || '').trim();
+    const ownerPhone = String(body.ownerPhone || '').replace(/\D/g, '').slice(-15);
+    const draftData = normalizeAdminDraftBody(body, performer);
+
+    if (!draftData.restaurantName || !draftData.ownerName || !ownerPhone) {
+        throw new ValidationError('Restaurant name, owner name and owner phone are required to save a draft');
+    }
+
+    let draft = null;
+    if (draftId && mongoose.Types.ObjectId.isValid(draftId)) {
+        draft = await FoodRestaurant.findOne({ _id: draftId, status: 'onboarding', onboardingSource: 'admin' });
+    }
+    if (!draft) {
+        const { last10 } = normalizeDraftPhone(ownerPhone);
+        draft = await FoodRestaurant.findOne({
+            status: 'onboarding',
+            onboardingSource: 'admin',
+            $or: [
+                { ownerPhoneDigits: ownerPhone },
+                ...(last10 ? [{ ownerPhoneLast10: last10 }] : [])
+            ]
+        });
+    }
+
+    if (draft) {
+        Object.assign(draft, draftData);
+        await draft.save();
+        return draft.toObject();
+    }
+
+    const created = await FoodRestaurant.create(draftData);
+    return created.toObject();
+}
+
+export async function getRestaurantDraftByAdmin(query = {}, performer = null) {
+    const draftId = String(query.draftId || query.id || '').trim();
+    const ownerPhone = String(query.ownerPhone || query.phone || '').replace(/\D/g, '').slice(-15);
+    const base = { status: 'onboarding', onboardingSource: 'admin' };
+    if (draftId && mongoose.Types.ObjectId.isValid(draftId)) {
+        return FoodRestaurant.findOne({ ...base, _id: draftId }).lean();
+    }
+    if (ownerPhone) {
+        const { last10 } = normalizeDraftPhone(ownerPhone);
+        return FoodRestaurant.findOne({
+            ...base,
+            $or: [
+                { ownerPhoneDigits: ownerPhone },
+                ...(last10 ? [{ ownerPhoneLast10: last10 }] : [])
+            ]
+        }).sort({ updatedAt: -1 }).lean();
+    }
+    return FoodRestaurant.findOne({
+        ...base,
+        ...(performer?.userId || performer?._id || performer?.id ? { onboardingDraftCreatedBy: performer.userId || performer._id || performer.id } : {})
+    }).sort({ updatedAt: -1 }).lean();
+}
+
+export async function finalizeRestaurantDraftByAdmin(id, performer = null) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) throw new ValidationError('Invalid draft id');
+    const draft = await FoodRestaurant.findOne({ _id: id, status: 'onboarding', onboardingSource: 'admin' });
+    if (!draft) return null;
+    if (!draft.restaurantName || !draft.ownerName || !draft.ownerPhone) throw new ValidationError('Restaurant identity fields are required');
+    if (!draft.zoneId || !draft.location?.coordinates?.length) throw new ValidationError('Restaurant zone and location are required');
+    if (!Array.isArray(draft.menuImages) || draft.menuImages.length === 0) throw new ValidationError('At least one menu image is required');
+    if (!draft.profileImage) throw new ValidationError('Restaurant profile image is required');
+    if (!draft.panNumber || !draft.panImage) throw new ValidationError('PAN details and image are required');
+    if (!draft.fssaiNumber || !draft.fssaiExpiry || !draft.fssaiImage) throw new ValidationError('FSSAI details and image are required');
+    if (draft.gstRegistered && !draft.gstImage) throw new ValidationError('GST image is required when GST registered');
+    if (!draft.accountNumber || !draft.ifscCode || !draft.accountHolderName || !draft.accountType) throw new ValidationError('Bank details are required');
+
+    draft.status = 'approved';
+    draft.approvedAt = new Date();
+    draft.approvedBy = performer;
+    draft.onboardingStep = 5;
+    draft.isVisibleToUsers = draft.isVisibleToUsers !== false;
+    await draft.save();
+    return draft.toObject();
+}
+
+export async function discardRestaurantDraftByAdmin(id) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) throw new ValidationError('Invalid draft id');
+    return FoodRestaurant.findOneAndDelete({ _id: id, status: 'onboarding', onboardingSource: 'admin' }).lean();
+}
+
 export async function approveRestaurant(id, performer = null) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
     const updated = await FoodRestaurant.findByIdAndUpdate(
@@ -3338,7 +3579,7 @@ export async function approveRestaurant(id, performer = null) {
         {
             $set: {
                 status: 'approved',
-                isActive: true,
+                isVisibleToUsers: true,
                 approvedAt: new Date(),
                 rejectedAt: undefined,
                 rejectionReason: undefined,
@@ -5688,7 +5929,3 @@ export async function settleCODVerification(id, { action, adminNote, performer }
 
     return updated;
 }
-
-
-
-

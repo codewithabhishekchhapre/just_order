@@ -15,12 +15,25 @@ const deliveryDistanceSlabSchema = z.object({
     deliveryFee: z.number().min(0)
 });
 
+const deliverySpeedOptionSchema = z.object({
+    code: z.string().trim().min(1).toLowerCase(),
+    label: z.string().trim().min(1),
+    description: z.string().trim().optional(),
+    etaMinutesMin: z.number().min(0),
+    etaMinutesMax: z.number().min(0),
+    extraFee: z.number().min(0),
+    isDefault: z.boolean().optional(),
+    isActive: z.boolean().optional(),
+    sortOrder: z.number().optional()
+});
+
 const feeSettingsUpsertSchema = z.object({
     baseDistanceKm: z.number().min(0).nullable().optional(),
     baseDeliveryFee: z.number().min(0).nullable().optional(),
     perKmCharge: z.number().min(0).nullable().optional(),
     sponsorRules: z.array(sponsorRuleSchema).optional(),
     deliveryDistanceSlabs: z.array(deliveryDistanceSlabSchema).optional(),
+    deliverySpeedOptions: z.array(deliverySpeedOptionSchema).optional(),
     platformFee: z.number().min(0).nullable().optional(),
     gstRate: z.number().min(0).max(100).nullable().optional(),
     mixedOrderDistanceLimit: z.number().min(0).nullable().optional(),
@@ -70,6 +83,19 @@ export const validateFeeSettingsUpsertDto = (body) => {
                 deliveryFee: Number(slab?.deliveryFee)
             }))
             : undefined,
+        deliverySpeedOptions: Array.isArray(body?.deliverySpeedOptions)
+            ? body.deliverySpeedOptions.map((option) => ({
+                code: String(option?.code || '').trim().toLowerCase(),
+                label: String(option?.label || '').trim(),
+                description: String(option?.description || '').trim(),
+                etaMinutesMin: Number(option?.etaMinutesMin),
+                etaMinutesMax: Number(option?.etaMinutesMax),
+                extraFee: Number(option?.extraFee) || 0,
+                isDefault: Boolean(option?.isDefault),
+                isActive: option?.isActive !== false,
+                sortOrder: Number.isFinite(Number(option?.sortOrder)) ? Number(option.sortOrder) : 0
+            }))
+            : undefined,
         platformFee:
             body?.platformFee === null ? null : body?.platformFee !== undefined ? Number(body.platformFee) : undefined,
         gstRate:
@@ -92,6 +118,22 @@ export const validateFeeSettingsUpsertDto = (body) => {
         for (const slab of slabs) {
             if (slab.toKm < slab.fromKm) {
                 throw new ValidationError('To KM must be greater than or equal to From KM');
+            }
+        }
+    }
+    const deliverySpeedOptions = Array.isArray(result.data.deliverySpeedOptions) ? result.data.deliverySpeedOptions : undefined;
+    if (deliverySpeedOptions) {
+        const seenCodes = new Set();
+        for (const option of deliverySpeedOptions) {
+            if (!option.code) {
+                throw new ValidationError('Delivery speed option code is required');
+            }
+            if (seenCodes.has(option.code)) {
+                throw new ValidationError(`Duplicate delivery speed option code: ${option.code}`);
+            }
+            seenCodes.add(option.code);
+            if (option.etaMinutesMax < option.etaMinutesMin) {
+                throw new ValidationError('Delivery speed max ETA must be greater than or equal to min ETA');
             }
         }
     }

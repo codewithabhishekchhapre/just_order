@@ -56,14 +56,7 @@ const RouteAwarePageLoader = () => {
 
   return <AppShellSkeleton />
 }
-/**
- * FoodAppWrapper — Quick-spicy App. को /food prefix के साथ render करता है.
- * 
- * Quick-spicy की App.jsx में routes /restaurant, /usermain, /admin, /delivery
- * जैसे hain (bina /food prefix ke). Yahan hum useLocation se /food ke baad wala
- * path nikalne ke baad FoodApp render karte hain. FoodApp internally BrowserRouter
- * nahi use karta (sirf Routes use karta hai), isliye ye directly kaam karta hai.
- */
+
 const FoodAppWrapper = () => {
   return (
     <Suspense fallback={<PageLoader />}>

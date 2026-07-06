@@ -122,36 +122,40 @@ const FoodRestaurantCard = memo(({
             </div>
 
             <div className="transform transition-transform duration-300">
-              <CardContent className="flex flex-grow flex-col p-4 sm:p-5">
-                <div className="mb-2 lg:mb-3">
-                  <h3 className="line-clamp-1 text-base sm:text-lg font-black leading-tight tracking-tight text-gray-900 transition-colors duration-300 group-hover:text-[#FF6A00] dark:text-white">
+              <CardContent className="flex flex-grow flex-col p-2.5 sm:p-3 gap-1">
+                <div className="flex flex-col">
+                  <h3 className="line-clamp-1 text-[14px] sm:text-[15px] font-black leading-tight tracking-tight text-gray-900 transition-colors duration-300 group-hover:text-[#FF6A00] dark:text-white">
                     {restaurant.name}
                   </h3>
                   {displayLocation && (
-                    <p className="mt-1 flex items-center gap-1 line-clamp-1 text-xs font-semibold text-gray-500 dark:text-gray-400">
-                      <MapPin className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" strokeWidth={2} />
+                    <p className="mt-0.5 flex items-center gap-1 line-clamp-1 text-[10px] sm:text-[11px] font-semibold text-gray-500 dark:text-gray-400">
+                      <MapPin className="h-3 w-3 flex-shrink-0 text-gray-400" strokeWidth={2} />
                       <span>{displayLocation}</span>
                     </p>
                   )}
+                </div>
+
+                <div className="flex items-center gap-1.5 text-[10px] sm:text-[11px] text-gray-500 opacity-80 transition-opacity duration-300 group-hover:opacity-100">
+                  <div className="flex items-center gap-1">
+                    <Clock className="h-3 w-3 text-gray-400 dark:text-gray-400" strokeWidth={2} />
+                    <span className="font-bold text-gray-700 dark:text-gray-300">{restaurant.deliveryTime}</span>
+                  </div>
+                  <span className="h-1 w-1 rounded-full bg-gray-300 dark:bg-gray-600"></span>
+                  <div className="flex items-center gap-1">
+                    <span className="font-bold text-gray-700 dark:text-gray-300">{restaurant.distance}</span>
+                  </div>
                   {availability.isOpen && availability.closingCountdownLabel && (
-                    <div className="mt-2 flex items-center gap-1 w-fit rounded-[6px] border border-red-100 bg-red-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-red-500">
-                      <Timer className="h-3 w-3 flex-shrink-0" strokeWidth={2.5} />
+                    <div className="ml-auto flex items-center gap-1 rounded bg-red-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-red-500 border border-red-100">
+                      <Timer className="h-2.5 w-2.5 flex-shrink-0" strokeWidth={2.5} />
                       <span>{availability.closingCountdownLabel}</span>
                     </div>
                   )}
                 </div>
 
-                <div className="mb-2.5 flex items-center gap-1 text-xs sm:text-sm text-gray-500 opacity-80 transition-opacity duration-300 group-hover:opacity-100 lg:mb-3">
-                  <Clock className="h-4 w-4 text-gray-400 dark:text-gray-400 lg:h-4.5 lg:w-4.5" strokeWidth={2} />
-                  <span className="font-bold text-gray-700 dark:text-gray-300">{restaurant.deliveryTime}</span>
-                  <span className="mx-1 text-gray-300">|</span>
-                  <span className="font-bold text-gray-700 dark:text-gray-300">{restaurant.distance}</span>
-                </div>
-
                 {restaurant.offer && (
-                  <div className="mt-2 flex items-center gap-2 text-xs sm:text-sm transition-transform duration-300 group-hover:translate-x-1">
-                    <BadgePercent className="h-4 w-4 text-[#FF6A00] lg:h-4.5 lg:w-4.5 animate-pulse" strokeWidth={2.5} />
-                    <span className="font-extrabold text-[#E85D04] dark:text-[#FF8c42]">{restaurant.offer}</span>
+                  <div className="flex items-center gap-1 text-[10px] sm:text-[11px] transition-transform duration-300 group-hover:translate-x-1 border-t border-dashed border-gray-100 dark:border-gray-800 pt-1 mt-0.5">
+                    <BadgePercent className="h-3.5 w-3.5 text-[#FF6A00] animate-pulse" strokeWidth={2.5} />
+                    <span className="font-extrabold text-[#E85D04] dark:text-[#FF8c42] truncate">{restaurant.offer}</span>
                   </div>
                 )}
               </CardContent>

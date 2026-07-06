@@ -106,6 +106,19 @@ const pricingSchema = new mongoose.Schema(
         deliverySponsorType: { type: String, default: 'USER_FULL', trim: true },
         platformFee: { type: Number, default: 0, min: 0 },
         discount: { type: Number, default: 0, min: 0 },
+        deliverySpeedFee: { type: Number, default: 0, min: 0 },
+        deliverySpeed: {
+            type: new mongoose.Schema(
+                {
+                    code: { type: String, default: '' },
+                    label: { type: String, default: '' },
+                    etaMinutesMin: { type: Number, default: null },
+                    etaMinutesMax: { type: Number, default: null }
+                },
+                { _id: false }
+            ),
+            default: () => ({})
+        },
         restaurantCommissionPercentage: { type: Number, default: 0, min: 0 },
         restaurantCommission: { type: Number, default: 0, min: 0 },
         total: { type: Number, required: true, min: 0 },

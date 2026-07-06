@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import { actionPerformerSchema } from '../../../../core/models/actionPerformer.schema.js';
+import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 
 const foodVariantSchema = new mongoose.Schema(
     {
@@ -32,7 +33,18 @@ const foodSchema = new mongoose.Schema(
         approvedAt: { type: Date },
         rejectedAt: { type: Date },
         approvedBy: { type: actionPerformerSchema, default: null },
-        rejectedBy: { type: actionPerformerSchema, default: null }
+        rejectedBy: { type: actionPerformerSchema, default: null },
+        previousApproved: {
+            name: { type: String, default: undefined },
+            description: { type: String, default: undefined },
+            price: { type: Number, default: undefined },
+            otherPrice: { type: Number, default: undefined },
+            image: { type: String, default: undefined },
+            images: { type: [String], default: undefined },
+            foodType: { type: String, default: undefined },
+            preparationTime: { type: String, default: undefined },
+            variants: { type: [foodVariantSchema], default: undefined }
+        }
     },
     {
         collection: 'food_items',
@@ -44,5 +56,33 @@ foodSchema.index({ restaurantId: 1, createdAt: -1 });
 foodSchema.index({ approvalStatus: 1, createdAt: -1 });
 foodSchema.index({ approvalStatus: 1, requestedAt: -1 });
 foodSchema.index({ restaurantId: 1, approvalStatus: 1, createdAt: -1 });
+
+const markRestaurantHasActiveItems = async (doc) => {
+    if (!doc?.restaurantId) return;
+    if (doc.approvalStatus !== 'approved' || doc.isAvailable === false) return;
+
+    await FoodRestaurant.updateOne(
+        { _id: doc.restaurantId, hasHadActiveItems: { $ne: true } },
+        { $set: { hasHadActiveItems: true } }
+    );
+};
+
+foodSchema.post('save', async function markActiveRestaurantAfterSave(doc, next) {
+    try {
+        await markRestaurantHasActiveItems(doc);
+        next();
+    } catch (error) {
+        next(error);
+    }
+});
+
+foodSchema.post('findOneAndUpdate', async function markActiveRestaurantAfterUpdate(doc, next) {
+    try {
+        await markRestaurantHasActiveItems(doc);
+        next();
+    } catch (error) {
+        next(error);
+    }
+});
 
 export const FoodItem = mongoose.model('FoodItem', foodSchema, 'food_items');
