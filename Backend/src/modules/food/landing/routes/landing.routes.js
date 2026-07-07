@@ -55,13 +55,14 @@ import {
 } from '../controllers/top10GourmetAdmin.controller.js';
 import { getPublicPageController } from '../../admin/controllers/pageContent.controller.js';
 import { getPublicReferralSettingsController } from '../controllers/publicReferralSettings.controller.js';
+import { cacheResponse } from '../../../../middleware/cache.js';
 
 const router = express.Router();
 
 // Public CMS pages (About + legal). No auth required.
-router.get('/pages/:key', getPublicPageController);
+router.get('/pages/:key', cacheResponse(600, 'cms_pages'), getPublicPageController);
 // Public referral settings (no auth required).
-router.get('/referral-settings', getPublicReferralSettingsController);
+router.get('/referral-settings', cacheResponse(600, 'referral_settings'), getPublicReferralSettingsController);
 
 // Admin hero banner management (DEV: auth temporarily disabled for faster integration)
 router.get('/hero-banners', listHeroBannersController);
@@ -121,15 +122,18 @@ router.patch('/hero-banners/gourmet/:id/order', updateGourmetOrderAdmin);
 router.patch('/hero-banners/gourmet/:id/status', toggleGourmetStatusAdmin);
 
 // Public landing endpoints (Food user app)
-router.get('/hero-banners/public', getPublicHeroBannersController);
-router.get('/hero-banners/under-250/public', getPublicUnder250BannersController);
-router.get('/hero-banners/dining/public', getPublicDiningBannersController);
-router.get('/explore-icons/public', getPublicExploreIconsController);
-router.get('/hero-banners/gourmet/public', getPublicGourmetController);
-router.get('/landing/settings/public', getPublicLandingSettingsController);
+// Note: zones/detect and zones/nearby are NOT cached — they're keyed by per-user
+// lat/lng query params, so a full-URL cache key would almost never hit and would
+// just fill Redis with one-off entries.
+router.get('/hero-banners/public', cacheResponse(300, 'hero_banners_public'), getPublicHeroBannersController);
+router.get('/hero-banners/under-250/public', cacheResponse(300, 'under250_banners_public'), getPublicUnder250BannersController);
+router.get('/hero-banners/dining/public', cacheResponse(300, 'dining_banners_public'), getPublicDiningBannersController);
+router.get('/explore-icons/public', cacheResponse(600, 'explore_icons_public'), getPublicExploreIconsController);
+router.get('/hero-banners/gourmet/public', cacheResponse(300, 'gourmet_public'), getPublicGourmetController);
+router.get('/landing/settings/public', cacheResponse(600, 'landing_settings_public'), getPublicLandingSettingsController);
 router.get('/zones/detect', detectZonePublicController);
 router.get('/zones/nearby', listZonesNearbyPublicController);
-router.get('/zones/public', listZonesPublicController);
+router.get('/zones/public', cacheResponse(600, 'zones_public'), listZonesPublicController);
 router.get('/public/env', getPublicEnvController);
 // Admin landing settings (old paths used by admin UI)
 router.get('/hero-banners/landing/settings', getAdminLandingSettingsController);

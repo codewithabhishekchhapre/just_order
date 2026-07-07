@@ -7,6 +7,9 @@ import {
 } from '../services/diningBanner.service.js';
 import { sendResponse } from '../../../../utils/response.js';
 import { ValidationError } from '../../../../core/auth/errors.js';
+import { invalidateCache } from '../../../../middleware/cache.js';
+
+const invalidateDiningBannerCache = () => invalidateCache('dining_banners_public:*');
 
 export const listDiningBannersController = async (req, res, next) => {
     try {
@@ -31,6 +34,7 @@ export const uploadDiningBannersController = async (req, res, next) => {
         };
 
         const results = await createDiningBannersFromFiles(req.files, meta);
+        await invalidateDiningBannerCache();
         return sendResponse(res, 201, 'Dining banners uploaded', { banners: results });
     } catch (error) {
         next(error);
@@ -44,6 +48,7 @@ export const deleteDiningBannerController = async (req, res, next) => {
             throw new ValidationError('Banner id is required');
         }
         const result = await deleteDiningBanner(id);
+        await invalidateDiningBannerCache();
         return sendResponse(res, 200, result.deleted ? 'Dining banner deleted' : 'Dining banner not found', result);
     } catch (error) {
         next(error);
@@ -59,6 +64,7 @@ export const updateDiningBannerOrderController = async (req, res, next) => {
             throw new ValidationError('id and numeric order are required');
         }
         const updated = await updateDiningBannerOrder(id, sortOrder);
+        await invalidateDiningBannerCache();
         return sendResponse(res, 200, 'Dining banner order updated', updated);
     } catch (error) {
         next(error);
@@ -77,6 +83,7 @@ export const toggleDiningBannerStatusController = async (req, res, next) => {
             throw new ValidationError('Dining banner not found');
         }
         const updated = await toggleDiningBannerStatus(id, !banner.isActive);
+        await invalidateDiningBannerCache();
         return sendResponse(res, 200, 'Dining banner status updated', updated);
     } catch (error) {
         next(error);

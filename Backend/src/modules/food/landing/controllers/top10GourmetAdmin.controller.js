@@ -1,6 +1,9 @@
 import { FoodGourmetRestaurant } from '../models/gourmetRestaurant.model.js';
 import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { getPublicGourmetRestaurants } from '../services/gourmet.service.js';
+import { invalidateCache } from '../../../../middleware/cache.js';
+
+const invalidateGourmetCache = () => invalidateCache('gourmet_public:*');
 
 /** GET /hero-banners/gourmet - list Gourmet (admin, all entries). Returns { success, data: { restaurants } } */
 export const listGourmetAdmin = async (req, res, next) => {
@@ -68,6 +71,7 @@ export const createGourmetAdmin = async (req, res, next) => {
                 city: d.restaurant.city
             } : null
         })).filter((r) => r && r._id);
+        await invalidateGourmetCache();
         res.status(201).json({
             success: true,
             message: 'Restaurant added to Gourmet',
@@ -86,6 +90,7 @@ export const deleteGourmetAdmin = async (req, res, next) => {
         if (!doc) {
             return res.status(404).json({ success: false, message: 'Gourmet entry not found' });
         }
+        await invalidateGourmetCache();
         res.status(200).json({ success: true, message: 'Restaurant removed from Gourmet', data: { id } });
     } catch (error) {
         next(error);
@@ -104,6 +109,7 @@ export const updateGourmetOrderAdmin = async (req, res, next) => {
         if (!doc) {
             return res.status(404).json({ success: false, message: 'Gourmet entry not found' });
         }
+        await invalidateGourmetCache();
         res.status(200).json({ success: true, message: 'Order updated', data: doc.toObject() });
     } catch (error) {
         next(error);
@@ -120,6 +126,7 @@ export const toggleGourmetStatusAdmin = async (req, res, next) => {
         }
         doc.isActive = !doc.isActive;
         await doc.save();
+        await invalidateGourmetCache();
         res.status(200).json({ success: true, message: doc.isActive ? 'Activated' : 'Deactivated', data: doc.toObject() });
     } catch (error) {
         next(error);

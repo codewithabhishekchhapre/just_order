@@ -21,7 +21,7 @@ export async function listPendingFoodApprovals(query = {}) {
         filter.restaurantId = query.restaurantId;
     }
     if (query.search && String(query.search).trim()) {
-        const term = String(query.search).trim().slice(0, 80);
+        const term = String(query.search).trim().slice(0, 80).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         filter.$or = [
             { name: { $regex: term, $options: 'i' } },
             { categoryName: { $regex: term, $options: 'i' } }

@@ -60,7 +60,8 @@ export async function createRestaurantCoupon(restaurantId, body) {
         expiryDate,
         usageLimit: body?.usageLimit ? Number(body.usageLimit) : null,
         description: String(body?.description || '').trim(),
-        status: 'Pending'
+        status: 'Pending',
+        freeDelivery: Boolean(body?.freeDelivery)
     });
 
     try {
@@ -128,7 +129,8 @@ export async function updateRestaurantCoupon(restaurantId, couponId, body) {
                 expiryDate,
                 usageLimit: body?.usageLimit ? Number(body.usageLimit) : null,
                 description: String(body?.description || '').trim(),
-                status: 'Pending' // Reset to Pending upon edit
+                status: 'Pending', // Reset to Pending upon edit
+                freeDelivery: Boolean(body?.freeDelivery)
             }
         },
         { new: true }

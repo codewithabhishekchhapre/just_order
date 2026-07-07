@@ -5,6 +5,7 @@ import { requireRoles } from '../../../../core/roles/role.middleware.js';
 import * as orderController from '../../orders/controllers/order.controller.js';
 import { registerDeliveryPartnerController, updateDeliveryPartnerProfileController, updateDeliveryPartnerBankDetailsController, listSupportTicketsController, createSupportTicketController, getSupportTicketByIdController, updateDeliveryPartnerDetailsController, updateDeliveryPartnerProfilePhotoBase64Controller, updateAvailabilityController, getWalletController, createWithdrawalRequestController, createCashDepositOrderController, verifyCashDepositPaymentController, getEarningsController, getTripHistoryController, getPocketDetailsController, getEmergencyHelpController, getCashLimitController, getDeliveryReferralStatsController, getActiveEarningAddonsController, deleteDeliveryPartnerAccountController, submitDeliveryManualDepositController, getDepositZonesController, getDepositZoneHubsController } from '../controllers/delivery.controller.js';
 import { getDepositPaymentSettingsPublicController } from '../../admin/controllers/admin.controller.js';
+import { registrationRateLimiter, sensitiveActionRateLimiter } from '../../../../middleware/rateLimit.js';
 
 const router = express.Router();
 
@@ -17,7 +18,7 @@ const uploadFields = upload.fields([
     { name: 'vehicleImage', maxCount: 1 }
 ]);
 
-router.post('/register', uploadFields, registerDeliveryPartnerController);
+router.post('/register', registrationRateLimiter, uploadFields, registerDeliveryPartnerController);
 
 router.patch('/profile', authMiddleware, requireRoles('DELIVERY_PARTNER'), uploadFields, updateDeliveryPartnerProfileController);
 router.delete('/profile', authMiddleware, requireRoles('DELIVERY_PARTNER'), deleteDeliveryPartnerAccountController);
@@ -57,10 +58,10 @@ router.post('/reverify', authMiddleware, requireRoles('DELIVERY_PARTNER'), (req,
 
 // Pocket / requests page – wallet, earnings, and admin-set delivery settings
 router.get('/wallet', authMiddleware, requireRoles('DELIVERY_PARTNER'), getWalletController);
-router.post('/wallet/withdraw', authMiddleware, requireRoles('DELIVERY_PARTNER'), createWithdrawalRequestController);
-router.post('/wallet/deposit/order', authMiddleware, requireRoles('DELIVERY_PARTNER'), createCashDepositOrderController);
-router.post('/wallet/deposit/verify', authMiddleware, requireRoles('DELIVERY_PARTNER'), verifyCashDepositPaymentController);
-router.post('/wallet/deposit/manual', authMiddleware, requireRoles('DELIVERY_PARTNER'), upload.single('paymentProof'), submitDeliveryManualDepositController);
+router.post('/wallet/withdraw', authMiddleware, requireRoles('DELIVERY_PARTNER'), sensitiveActionRateLimiter, createWithdrawalRequestController);
+router.post('/wallet/deposit/order', authMiddleware, requireRoles('DELIVERY_PARTNER'), sensitiveActionRateLimiter, createCashDepositOrderController);
+router.post('/wallet/deposit/verify', authMiddleware, requireRoles('DELIVERY_PARTNER'), sensitiveActionRateLimiter, verifyCashDepositPaymentController);
+router.post('/wallet/deposit/manual', authMiddleware, requireRoles('DELIVERY_PARTNER'), sensitiveActionRateLimiter, upload.single('paymentProof'), submitDeliveryManualDepositController);
 router.get('/wallet/deposit/zones', authMiddleware, requireRoles('DELIVERY_PARTNER'), getDepositZonesController);
 router.get('/wallet/deposit/zones/:id/hubs', authMiddleware, requireRoles('DELIVERY_PARTNER'), getDepositZoneHubsController);
 router.get('/wallet/deposit/settings', authMiddleware, requireRoles('DELIVERY_PARTNER'), getDepositPaymentSettingsPublicController);

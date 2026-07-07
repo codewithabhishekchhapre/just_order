@@ -1010,6 +1010,10 @@ export const adminAPI = {
       { reason: String(reason || "").trim() },
       { contextModule: "admin" },
     ),
+  deleteRestaurantAddon: (id) =>
+    apiClient.delete(`/food/admin/addons/${String(id)}`, {
+      contextModule: "admin",
+    }),
   /** Global Business Settings (common) */
   getBusinessSettings: () =>
     apiClient.get(API_ENDPOINTS.ADMIN.BUSINESS_SETTINGS, {
@@ -1241,6 +1245,7 @@ export const restaurantAPI = {
             maxDiscount: o.maxDiscount != null ? Number(o.maxDiscount) : null,
             customerGroup: o.customerScope || "all",
             isGlobalCoupon: true,
+            freeDelivery: Boolean(o.freeDelivery),
             endDate: o.endDate || null,
             showInCart: o.showInCart !== false,
             _ts: now,

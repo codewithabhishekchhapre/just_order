@@ -17,7 +17,8 @@ const foodOfferSchema = new mongoose.Schema(
         isFirstOrderOnly: { type: Boolean, default: false },
         endDate: { type: Date },
         status: { type: String, enum: ['active', 'paused', 'inactive'], default: 'active', index: true },
-        showInCart: { type: Boolean, default: true }
+        showInCart: { type: Boolean, default: true },
+        freeDelivery: { type: Boolean, default: false }
     },
     { collection: 'food_offers', timestamps: true }
 );

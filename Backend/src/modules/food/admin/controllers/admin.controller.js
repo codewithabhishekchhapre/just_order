@@ -9,6 +9,7 @@ import { validateFeeSettingsUpsertDto } from '../validators/feeSettings.validato
 import { validateDeliveryEmergencyHelpUpsertDto } from '../validators/deliveryEmergencyHelp.validator.js';
 import { validateReferralSettingsUpsertDto } from '../validators/referralSettings.validator.js';
 import { resolveActionPerformerSnapshot } from '../../../../core/utils/performer.js';
+import { invalidateCache } from '../../../../middleware/cache.js';
 
 // ----- Customers / Users -----
 export async function getCustomers(req, res, next) {
@@ -504,7 +505,10 @@ export async function deleteCategory(req, res, next) {
         if (!result) {
             return res.status(404).json({ success: false, message: 'Category not found' });
         }
-        res.status(200).json({ success: true, message: 'Category deleted successfully', data: result });
+        const message = result.deactivatedItemCount > 0
+            ? `Category deleted successfully. ${result.deactivatedItemCount} menu item(s) were set to inactive and are no longer visible to customers.`
+            : 'Category deleted successfully';
+        res.status(200).json({ success: true, message, data: result });
     } catch (error) {
         next(error);
     }
@@ -933,6 +937,7 @@ export async function createOrUpdateReferralSettings(req, res, next) {
     try {
         const body = validateReferralSettingsUpsertDto(req.body || {});
         const referralSettings = await adminService.upsertReferralSettings(body);
+        await invalidateCache('referral_settings:*');
         res.status(200).json({ success: true, message: 'Referral settings saved successfully', data: { referralSettings } });
     } catch (error) {
         next(error);
@@ -1325,6 +1330,7 @@ export async function createZone(req, res, next) {
                 message: result.error
             });
         }
+        await invalidateCache('zones_public:*');
         res.status(201).json({
             success: true,
             message: 'Zone created successfully',
@@ -1344,6 +1350,7 @@ export async function updateZone(req, res, next) {
                 message: 'Zone not found'
             });
         }
+        await invalidateCache('zones_public:*');
         res.status(200).json({
             success: true,
             message: 'Zone updated successfully',
@@ -1363,6 +1370,7 @@ export async function deleteZone(req, res, next) {
                 message: 'Zone not found'
             });
         }
+        await invalidateCache('zones_public:*');
         res.status(200).json({
             success: true,
             message: 'Zone deleted successfully',

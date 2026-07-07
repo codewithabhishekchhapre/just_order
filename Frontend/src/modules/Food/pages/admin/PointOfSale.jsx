@@ -127,7 +127,7 @@ export default function PointOfSale() {
   const fetchRestaurants = async () => {
     try {
       setLoading(true)
-      const response = await adminAPI.getRestaurants({ limit: 1000, isActive: true })
+      const response = await adminAPI.getRestaurants({ limit: 1000, status: 'approved' })
       if (response?.data?.success) {
         const rawRestaurants = response.data.data?.restaurants || response.data.data || []
         setRestaurants(normalizeRestaurants(rawRestaurants))

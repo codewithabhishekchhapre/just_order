@@ -202,14 +202,18 @@ export default function MenuCategoriesPage() {
 
   const handleDeleteCategory = async (category) => {
     if (!category?.canDelete) {
-      toast.error(category?.canEdit ? "Remove foods from this category before deleting it" : "Admin controls this category now")
+      toast.error("Admin controls this category now, so you can use it but not delete it")
       return
     }
-    if (!window.confirm(`Delete "${category.name}"?`)) return
+    const itemCount = Number(category?.itemCount || 0)
+    const confirmMessage = itemCount > 0
+      ? `Delete "${category.name}"? This category has ${itemCount} menu item(s). Deleting it will immediately hide those items from customers and set them to inactive. This action cannot be undone.`
+      : `Delete "${category.name}"?`
+    if (!window.confirm(confirmMessage)) return
 
     try {
-      await restaurantAPI.deleteCategory(category._id || category.id)
-      toast.success("Category deleted successfully")
+      const response = await restaurantAPI.deleteCategory(category._id || category.id)
+      toast.success(response?.data?.message || "Category deleted successfully")
       fetchCategories()
     } catch (error) {
       toast.error(error?.response?.data?.message || "Failed to delete category")

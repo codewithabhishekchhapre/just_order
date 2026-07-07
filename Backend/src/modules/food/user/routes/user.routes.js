@@ -41,6 +41,7 @@ import {
     updateRoleRequestController,
     deleteRoleRequestController
 } from '../controllers/userRoleRequest.controller.js';
+import { sensitiveActionRateLimiter } from '../../../../middleware/rateLimit.js';
 
 const router = express.Router();
 
@@ -57,8 +58,8 @@ router.delete('/role-requests/:id', deleteRoleRequestController);
 
 // Wallet (Bearer USER)
 router.get('/wallet', getUserWalletController);
-router.post('/wallet/topup/order', createWalletTopupOrderController);
-router.post('/wallet/topup/verify', verifyWalletTopupPaymentController);
+router.post('/wallet/topup/order', sensitiveActionRateLimiter, createWalletTopupOrderController);
+router.post('/wallet/topup/verify', sensitiveActionRateLimiter, verifyWalletTopupPaymentController);
 
 // Referral stats (Bearer USER)
 router.get('/referrals/stats', getUserReferralStatsController);

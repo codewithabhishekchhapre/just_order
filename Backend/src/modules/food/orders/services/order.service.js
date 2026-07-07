@@ -5,6 +5,7 @@ import { FoodOrder, FoodSettings } from '../models/order.model.js';
 import { logger } from '../../../../utils/logger.js';
 import { FoodUser } from '../../../../core/users/user.model.js';
 import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
+import { FoodItem } from '../../admin/models/food.model.js';
 import { FoodDeliveryPartner } from '../../delivery/models/deliveryPartner.model.js';
 import { FoodZone } from '../../admin/models/zone.model.js';
 import { FoodFeeSettings } from '../../admin/models/feeSettings.model.js';
@@ -1751,6 +1752,140 @@ export async function processScheduledOrderNotification(orderMongoId) {
 
 // Stale getDispatchSettings and updateDispatchSettings removed (now imported from order-dispatch.service.js)
 
+/**
+ * Security: the client submits a per-item `price`, but the server never looked it up
+ * against the real FoodItem before persisting an order or charging Razorpay — a client
+ * could submit any price it wanted. This does not (yet) reconstruct add-on pricing
+ * server-side (order items don't carry a structured add-on selection today), so it
+ * enforces a floor rather than an exact match: the submitted price can't be below the
+ * item's real base price (or matched variant price). That blocks the "pay ₹1 for a
+ * ₹500 item" class of exploit without breaking legitimate add-on totals baked into price.
+ */
+async function enforceMinimumFoodItemPrices(items, sourceMap) {
+  const foodItems = (items || []).filter((item) => item.type === "food");
+  if (!foodItems.length) return;
+
+  const validIds = [...new Set(
+    foodItems
+      .map((item) => String(item.itemId || ""))
+      .filter((id) => mongoose.isValidObjectId(id)),
+  )].map((id) => new mongoose.Types.ObjectId(id));
+
+  const foodDocs = validIds.length
+    ? await FoodItem.find({ _id: { $in: validIds } })
+        .select("restaurantId price variants approvalStatus isAvailable name")
+        .lean()
+    : [];
+  const foodDocMap = new Map(foodDocs.map((doc) => [String(doc._id), doc]));
+
+  for (const item of foodItems) {
+    const label = item.name || "This item";
+    const doc = foodDocMap.get(String(item.itemId || ""));
+    if (!doc) {
+      throw new ValidationError(`"${label}" is no longer available. Please refresh your cart.`);
+    }
+    if (doc.approvalStatus !== "approved" || doc.isAvailable === false) {
+      throw new ValidationError(`"${label}" is currently unavailable. Please refresh your cart.`);
+    }
+
+    const resolvedSource = sourceMap.get(String(item.sourceId));
+    const resolvedRestaurantId = resolvedSource?.sourceId;
+    if (!resolvedRestaurantId || String(doc.restaurantId) !== String(resolvedRestaurantId)) {
+      throw new ValidationError(`"${label}" does not belong to the selected restaurant.`);
+    }
+
+    let basePrice = Number(doc.price) || 0;
+    if (item.variantId) {
+      const variant = (doc.variants || []).find((v) => String(v._id) === String(item.variantId));
+      if (!variant) {
+        throw new ValidationError(`Selected option for "${label}" is no longer available. Please refresh your cart.`);
+      }
+      basePrice = Number(variant.price) || 0;
+    }
+
+    const submittedPrice = Number(item.price);
+    if (!Number.isFinite(submittedPrice) || submittedPrice < basePrice - 0.01) {
+      throw new ValidationError(`Price for "${label}" has changed. Please refresh your cart and try again.`);
+    }
+  }
+}
+
+/**
+ * Shared, authoritative coupon/discount computation — used by both the price preview
+ * (calculateOrder) and real order creation (createOrder) so a client can never submit
+ * an arbitrary `discount` amount without a real, currently-valid coupon backing it.
+ */
+async function computeCouponDiscount({ couponCode, subtotal, restaurantId, userId }) {
+  const codeRaw = couponCode ? String(couponCode).trim().toUpperCase() : "";
+  if (!codeRaw) return { discount: 0, appliedCoupon: null, couponCode: null, freeDelivery: false };
+
+  const now = new Date();
+  const offer = await FoodOffer.findOne({ couponCode: codeRaw }).lean();
+
+  if (!offer) {
+    const { RestaurantCoupon } = await import('../../admin/models/restaurantCoupon.model.js');
+    let resolvedRestaurantId = restaurantId;
+    if (resolvedRestaurantId && !mongoose.Types.ObjectId.isValid(resolvedRestaurantId)) {
+      const rest = await FoodRestaurant.findOne({ restaurantId: resolvedRestaurantId }).select('_id').lean();
+      if (rest) resolvedRestaurantId = rest._id;
+    }
+    const isIdValid = mongoose.Types.ObjectId.isValid(resolvedRestaurantId);
+    const restCoupon = isIdValid ? await RestaurantCoupon.findOne({
+      couponCode: codeRaw,
+      status: 'Approved',
+      restaurantId: new mongoose.Types.ObjectId(resolvedRestaurantId)
+    }).lean() : null;
+
+    if (!restCoupon) return { discount: 0, appliedCoupon: null, couponCode: codeRaw, freeDelivery: false };
+
+    const endOk = !restCoupon.expiryDate || now < new Date(restCoupon.expiryDate);
+    const minOk = subtotal >= (Number(restCoupon.minOrderAmount) || 0);
+    const usageOk = !(Number(restCoupon.usageLimit) > 0 && Number(restCoupon.usedCount || 0) >= Number(restCoupon.usageLimit));
+    if (!(endOk && minOk && usageOk)) return { discount: 0, appliedCoupon: null, couponCode: codeRaw, freeDelivery: false };
+
+    const discount = restCoupon.discountType === "percentage"
+      ? Math.max(0, Math.min(subtotal, Math.floor(subtotal * (Number(restCoupon.discountValue) / 100))))
+      : Math.max(0, Math.min(subtotal, Math.floor(Number(restCoupon.discountValue) || 0)));
+    const freeDelivery = Boolean(restCoupon.freeDelivery);
+    return { discount, appliedCoupon: { code: codeRaw, discount, freeDelivery }, couponCode: codeRaw, freeDelivery };
+  }
+
+  const statusOk = offer.status === "active";
+  const startOk = !offer.startDate || now >= new Date(offer.startDate);
+  const endOk = !offer.endDate || now < new Date(offer.endDate);
+  const scopeOk = offer.restaurantScope !== "selected" || String(offer.restaurantId || "") === String(restaurantId || "");
+  const minOk = subtotal >= (Number(offer.minOrderValue) || 0);
+  const usageOk = !(Number(offer.usageLimit) > 0 && Number(offer.usedCount || 0) >= Number(offer.usageLimit));
+
+  let perUserOk = true;
+  if (userId && Number(offer.perUserLimit) > 0) {
+    const usage = await FoodOfferUsage.findOne({ offerId: offer._id, userId }).lean();
+    if (usage && Number(usage.count) >= Number(offer.perUserLimit)) perUserOk = false;
+  }
+
+  let firstOrderOk = true;
+  if (userId && offer.customerScope === "first-time") {
+    const c = await FoodOrder.countDocuments({ userId: new mongoose.Types.ObjectId(userId) });
+    firstOrderOk = c === 0;
+  }
+  if (userId && offer.isFirstOrderOnly === true) {
+    const c2 = await FoodOrder.countDocuments({ userId: new mongoose.Types.ObjectId(userId) });
+    if (c2 > 0) firstOrderOk = false;
+  }
+
+  const allowed = statusOk && startOk && endOk && scopeOk && minOk && usageOk && perUserOk && firstOrderOk;
+  if (!allowed) return { discount: 0, appliedCoupon: null, couponCode: codeRaw, freeDelivery: false };
+
+  const discount = offer.discountType === "percentage"
+    ? Math.max(0, Math.min(subtotal, Math.floor(Math.min(
+        subtotal * (Number(offer.discountValue) / 100),
+        Number(offer.maxDiscount) ? Number(offer.maxDiscount) : Infinity,
+      ))))
+    : Math.max(0, Math.min(subtotal, Math.floor(Number(offer.discountValue) || 0)));
+  const freeDelivery = Boolean(offer.freeDelivery);
+  return { discount, appliedCoupon: { code: codeRaw, discount, freeDelivery }, couponCode: codeRaw, freeDelivery };
+}
+
 // ----- Calculate (validation + return pricing from payload) -----
 export async function calculateOrder(userId, dto) {
   const items = normalizeOrderItems(dto.items, dto.orderType);
@@ -1774,6 +1909,7 @@ export async function calculateOrder(userId, dto) {
   const feeSettings = normalizeFoodFeeSettings(feeDoc);
 
   const sourceMap = await fetchPickupSourcesByType(items);
+  await enforceMinimumFoodItemPrices(items, sourceMap);
   const pickupPoints = buildPickupPointsFromItems(items, sourceMap);
   const eligibility =
     orderType === "mixed"
@@ -1906,130 +2042,27 @@ export async function calculateOrder(userId, dto) {
       : 0;
   }
 
-  let discount = 0;
-  let appliedCoupon = null;
   const codeRaw = dto.couponCode
     ? String(dto.couponCode).trim().toUpperCase()
     : "";
-  if (codeRaw) {
-    const now = new Date();
-    let offer = await FoodOffer.findOne({ couponCode: codeRaw }).lean();
-    if (!offer) {
-      const { RestaurantCoupon } = await import('../../admin/models/restaurantCoupon.model.js');
-      let resolvedRestaurantId = primaryRestaurantId;
-      if (primaryRestaurantId && !mongoose.Types.ObjectId.isValid(primaryRestaurantId)) {
-        const { FoodRestaurant } = await import('../../restaurant/models/restaurant.model.js');
-        const rest = await FoodRestaurant.findOne({ restaurantId: primaryRestaurantId }).select('_id').lean();
-        if (rest) {
-          resolvedRestaurantId = rest._id;
-        }
-      }
-      const isIdValid = mongoose.Types.ObjectId.isValid(resolvedRestaurantId);
-      const restCoupon = isIdValid ? await RestaurantCoupon.findOne({
-        couponCode: codeRaw,
-        status: 'Approved',
-        restaurantId: new mongoose.Types.ObjectId(resolvedRestaurantId)
-      }).lean() : null;
-
-      if (restCoupon) {
-        const endOk = !restCoupon.expiryDate || now < new Date(restCoupon.expiryDate);
-        const minOk = subtotal >= (Number(restCoupon.minOrderAmount) || 0);
-        let usageOk = true;
-        if (
-          Number(restCoupon.usageLimit) > 0 &&
-          Number(restCoupon.usedCount || 0) >= Number(restCoupon.usageLimit)
-        ) {
-          usageOk = false;
-        }
-
-        const allowed = endOk && minOk && usageOk;
-
-        if (allowed) {
-          if (restCoupon.discountType === "percentage") {
-            const raw = subtotal * (Number(restCoupon.discountValue) / 100);
-            discount = Math.max(0, Math.min(subtotal, Math.floor(raw)));
-          } else {
-            discount = Math.max(
-              0,
-              Math.min(subtotal, Math.floor(Number(restCoupon.discountValue) || 0)),
-            );
-          }
-          appliedCoupon = { code: codeRaw, discount };
-        }
-      } else {
-        discount = 0;
-      }
-    } else {
-      const statusOk = offer.status === "active";
-      const startOk = !offer.startDate || now >= new Date(offer.startDate);
-      const endOk = !offer.endDate || now < new Date(offer.endDate);
-      const scopeOk =
-        offer.restaurantScope !== "selected" ||
-        String(offer.restaurantId || "") === String(primaryRestaurantId || "");
-      const minOk = subtotal >= (Number(offer.minOrderValue) || 0);
-      let usageOk = true;
-      if (
-        Number(offer.usageLimit) > 0 &&
-        Number(offer.usedCount || 0) >= Number(offer.usageLimit)
-      )
-        usageOk = false;
-      let perUserOk = true;
-      if (userId && Number(offer.perUserLimit) > 0) {
-        const usage = await FoodOfferUsage.findOne({
-          offerId: offer._id,
-          userId,
-        }).lean();
-        if (usage && Number(usage.count) >= Number(offer.perUserLimit))
-          perUserOk = false;
-      }
-      let firstOrderOk = true;
-      if (userId && offer.customerScope === "first-time") {
-        const c = await FoodOrder.countDocuments({
-          userId: new mongoose.Types.ObjectId(userId),
-        });
-        firstOrderOk = c === 0;
-      }
-      if (userId && offer.isFirstOrderOnly === true) {
-        const c2 = await FoodOrder.countDocuments({
-          userId: new mongoose.Types.ObjectId(userId),
-        });
-        if (c2 > 0) firstOrderOk = false;
-      }
-      const allowed =
-        statusOk &&
-        startOk &&
-        endOk &&
-        scopeOk &&
-        minOk &&
-        usageOk &&
-        perUserOk &&
-        firstOrderOk;
-      if (allowed) {
-        if (offer.discountType === "percentage") {
-          const raw = subtotal * (Number(offer.discountValue) / 100);
-          const capped = Number(offer.maxDiscount)
-            ? Math.min(raw, Number(offer.maxDiscount))
-            : raw;
-          discount = Math.max(0, Math.min(subtotal, Math.floor(capped)));
-        } else {
-          discount = Math.max(
-            0,
-            Math.min(subtotal, Math.floor(Number(offer.discountValue) || 0)),
-          );
-        }
-        appliedCoupon = { code: codeRaw, discount };
-      }
-    }
-  }
+  const { discount, appliedCoupon, freeDelivery } = await computeCouponDiscount({
+    couponCode: codeRaw,
+    subtotal,
+    restaurantId: primaryRestaurantId,
+    userId,
+  });
   const quickDeliveryFee = orderType === "mixed"
     ? calculateDeliveryFeeFromSettings(quickSubtotal, quickFeeDoc || undefined)
     : 0;
-  const normalDeliveryFee =
-    orderType === "mixed" ? Math.max(deliveryFee, quickDeliveryFee) : deliveryFee;
-  const expressDeliveryFee =
-    orderType === "mixed" ? deliveryFee + quickDeliveryFee : deliveryFee;
-  const selectedDeliveryFee =
-    orderType === "mixed" ? normalDeliveryFee : deliveryFee;
+  const normalDeliveryFee = freeDelivery
+    ? 0
+    : (orderType === "mixed" ? Math.max(deliveryFee, quickDeliveryFee) : deliveryFee);
+  const expressDeliveryFee = freeDelivery
+    ? 0
+    : (orderType === "mixed" ? deliveryFee + quickDeliveryFee : deliveryFee);
+  const selectedDeliveryFee = freeDelivery
+    ? 0
+    : (orderType === "mixed" ? normalDeliveryFee : deliveryFee);
 
   // Delivery speed tier (Eco/Standard/Express) - food orders only. Rider payout
   // (deliveryFee/totalDeliveryFee/restaurantDeliveryFee above) is untouched;
@@ -2162,6 +2195,7 @@ export async function createOrder(userId, dto) {
         ? "quick"
         : "food";
   const sourceMap = await fetchPickupSourcesByType(items);
+  await enforceMinimumFoodItemPrices(items, sourceMap);
   const foodSourceIds = [
     ...new Set(
       items
@@ -2221,6 +2255,16 @@ export async function createOrder(userId, dto) {
     dto.paymentMethod === "card" ? "razorpay" : dto.paymentMethod;
   const isCash = paymentMethod === "cash";
   const isWallet = paymentMethod === "wallet";
+
+  // SECURITY: isCodAllowed was previously only enforced client-side (hiding the COD
+  // option in the UI) — a user blocked from COD could still place a cash order via a
+  // direct API call. Enforce it server-side too.
+  if (isCash && userId) {
+    const codUser = await FoodUser.findById(userId).select("isCodAllowed").lean();
+    if (codUser && codUser.isCodAllowed === false) {
+      throw new ValidationError("Cash on Delivery is not available for your account. Please choose another payment method.");
+    }
+  }
   const pickupPoints = buildPickupPointsFromItems(items, sourceMap);
   const combinedPickup = await evaluateCombinedPickupEligibility(
     pickupPoints,
@@ -2241,7 +2285,14 @@ export async function createOrder(userId, dto) {
           ? "single"
           : "split";
 
-  // Ensure pricing is present and consistent.
+  // SECURITY: subtotal/tax/platformFee/discount/total must never be trusted from the
+  // client (dto.pricing) — they were previously accepted verbatim, letting anyone submit
+  // an arbitrary total and pay a fraction of the real order value. These are now always
+  // computed server-side from validated item prices (see enforceMinimumFoodItemPrices
+  // above) and admin-configured fee settings. Delivery fee remains a known residual gap
+  // (still client-supplied) — see audit notes; it carries far less fraud value than
+  // subtotal/total and reworking it touches the mixed-order express/split dispatch logic,
+  // which needs its own dedicated, tested pass.
   const computedSubtotal = items.reduce((sum, item) => {
     const price = Number(item?.price);
     const qty = Number(item?.quantity);
@@ -2253,48 +2304,92 @@ export async function createOrder(userId, dto) {
     : resolveRestaurantCommissionPercentage(0);
   const restaurantCommission = Math.round(computedSubtotal * (commissionPercentage / 100) * 100) / 100;
 
+  const feeDocForOrder = await FoodFeeSettings.findOne({ isActive: true })
+    .sort({ createdAt: -1 })
+    .lean();
+  const feeSettingsForOrder = normalizeFoodFeeSettings(feeDocForOrder);
+
+  let computedTax = 0;
+  if (orderType === "mixed") {
+    const foodSubtotalOnly = items.filter((i) => i.type === "food").reduce((s, i) => s + (Number(i.price) || 0) * (Number(i.quantity) || 1), 0);
+    const quickSubtotalOnly = items.filter((i) => i.type === "quick").reduce((s, i) => s + (Number(i.price) || 0) * (Number(i.quantity) || 1), 0);
+    const quickFeeDocForOrder = await QuickFeeSettings.findOne({ isActive: true }).sort({ createdAt: -1 }).lean();
+    computedTax = Math.round(foodSubtotalOnly * (feeSettingsForOrder.gstRate / 100)) +
+      Math.round(quickSubtotalOnly * ((quickFeeDocForOrder?.gstRate ?? 0) / 100));
+  } else if (orderType === "food") {
+    computedTax = Number.isFinite(feeSettingsForOrder.gstRate) && feeSettingsForOrder.gstRate > 0
+      ? Math.round(computedSubtotal * (feeSettingsForOrder.gstRate / 100))
+      : 0;
+  } else {
+    computedTax = Number(dto.pricing?.tax ?? 0); // quick-only orders: pricing not yet hardened here (separate module)
+  }
+
+  const computedPlatformFee = (orderType === "food" || orderType === "mixed")
+    ? Number(feeSettingsForOrder.platformFee || 0)
+    : Number(dto.pricing?.platformFee ?? 0);
+
+  const { discount: computedDiscount, freeDelivery: computedFreeDelivery } = (orderType === "food" || orderType === "mixed")
+    ? await computeCouponDiscount({
+        couponCode: dto.couponCode,
+        subtotal: computedSubtotal,
+        restaurantId: primaryRestaurantId,
+        userId,
+      })
+    : { discount: 0, freeDelivery: false };
+
+  // Fast-delivery (Eco/Standard/Express) surcharge — same real lookup calculateOrder
+  // already uses, so createOrder can't be handed a fabricated deliverySpeedFee.
+  const deliverySpeedOptionsListForOrder = orderType === "food" ? feeSettingsForOrder.deliverySpeedOptions : [];
+  const selectedDeliverySpeedOptionForOrder = orderType === "food"
+    ? pickDeliverySpeedOption(deliverySpeedOptionsListForOrder, dto.deliveryFleet)
+    : null;
+  const computedDeliverySpeedFee = selectedDeliverySpeedOptionForOrder
+    ? Number(selectedDeliverySpeedOptionForOrder.extraFee || 0)
+    : 0;
+
   const normalizedPricing = {
-    subtotal: Number(dto.pricing?.subtotal ?? computedSubtotal),
-    tax: Number(dto.pricing?.tax ?? 0),
+    subtotal: computedSubtotal,
+    tax: computedTax,
     packagingFee: Number(dto.pricing?.packagingFee ?? 0),
-    deliveryFee: Number(dto.pricing?.deliveryFee ?? 0),
-    totalDeliveryFee: Number(
+    // A valid free-delivery coupon zeroes the whole delivery-fee block rather than just
+    // the user-facing portion — otherwise the reconciliation logic below would misattribute
+    // the coupon-funded cost to the restaurant as if it were a restaurant sponsorship.
+    deliveryFee: computedFreeDelivery ? 0 : Number(dto.pricing?.deliveryFee ?? 0),
+    totalDeliveryFee: computedFreeDelivery ? 0 : Number(
       dto.pricing?.totalDeliveryFee ?? dto.pricing?.deliveryFee ?? 0,
     ),
-    userDeliveryFee: Number(
+    userDeliveryFee: computedFreeDelivery ? 0 : Number(
       dto.pricing?.userDeliveryFee ?? dto.pricing?.deliveryFee ?? 0,
     ),
-    restaurantDeliveryFee: Number(dto.pricing?.restaurantDeliveryFee ?? 0),
-    sponsoredDelivery: Boolean(dto.pricing?.sponsoredDelivery),
+    restaurantDeliveryFee: computedFreeDelivery ? 0 : Number(dto.pricing?.restaurantDeliveryFee ?? 0),
+    sponsoredDelivery: computedFreeDelivery ? false : Boolean(dto.pricing?.sponsoredDelivery),
     sponsoredKm: Number(dto.pricing?.sponsoredKm ?? 0),
     deliveryDistanceKm:
       dto.pricing?.deliveryDistanceKm == null
         ? null
         : Number(dto.pricing.deliveryDistanceKm),
-    deliverySponsorType: String(
+    deliverySponsorType: computedFreeDelivery ? "USER_FULL" : String(
       dto.pricing?.deliverySponsorType ||
         (Number(dto.pricing?.restaurantDeliveryFee || 0) > 0 ? "RESTAURANT_FULL" : "USER_FULL"),
     ),
-    platformFee: Number(dto.pricing?.platformFee ?? 0),
-    discount: Number(dto.pricing?.discount ?? 0),
-    deliverySpeedFee: Number(dto.pricing?.deliverySpeedFee ?? dto.pricing?.deliverySpeed?.fee ?? 0),
-    deliverySpeed: dto.pricing?.deliverySpeed
+    platformFee: computedPlatformFee,
+    discount: computedDiscount,
+    deliverySpeedFee: computedDeliverySpeedFee,
+    deliverySpeed: selectedDeliverySpeedOptionForOrder
       ? {
-          code: String(dto.pricing.deliverySpeed.code || ""),
-          label: String(dto.pricing.deliverySpeed.label || ""),
-          etaMinutesMin:
-            dto.pricing.deliverySpeed.etaMinutesMin == null
-              ? null
-              : Number(dto.pricing.deliverySpeed.etaMinutesMin),
-          etaMinutesMax:
-            dto.pricing.deliverySpeed.etaMinutesMax == null
-              ? null
-              : Number(dto.pricing.deliverySpeed.etaMinutesMax),
+          code: String(selectedDeliverySpeedOptionForOrder.code || ""),
+          label: String(selectedDeliverySpeedOptionForOrder.label || ""),
+          etaMinutesMin: selectedDeliverySpeedOptionForOrder.etaMinutesMin == null
+            ? null
+            : Number(selectedDeliverySpeedOptionForOrder.etaMinutesMin),
+          etaMinutesMax: selectedDeliverySpeedOptionForOrder.etaMinutesMax == null
+            ? null
+            : Number(selectedDeliverySpeedOptionForOrder.etaMinutesMax),
         }
       : undefined,
-    restaurantCommissionPercentage: Number(dto.pricing?.restaurantCommissionPercentage ?? commissionPercentage),
-    restaurantCommission: Number(dto.pricing?.restaurantCommission ?? restaurantCommission),
-    total: Number(dto.pricing?.total ?? 0),
+    restaurantCommissionPercentage: commissionPercentage,
+    restaurantCommission: restaurantCommission,
+    total: 0,
     currency: String(dto.pricing?.currency || "INR"),
   };
   normalizedPricing.totalDeliveryFee = Math.max(0, normalizedPricing.totalDeliveryFee);
@@ -2357,12 +2452,9 @@ export async function createOrder(userId, dto) {
         ? normalizedPricing.discount
         : 0),
   );
-  if (
-    !Number.isFinite(normalizedPricing.total) ||
-    normalizedPricing.total <= 0
-  ) {
-    normalizedPricing.total = computedTotal;
-  }
+  // SECURITY: total is always server-computed from the authoritative fields above —
+  // never trust dto.pricing.total (see notes above computedSubtotal).
+  normalizedPricing.total = computedTotal;
 
   const payment = {
     method: paymentMethod,
@@ -2613,8 +2705,8 @@ export async function createOrder(userId, dto) {
   } catch {
     // Don't block order placement on socket failures.
   }
-  const couponCode = dto.pricing?.couponCode
-    ? String(dto.pricing.couponCode).trim().toUpperCase()
+  const couponCode = dto.couponCode
+    ? String(dto.couponCode).trim().toUpperCase()
     : "";
   if ((orderType === "food" || orderType === "mixed") && couponCode) {
     const offer = await FoodOffer.findOne({ couponCode }).lean();
@@ -3721,7 +3813,7 @@ export async function acceptOrderDelivery(orderId, deliveryPartnerId, body = {})
   const identity = buildOrderIdentityFilter(orderId);
   if (!identity) throw new ValidationError("Order id required");
 
-  const order = await FoodOrder.findOne({
+  let order = await FoodOrder.findOne({
     ...identity,
     orderStatus: {
       $nin: [
@@ -3758,6 +3850,27 @@ export async function acceptOrderDelivery(orderId, deliveryPartnerId, body = {})
     )
   ) {
     throw new ValidationError("Order not ready for delivery assignment");
+  }
+
+  // MIS-ASSIGN GUARD: a rider stays "online" for their whole active delivery (there's no
+  // separate busy/on-delivery status), and offers can go stale client-side. The dispatch
+  // broadcast already excludes busy riders from the pool it offers to (see
+  // getBusyPartnerIds in order-dispatch.service.js), but this is the last line of defense —
+  // applies to both the regular and split-dispatch accept paths below — so a rider can never
+  // accept a second order while a different one is still active.
+  const otherActiveOrder = await FoodOrder.findOne({
+    _id: { $ne: order._id },
+    "dispatch.deliveryPartnerId": partnerId,
+    orderStatus: {
+      $in: ["confirmed", "preparing", "ready_for_pickup", "picked_up", "reached_pickup", "reached_drop"],
+    },
+  })
+    .select("orderId")
+    .lean();
+  if (otherActiveOrder) {
+    throw new ValidationError(
+      `You already have an active delivery (Order #${otherActiveOrder.orderId}). Complete it before accepting another.`,
+    );
   }
 
   if (isSplitDispatchOrder(order)) {
@@ -3820,28 +3933,59 @@ export async function acceptOrderDelivery(orderId, deliveryPartnerId, body = {})
     return getOrderById(updatedOrder._id, { deliveryPartnerId });
   }
 
-  const wasUnassigned =
-    order.dispatch?.status === "unassigned" ||
-    !order.dispatch?.deliveryPartnerId;
-  if (
-    !wasUnassigned &&
-    order.dispatch.deliveryPartnerId?.toString() !==
-      deliveryPartnerId.toString()
-  ) {
-    throw new ForbiddenError("Not your order");
+  // SECURITY/RACE-SAFETY: with broadcast dispatch, several riders can be offered the
+  // same order and tap "accept" within milliseconds of each other. A plain
+  // read-then-save here would let a later request silently overwrite an earlier
+  // acceptance. Claim atomically at the DB level — only the first request whose
+  // update actually matches (order still unassigned, or re-accepted by the same
+  // partner) wins; everyone else gets a clear "already accepted" error instead of a
+  // corrupted double-assignment. Mirrors the already-atomic claimSplitDispatchLegAtomically
+  // pattern used for split-dispatch legs above.
+  const acceptedFromStatus = order.dispatch?.status || "unassigned";
+  const claimResult = await FoodOrder.updateOne(
+    {
+      _id: order._id,
+      orderStatus: {
+        $in: ["confirmed", "preparing", "ready_for_pickup", "picked_up"],
+      },
+      $or: [
+        { "dispatch.status": "unassigned" },
+        { "dispatch.deliveryPartnerId": partnerId },
+      ],
+    },
+    {
+      $set: {
+        "dispatch.deliveryPartnerId": partnerId,
+        "dispatch.status": "accepted",
+        "dispatch.assignedAt": order.dispatch?.assignedAt || new Date(),
+        "dispatch.acceptedAt": new Date(),
+      },
+      $push: {
+        statusHistory: {
+          at: new Date(),
+          byRole: "DELIVERY_PARTNER",
+          byId: deliveryPartnerId,
+          from: acceptedFromStatus,
+          to: "accepted",
+          note: "",
+        },
+      },
+    },
+  );
+
+  if (claimResult.matchedCount === 0) {
+    const latest = await FoodOrder.findById(order._id).select("dispatch orderStatus").lean();
+    if (!latest) throw new NotFoundError("Order not found");
+    if (
+      latest.dispatch?.deliveryPartnerId &&
+      String(latest.dispatch.deliveryPartnerId) !== String(deliveryPartnerId)
+    ) {
+      throw new ForbiddenError("This order has already been accepted by another delivery partner");
+    }
+    throw new ValidationError("Order not ready for delivery assignment");
   }
 
-  const from = order.dispatch?.status || "unassigned";
-  order.dispatch.deliveryPartnerId = partnerId;
-  order.dispatch.status = "accepted";
-  if (!order.dispatch.assignedAt) order.dispatch.assignedAt = new Date();
-  order.dispatch.acceptedAt = new Date();
-  pushStatusHistory(order, {
-    byRole: "DELIVERY_PARTNER",
-    byId: deliveryPartnerId,
-    from,
-    to: "accepted",
-  });
+  order = await FoodOrder.findById(order._id);
 
   emitOrderClaimedToOtherPartners(order, {
     acceptedBy: deliveryPartnerId,
@@ -3850,7 +3994,6 @@ export async function acceptOrderDelivery(orderId, deliveryPartnerId, body = {})
     ],
   });
 
-  await order.save();
   await order.populate('restaurantId');
 
   try {
@@ -4695,15 +4838,16 @@ export async function listOrdersAdmin(query) {
 
   // Search logic
   if (search) {
+    const safeSearch = String(search).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     // Search by Order ID (exact or partial regex)
     const searchConditions = [
-      { orderId: { $regex: search, $options: "i" } }
+      { orderId: { $regex: safeSearch, $options: "i" } }
     ];
 
     // If search looks like a name, we need to find matching users and restaurants first
     const [matchingUsers, matchingRestaurants] = await Promise.all([
-      FoodUser.find({ name: { $regex: search, $options: "i" } }).select('_id').lean(),
-      FoodRestaurant.find({ restaurantName: { $regex: search, $options: "i" } }).select('_id').lean()
+      FoodUser.find({ name: { $regex: safeSearch, $options: "i" } }).select('_id').lean(),
+      FoodRestaurant.find({ restaurantName: { $regex: safeSearch, $options: "i" } }).select('_id').lean()
     ]);
 
     if (matchingUsers.length > 0) {

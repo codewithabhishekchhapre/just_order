@@ -1716,6 +1716,7 @@ export default function Cart() {
         restaurantId: finalRestaurantId,
         restaurantName: finalRestaurantName || undefined,
         pricing: orderPricing,
+        couponCode: appliedCoupon?.code || couponCode || undefined,
         deliveryFleet: selectedDeliveryFleet || undefined,
         note: note || "",
         sendCutlery: sendCutlery !== false,

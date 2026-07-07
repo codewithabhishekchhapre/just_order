@@ -8,6 +8,9 @@ import {
 } from '../services/exploreIcon.service.js';
 import { sendResponse } from '../../../../utils/response.js';
 import { ValidationError } from '../../../../core/auth/errors.js';
+import { invalidateCache } from '../../../../middleware/cache.js';
+
+const invalidateExploreIconCache = () => invalidateCache('explore_icons_public:*');
 
 /** Normalize item for frontend: expose link, order, and imageUrl (alias for iconUrl) */
 const toItem = (doc) => {
@@ -40,6 +43,7 @@ export const createExploreMoreController = async (req, res, next) => {
         }
 
         const created = await createExploreIcon(file, { label, link });
+        await invalidateExploreIconCache();
         return sendResponse(res, 201, 'Explore more item created successfully', toItem(created));
     } catch (error) {
         next(error);
@@ -63,6 +67,7 @@ export const updateExploreMoreController = async (req, res, next) => {
         if (!updated) {
             return sendResponse(res, 404, 'Explore more item not found', null);
         }
+        await invalidateExploreIconCache();
         return sendResponse(res, 200, 'Explore more item updated successfully', toItem(updated));
     } catch (error) {
         next(error);
@@ -76,6 +81,7 @@ export const deleteExploreMoreController = async (req, res, next) => {
             throw new ValidationError('Item id is required');
         }
         const result = await deleteExploreIcon(id);
+        await invalidateExploreIconCache();
         return sendResponse(
             res,
             200,
@@ -98,6 +104,7 @@ export const toggleExploreMoreStatusController = async (req, res, next) => {
         if (!updated) {
             return sendResponse(res, 404, 'Explore more item not found', null);
         }
+        await invalidateExploreIconCache();
         return sendResponse(res, 200, 'Explore more item status updated', toItem(updated));
     } catch (error) {
         next(error);
@@ -122,6 +129,7 @@ export const updateExploreMoreOrderController = async (req, res, next) => {
         if (!updated) {
             return sendResponse(res, 404, 'Explore more item not found', null);
         }
+        await invalidateExploreIconCache();
         return sendResponse(res, 200, 'Explore more order updated', toItem(updated));
     } catch (error) {
         next(error);

@@ -7,6 +7,9 @@ import {
 } from '../services/under250Banner.service.js';
 import { sendResponse } from '../../../../utils/response.js';
 import { ValidationError } from '../../../../core/auth/errors.js';
+import { invalidateCache } from '../../../../middleware/cache.js';
+
+const invalidateUnder250BannerCache = () => invalidateCache('under250_banners_public:*');
 
 export const listUnder250BannersController = async (req, res, next) => {
     try {
@@ -31,6 +34,7 @@ export const uploadUnder250BannersController = async (req, res, next) => {
         };
 
         const results = await createUnder250BannersFromFiles(req.files, meta);
+        await invalidateUnder250BannerCache();
         return sendResponse(res, 201, 'Under 250 banners uploaded', { banners: results });
     } catch (error) {
         next(error);
@@ -44,6 +48,7 @@ export const deleteUnder250BannerController = async (req, res, next) => {
             throw new ValidationError('Banner id is required');
         }
         const result = await deleteUnder250Banner(id);
+        await invalidateUnder250BannerCache();
         return sendResponse(res, 200, result.deleted ? 'Under 250 banner deleted' : 'Under 250 banner not found', result);
     } catch (error) {
         next(error);
@@ -59,6 +64,7 @@ export const updateUnder250BannerOrderController = async (req, res, next) => {
             throw new ValidationError('id and numeric order are required');
         }
         const updated = await updateUnder250BannerOrder(id, sortOrder);
+        await invalidateUnder250BannerCache();
         return sendResponse(res, 200, 'Under 250 banner order updated', updated);
     } catch (error) {
         next(error);
@@ -77,6 +83,7 @@ export const toggleUnder250BannerStatusController = async (req, res, next) => {
             throw new ValidationError('Under 250 banner not found');
         }
         const updated = await toggleUnder250BannerStatus(id, !banner.isActive);
+        await invalidateUnder250BannerCache();
         return sendResponse(res, 200, 'Under 250 banner status updated', updated);
     } catch (error) {
         next(error);

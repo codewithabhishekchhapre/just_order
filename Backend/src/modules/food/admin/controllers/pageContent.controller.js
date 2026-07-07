@@ -6,6 +6,7 @@ import {
     upsertLegalPage,
     upsertAboutPage
 } from '../services/pageContent.service.js';
+import { invalidateCache } from '../../../../middleware/cache.js';
 
 const parseKeyFromParam = (req) => String(req.params?.key || '').trim().toLowerCase();
 
@@ -45,10 +46,12 @@ export const upsertAdminPageController = async (req, res, next) => {
 
         if (key === 'about') {
             const result = await upsertAboutPage(req.body ?? {}, updatedBy);
+            await invalidateCache('cms_pages:GET:*');
             return sendResponse(res, 200, 'Page updated successfully', result.data);
         }
         if (['terms', 'privacy', 'refund', 'shipping', 'cancellation'].includes(key)) {
             const result = await upsertLegalPage(key, req.body ?? {}, updatedBy, role);
+            await invalidateCache('cms_pages:GET:*');
             return sendResponse(res, 200, 'Page updated successfully', result.data);
         }
         throw new ValidationError('Invalid page key');

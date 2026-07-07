@@ -12,6 +12,13 @@ export async function getPublicApprovedRestaurantAddons(restaurantIdOrSlug) {
         restaurant = await FoodRestaurant.findOne({ _id: value, status: 'approved' })
             .select('_id status')
             .lean();
+    } else if (/^REST\d{6}$/i.test(value)) {
+        restaurant = await FoodRestaurant.findOne({
+            restaurantId: value.toUpperCase(),
+            status: 'approved',
+        })
+            .select('_id status')
+            .lean();
     } else {
         const normalized = value.trim().toLowerCase().replace(/-/g, ' ').replace(/\s+/g, ' ');
         restaurant = await FoodRestaurant.findOne({ restaurantNameNormalized: normalized, status: 'approved' })

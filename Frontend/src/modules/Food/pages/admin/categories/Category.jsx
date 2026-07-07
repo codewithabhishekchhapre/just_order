@@ -554,13 +554,19 @@ export default function Category() {
       toast.error("Permission denied")
       return
     }
-    const categoryName = categories.find((category) => String(category?.id || category?._id) === String(id))?.name || "this category"
-    if (!window.confirm(`Delete "${categoryName}"? This action cannot be undone.`)) return
+    const category = categories.find((c) => String(c?.id || c?._id) === String(id))
+    const categoryName = category?.name || "this category"
+    const itemCount = Number(category?.itemCount || 0)
+
+    const confirmMessage = itemCount > 0
+      ? `Delete "${categoryName}"? This category has ${itemCount} menu item(s) across one or more restaurants. Deleting it will immediately hide those items from customers and set them to inactive. This action cannot be undone.`
+      : `Delete "${categoryName}"? This action cannot be undone.`
+    if (!window.confirm(confirmMessage)) return
 
     try {
       const response = await adminAPI.deleteCategory(String(id))
       if (response?.data?.success) {
-        toast.success("Category deleted successfully")
+        toast.success(response?.data?.message || "Category deleted successfully")
         fetchCategories()
       }
     } catch (error) {

@@ -59,7 +59,10 @@ export const deleteCategoryController = async (req, res, next) => {
         const restaurantId = req.user?.userId;
         const result = await deleteRestaurantCategory(restaurantId, req.params.id);
         if (!result) return sendError(res, 404, 'Category not found');
-        return sendResponse(res, 200, 'Category deleted successfully', result);
+        const message = result.deactivatedItemCount > 0
+            ? `Category deleted successfully. ${result.deactivatedItemCount} menu item(s) were set to inactive and are no longer visible to customers.`
+            : 'Category deleted successfully';
+        return sendResponse(res, 200, message, result);
     } catch (error) {
         next(error);
     }

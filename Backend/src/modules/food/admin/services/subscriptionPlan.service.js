@@ -347,7 +347,7 @@ export async function getSubscriptionHistory(query, res) {
             const dIds = await mongoose.model('FoodDeliveryPartner').find({ phone: search }).distinct('_id');
             ownerIdsFilter = [...rIds, ...dIds];
         } else {
-            const regex = { $regex: search, $options: 'i' };
+            const regex = { $regex: String(search).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
             const rIds = await mongoose.model('FoodRestaurant').find({
                 $or: [{ restaurantName: regex }, { ownerName: regex }]
             }).distinct('_id');

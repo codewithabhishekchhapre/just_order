@@ -321,6 +321,14 @@ export async function updateRestaurantCategory(restaurantId, id, body = {}) {
     }
 
     await doc.save();
+
+    try {
+        const { invalidatePublicRestaurantMenuCache } = await import('./restaurantMenu.service.js');
+        await invalidatePublicRestaurantMenuCache();
+    } catch (e) {
+        console.error('Failed to invalidate menu cache after category update:', e);
+    }
+
     return doc.toObject();
 }
 
@@ -333,11 +341,23 @@ export async function deleteRestaurantCategory(restaurantId, id) {
     const category = await FoodCategory.findOne({ _id: id, restaurantId: context.restaurantId }).select('_id').lean();
     if (!category?._id) return null;
 
-    const inUse = await FoodItem.countDocuments({ categoryId: id, restaurantId: context.restaurantId });
-    if (inUse > 0) {
-        throw new ValidationError('Cannot delete category while it has items');
-    }
+    const updateResult = await FoodItem.updateMany(
+        { categoryId: id, restaurantId: context.restaurantId, isAvailable: { $ne: false } },
+        { $set: { isAvailable: false } }
+    );
+    const deactivatedItemCount = updateResult.modifiedCount || 0;
 
     const deleted = await FoodCategory.findOneAndDelete({ _id: id, restaurantId: context.restaurantId }).lean();
-    return deleted ? { id } : null;
+    if (!deleted) return null;
+
+    if (deactivatedItemCount > 0) {
+        try {
+            const { invalidatePublicRestaurantMenuCache } = await import('./restaurantMenu.service.js');
+            await invalidatePublicRestaurantMenuCache();
+        } catch (e) {
+            console.error('Failed to invalidate menu cache after category deletion:', e);
+        }
+    }
+
+    return { id, deactivatedItemCount };
 }

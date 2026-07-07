@@ -394,7 +394,7 @@ export default function AdminLogin() {
                     if (passwordError) setPasswordError("")
                   }}
                   disabled={isLoading}
-                  autoComplete="new-password"
+                  autoComplete="current-password"
                   maxLength={50}
                   className={`h-12 pl-11 pr-11 text-base bg-neutral-50/50 border-neutral-200 focus:bg-white focus:ring-primary/20 focus:border-primary transition-colors [&::-ms-reveal]:hidden [&::-webkit-password-reveal-button]:hidden ${passwordError ? 'border-red-500 focus:border-red-500 focus:ring-red-500/20' : ''}`}
                 />

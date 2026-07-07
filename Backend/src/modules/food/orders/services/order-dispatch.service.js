@@ -34,9 +34,57 @@ import {
   loadReturnPickupContext,
 } from "../../../quick-commerce/utils/returnPickup.helpers.js";
 
+/**
+ * A rider stays `availabilityStatus: "online"` for their entire active delivery — there is
+ * no separate "busy"/"on_delivery" state in the schema. Without this check, a rider already
+ * mid-delivery on Order A would still show up as "eligible" and get broadcast Order B, C, D...
+ * and could accept one, leaving them juggling two deliveries (or the dispatch system offering
+ * an order to someone who can't actually take it). This is the primary guard against that
+ * "mis-assign" class of bug when several orders are being dispatched at once.
+ */
+const ACTIVE_ORDER_STATUSES_FOR_BUSY_CHECK = [
+  "confirmed",
+  "preparing",
+  "ready_for_pickup",
+  "picked_up",
+  "reached_pickup",
+  "reached_drop",
+];
+const ACTIVE_RETURN_STATUSES_FOR_BUSY_CHECK = ["return_pickup_assigned", "return_in_transit"];
+
+async function getBusyPartnerIds(partnerIds = []) {
+  if (!partnerIds.length) return new Set();
+  const ids = partnerIds.map((id) => new mongoose.Types.ObjectId(String(id)));
+
+  const [busyOnOrders, busyOnReturns] = await Promise.all([
+    FoodOrder.find({
+      "dispatch.deliveryPartnerId": { $in: ids },
+      orderStatus: { $in: ACTIVE_ORDER_STATUSES_FOR_BUSY_CHECK },
+    })
+      .select("dispatch.deliveryPartnerId")
+      .lean(),
+    SellerReturn.find({
+      "dispatch.deliveryPartnerId": { $in: ids },
+      "dispatch.status": { $in: ["accepted", "assigned"] },
+      returnStatus: { $in: ACTIVE_RETURN_STATUSES_FOR_BUSY_CHECK },
+    })
+      .select("dispatch.deliveryPartnerId")
+      .lean(),
+  ]);
+
+  return new Set([
+    ...busyOnOrders.map((o) => String(o.dispatch?.deliveryPartnerId || "")),
+    ...busyOnReturns.map((r) => String(r.dispatch?.deliveryPartnerId || "")),
+  ].filter(Boolean));
+}
+
 export async function filterEligiblePartners(partners) {
   if (!partners.length) return [];
-  const partnerIds = partners.map(p => p.partnerId);
+  const busyPartnerIds = await getBusyPartnerIds(partners.map((p) => p.partnerId));
+  const freePartners = partners.filter((p) => !busyPartnerIds.has(String(p.partnerId)));
+  if (!freePartners.length) return [];
+
+  const partnerIds = freePartners.map(p => p.partnerId);
   const today = dayjs().tz("Asia/Kolkata").format("YYYY-MM-DD");
   
   const [activePasses, activeSubs] = await Promise.all([
@@ -60,8 +108,8 @@ export async function filterEligiblePartners(partners) {
   // Use a bypassed subscription list if needed, or strictly use subEligibleIds.
   // For now, we apply both subscription eligibility AND cash limit eligibility.
   const fullyEligiblePartners = [];
-  
-  for (const p of partners) {
+
+  for (const p of freePartners) {
     const isSubEligible = subEligibleIds.has(p.partnerId.toString());
     
     // Check cash limit
@@ -322,6 +370,17 @@ export async function listNearbyOnlineDeliveryPartnersByCoords(
   return { source: pseudoSource, partners: eligible };
 }
 
+/**
+ * Hyperlocal ring escalation for delivery dispatch: start tight (2km) and widen every
+ * RING_RETRY_DELAY_MS if nobody in the current ring accepts. Growth continues past the
+ * last tier (reusing the final 60km value) so an order is never abandoned outright.
+ */
+const RADIUS_TIERS_KM = [2, 4, 6, 10, 15, 20, 30, 45, 60];
+const RING_RETRY_DELAY_MS = 20000;
+/** Fires the admin "unassigned crisis" alert once retries have run this many rings
+ * (attempt 8 at 20s/ring is ~2.5 minutes — "a few minutes" without being trigger-happy). */
+const ADMIN_ALERT_ATTEMPT_THRESHOLD = 8;
+
 const buildDispatchJobPayload = (documentType, documentMongoId, attempt) => ({
   action: "DISPATCH_TIMEOUT_CHECK",
   documentType,
@@ -530,13 +589,13 @@ async function runDispatchHunt({
     logger.warn(`[Dispatch] Pre-dispatch cash-limit sweep failed: ${err.message}`),
   );
 
-  let maxKm = 15;
-  if (attempt === 2) maxKm = 25;
-  if (attempt === 3) maxKm = 40;
-  if (attempt >= 4) maxKm = 60;
+  // Hyperlocal ring escalation: broadcast to every eligible rider within the ring
+  // simultaneously (first to accept wins — see the atomic claim in acceptDeliveryOrder),
+  // then widen the ring every RETRY_DELAY_MS if nobody has accepted yet. Growth continues
+  // past the last defined tier (reusing 60km) rather than giving up.
+  const maxKm = RADIUS_TIERS_KM[Math.min(attempt - 1, RADIUS_TIERS_KM.length - 1)];
 
-  const isPhase2 = attempt >= 3;
-  const isPhase3 = attempt >= 6;
+  const isPhase3 = attempt >= ADMIN_ALERT_ATTEMPT_THRESHOLD;
   let { partners, source } = await resolvePartners(maxKm);
   const geoPartnerPoolCount = partners?.length || 0;
 
@@ -599,7 +658,7 @@ async function runDispatchHunt({
     }
 
     const retryJob = await addOrderJob(buildDispatchJobPayload(documentType, documentMongoId, attempt + 1), {
-      delay: 30000,
+      delay: RING_RETRY_DELAY_MS,
     });
     if (!retryJob) {
       logger.warn(
@@ -633,38 +692,33 @@ async function runDispatchHunt({
     return { notifiedCount: notifyTargets.length, payload, dispatchAudit };
   }
 
-  if (isPhase2) {
-    for (const p of eligible) {
-      emitDispatchOffer(io, rooms.delivery(p.partnerId), {
-        ...payload,
-        pickupDistanceKm: p.distanceKm,
-      });
-      socketEmitCount += 1;
-    }
-  } else {
-    const p = eligible[0];
+  // Broadcast to every eligible rider in this ring at once — first to tap "accept" wins
+  // (enforced atomically in acceptDeliveryOrder); everyone else gets `order_claimed` /
+  // `order_reassigned_elsewhere` once that happens.
+  const ringTimeoutSeconds = Math.round(RING_RETRY_DELAY_MS / 1000);
+  for (const p of eligible) {
     emitDispatchOffer(io, rooms.delivery(p.partnerId), {
       ...payload,
       pickupDistanceKm: p.distanceKm,
     });
     socketEmitCount += 1;
-    try {
-      await notifyOwnerSafely(
-        { ownerType: "DELIVERY_PARTNER", ownerId: p.partnerId },
-        {
-          title: payload.tripType === "return_pickup" ? "New return pickup!" : "New order assigned!",
-          body: `You have 60 seconds to accept ${alertLabel} ${payload.orderId || documentMongoId}.`,
-          data: {
-            type: "new_order",
-            documentType,
-            orderId: documentMongoId,
-            tripType: payload.tripType || "forward",
-          },
+  }
+  try {
+    await notifyOwnersSafely(
+      eligible.map((p) => ({ ownerType: "DELIVERY_PARTNER", ownerId: p.partnerId })),
+      {
+        title: payload.tripType === "return_pickup" ? "New return pickup nearby!" : "New order nearby!",
+        body: `Tap to accept ${alertLabel} ${payload.orderId || documentMongoId} — first to accept gets it (~${ringTimeoutSeconds}s).`,
+        data: {
+          type: "new_order",
+          documentType,
+          orderId: documentMongoId,
+          tripType: payload.tripType || "forward",
         },
-      );
-    } catch (err) {
-      logger.warn(`Push notification failed for partner ${p.partnerId}: ${err.message}`);
-    }
+      },
+    );
+  } catch (err) {
+    logger.warn(`Push notification broadcast failed for ${documentType} ${documentMongoId}: ${err.message}`);
   }
 
   const offeredToEntries = eligible.map((p) => ({
@@ -675,7 +729,7 @@ async function runDispatchHunt({
   await persistOffers(offeredToEntries);
 
   const retryJob = await addOrderJob(buildDispatchJobPayload(documentType, documentMongoId, attempt + 1), {
-    delay: 60000,
+    delay: RING_RETRY_DELAY_MS,
   });
   if (!retryJob) {
     logger.warn(
@@ -688,7 +742,7 @@ async function runDispatchHunt({
     eligibleCount: eligible.length,
     partnerPoolCount: partners.length,
     geoPartnerPoolCount,
-    notifiedCount: isPhase2 ? eligible.length : 1,
+    notifiedCount: eligible.length,
     persistedOfferCount: eligible.length,
     socketEmitCount,
     maxKm,

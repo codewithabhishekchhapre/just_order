@@ -163,7 +163,13 @@ export async function syncMenuItemApprovalStatus(restaurantId, itemId, status, r
 export async function invalidatePublicRestaurantMenuCache() {
     try {
         const { invalidateCache } = await import('../../../../middleware/cache.js');
-        await invalidateCache('restaurant_menu:*');
+        // Both caches key off category/food state, so any category mutation (approve/reject/
+        // activate/deactivate/delete) must clear both — otherwise the public categories list
+        // and/or restaurant menu can keep serving stale data for up to their TTL (10 minutes).
+        await Promise.all([
+            invalidateCache('restaurant_menu:*'),
+            invalidateCache('categories:*')
+        ]);
     } catch (error) {
         // eslint-disable-next-line no-console
         console.error('Failed to invalidate restaurant menu cache:', error);

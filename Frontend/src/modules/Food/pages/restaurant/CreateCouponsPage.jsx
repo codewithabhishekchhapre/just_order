@@ -24,6 +24,7 @@ const defaultFormData = {
   expiryDate: "",
   usageLimit: "",
   description: "",
+  freeDelivery: false,
 }
 
 const statusBadgeClass = (status) => {
@@ -82,6 +83,7 @@ export default function CreateCouponsPage() {
       expiryDate: coupon?.expiryDate ? new Date(coupon.expiryDate).toISOString().split('T')[0] : "",
       usageLimit: coupon?.usageLimit || "",
       description: coupon?.description || "",
+      freeDelivery: Boolean(coupon?.freeDelivery),
     })
     setShowModal(true)
   }
@@ -108,7 +110,8 @@ export default function CreateCouponsPage() {
         minOrderAmount: Number(formData.minOrderAmount) || 0,
         expiryDate: new Date(formData.expiryDate).toISOString(),
         usageLimit: formData.usageLimit ? Number(formData.usageLimit) : null,
-        description: formData.description.trim()
+        description: formData.description.trim(),
+        freeDelivery: Boolean(formData.freeDelivery)
       }
 
       if (editingCoupon) {
@@ -355,6 +358,17 @@ export default function CreateCouponsPage() {
                     rows={3}
                     className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#111] text-gray-900 dark:text-white px-4 py-3 outline-none focus:border-[#FF6A00] focus:ring-2 focus:ring-[#FF6A00]/10"
                   />
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    id="freeDelivery"
+                    type="checkbox"
+                    checked={formData.freeDelivery}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, freeDelivery: e.target.checked }))}
+                    className="h-4 w-4"
+                  />
+                  <label htmlFor="freeDelivery" className="text-sm text-gray-700 dark:text-gray-300">Free delivery</label>
                 </div>
               </div>
       </Modal>

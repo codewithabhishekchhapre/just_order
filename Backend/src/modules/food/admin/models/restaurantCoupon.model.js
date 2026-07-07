@@ -12,7 +12,8 @@ const restaurantCouponSchema = new mongoose.Schema(
         usageLimit: { type: Number, default: null, min: 0 },
         usedCount: { type: Number, default: 0, min: 0 },
         description: { type: String },
-        status: { type: String, enum: ['Pending', 'Approved', 'Rejected'], default: 'Pending', index: true }
+        status: { type: String, enum: ['Pending', 'Approved', 'Rejected'], default: 'Pending', index: true },
+        freeDelivery: { type: Boolean, default: false }
     },
     { collection: 'food_restaurant_coupons', timestamps: true }
 );

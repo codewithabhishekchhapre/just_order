@@ -69,6 +69,7 @@ import {
 } from '../controllers/restaurantCoupon.controller.js';
 
 import { cacheResponse, invalidateCache } from '../../../../middleware/cache.js';
+import { registrationRateLimiter, sensitiveActionRateLimiter } from '../../../../middleware/rateLimit.js';
 
 const router = express.Router();
 
@@ -87,8 +88,8 @@ const uploadFields = upload.fields([
     { name: 'menuImages', maxCount: 10 }
 ]);
 
-router.post('/register', uploadFields, registerRestaurantController);
-router.post('/onboarding/step/:step', uploadFields, saveOnboardingStepController);
+router.post('/register', registrationRateLimiter, uploadFields, registerRestaurantController);
+router.post('/onboarding/step/:step', registrationRateLimiter, uploadFields, saveOnboardingStepController);
 router.get('/onboarding/draft', getOnboardingDraftController);
 
 // Public: approved restaurants list (for user app)
@@ -126,8 +127,8 @@ router.get('/finance/cod-verification', authMiddleware, requireRestaurant, getRe
 router.post('/finance/cod-verification/:id/action', authMiddleware, requireRestaurant, upload.single('restaurantProof'), processRestaurantCODDepositController);
 router.get('/subscription-eligibility', authMiddleware, requireRestaurant, checkSubscriptionEligibilityController);
 router.get('/subscription-wallet', authMiddleware, requireRestaurant, getRestaurantSubscriptionWalletController);
-router.post('/subscription-topup', authMiddleware, requireRestaurant, createTopupOrderController);
-router.post('/verify-topup', authMiddleware, requireRestaurant, verifyTopupController);
+router.post('/subscription-topup', authMiddleware, requireRestaurant, sensitiveActionRateLimiter, createTopupOrderController);
+router.post('/verify-topup', authMiddleware, requireRestaurant, sensitiveActionRateLimiter, verifyTopupController);
 router.post('/withdraw', authMiddleware, requireRestaurant, createWithdrawalRequestController);
 router.get('/withdrawals', authMiddleware, requireRestaurant, listMyWithdrawalsController);
 router.post(

@@ -11,12 +11,13 @@ import {
     getOrderDropOtpUserController,
     updateOrderInstructionsController
 } from '../controllers/order.controller.js';
+import { sensitiveActionRateLimiter } from '../../../../middleware/rateLimit.js';
 
 const router = express.Router();
 
-router.post('/calculate', calculateOrderController);
-router.post('/', createOrderController);
-router.post('/verify-payment', verifyPaymentController);
+router.post('/calculate', sensitiveActionRateLimiter, calculateOrderController);
+router.post('/', sensitiveActionRateLimiter, createOrderController);
+router.post('/verify-payment', sensitiveActionRateLimiter, verifyPaymentController);
 router.get('/', listOrdersUserController);
 router.get('/:orderId/payments', getOrderPaymentsUserController);
 router.get('/:orderId/drop-otp', getOrderDropOtpUserController);

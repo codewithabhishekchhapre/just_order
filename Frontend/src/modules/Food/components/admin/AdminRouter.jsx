@@ -35,8 +35,6 @@ const AdminCODDepositVerification = lazy(() => import("@food/pages/admin/restaur
 const RestaurantComplaints = lazy(() => import("@food/pages/admin/restaurant/RestaurantComplaints"));
 const RestaurantReviews = lazy(() => import("@food/pages/admin/restaurant/RestaurantReviews"));
 const RestaurantCommission = lazy(() => import("@food/pages/admin/restaurant/RestaurantCommission"));
-const RestaurantsBulkImport = lazy(() => import("@food/pages/admin/restaurant/RestaurantsBulkImport"));
-const RestaurantsBulkExport = lazy(() => import("@food/pages/admin/restaurant/RestaurantsBulkExport"));
 // Food Management
 const FoodsList = lazy(() => import("@food/pages/admin/foods/FoodsList"));
 const AddonsList = lazy(() => import("@food/pages/admin/addons/AddonsList"));
@@ -144,7 +142,6 @@ const QuickCommerceVendors = lazy(() => import("@food/pages/admin/quick-commerce
 const QuickCommerceCategories = lazy(() => import("@food/pages/admin/quick-commerce/QuickCommerceCategories"));
 const QuickCommerceProducts = lazy(() => import("@food/pages/admin/quick-commerce/QuickCommerceProducts"));
 const AdminLogin = lazy(() => import("@food/pages/admin/auth/AdminLogin"));
-const AdminSignup = lazy(() => import("@food/pages/admin/auth/AdminSignup"));
 const AdminForgotPassword = lazy(() => import("@food/pages/admin/auth/AdminForgotPassword"));
 const QuickCommerceAdminRoutes = lazy(() => import("@/modules/quickCommerce/admin/routes"));
 
@@ -205,7 +202,6 @@ export default function AdminRouter() {
         {/* Admin Auth Routes — redirect to dashboard if already logged in */}
         <Route path="login" element={<AuthPageGuard module="admin" home="/admin/food"><AdminLogin /></AuthPageGuard>} />
         <Route path="forgot-password" element={<AuthPageGuard module="admin" home="/admin/food"><AdminForgotPassword /></AuthPageGuard>} />
-        <Route path="signup" element={<AuthPageGuard module="admin" home="/admin/food"><AdminSignup /></AuthPageGuard>} />
 
         {/* Protected Routes - With Layout */}
         <Route
@@ -275,8 +271,6 @@ export default function AdminRouter() {
             <Route path="restaurants/complaints" element={<RestaurantComplaints />} />
             <Route path="restaurants/reviews" element={<RestaurantReviews />} />
             <Route path="restaurants/commission" element={<RestaurantCommission />} />
-            <Route path="restaurants/bulk-import" element={<RestaurantsBulkImport />} />
-            <Route path="restaurants/bulk-export" element={<RestaurantsBulkExport />} />
 
             {/* FOOD & CATEGORY MANAGEMENT */}
             <Route path="categories" element={<Category />} />

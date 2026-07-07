@@ -212,9 +212,12 @@ export const serializeCategoryForResponse = (category = {}, options = {}) => {
         canEdit: options.currentRestaurantId
             ? Boolean(restaurantId && restaurantId === String(options.currentRestaurantId))
             : true,
+        // Deletion is always allowed for owned categories (admin, or the restaurant that owns a private
+        // category) — items linked to the category are cascade-deactivated rather than blocking delete.
+        // The frontend uses itemCount to warn the user before they confirm.
         canDelete: options.currentRestaurantId
-            ? Boolean(restaurantId && restaurantId === String(options.currentRestaurantId) && Number(stats?.totalFoods || 0) === 0)
-            : Number(stats?.totalFoods || 0) === 0,
+            ? Boolean(restaurantId && restaurantId === String(options.currentRestaurantId))
+            : true,
         restaurant: category?.restaurantId?._id
             ? {
                 _id: category.restaurantId._id,

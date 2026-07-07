@@ -98,6 +98,7 @@ router.get('/addons', addonsApprovalController.getRestaurantAddons);
 router.patch('/addons/:id', checkPermission('food::food_management::foods::addons', 'edit'), addonsApprovalController.updateRestaurantAddon);
 router.patch('/addons/:id/approve', checkPermission('food::food_management::foods::addons', 'edit'), addonsApprovalController.approveRestaurantAddon);
 router.patch('/addons/:id/reject', checkPermission('food::food_management::foods::addons', 'edit'), addonsApprovalController.rejectRestaurantAddon);
+router.delete('/addons/:id', checkPermission('food::food_management::foods::addons', 'delete'), addonsApprovalController.deleteRestaurantAddon);
 
 // ----- Foods -----
 router.get('/foods', adminController.getFoods);

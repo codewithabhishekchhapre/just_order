@@ -188,7 +188,8 @@ export async function getRestaurantComplaints(query = {}) {
         filter.restaurantId = new mongoose.Types.ObjectId(query.restaurantId);
     }
     if (query.search) {
-        const searchRegex = { $regex: query.search, $options: 'i' };
+        const escapedSearch = String(query.search).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const searchRegex = { $regex: escapedSearch, $options: 'i' };
         const restaurantIds = await FoodRestaurant.find({ restaurantName: searchRegex }).select('_id').lean();
         const userIds = await FoodUser.find({ name: searchRegex }).select('_id').lean();
         const orderIds = await FoodOrder.find({ orderId: searchRegex, orderType: 'food' }).select('_id').lean();
@@ -592,7 +593,7 @@ export async function getDashboardStats(query = {}) {
                 { $limit: 5 },
                 {
                     $lookup: {
-                        from: 'users',
+                        from: 'common_users',
                         localField: '_id',
                         foreignField: '_id',
                         as: 'user'
@@ -1077,7 +1078,7 @@ export async function getTaxReport(query = {}) {
 
     if (search) {
         // Search by order ID if provided
-        match.orderId = { $regex: search, $options: 'i' };
+        match.orderId = { $regex: String(search).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
     }
 
     // Aggregate tax by income source (Restaurants, Delivery, Platform)
@@ -2564,7 +2565,7 @@ export async function getCategories(query) {
 
     const filter = {};
     if (query.search && String(query.search).trim()) {
-        const term = String(query.search).trim();
+        const term = String(query.search).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         filter.$or = [{ name: { $regex: term, $options: 'i' } }];
     }
     // Optional zone filter for admin list.
@@ -2672,6 +2673,14 @@ export async function createCategory(body) {
         createdByRestaurantId: undefined
     });
     await doc.save();
+
+    try {
+        const { invalidatePublicRestaurantMenuCache } = await import('../../restaurant/services/restaurantMenu.service.js');
+        await invalidatePublicRestaurantMenuCache();
+    } catch (cacheError) {
+        console.error('Failed to invalidate restaurant menu cache after category creation:', cacheError);
+    }
+
     return doc.toObject();
 }
 
@@ -2717,6 +2726,14 @@ export async function rejectCategory(id, reason) {
     doc.approvedAt = undefined;
     doc.previousApproved = undefined;
     await doc.save();
+
+    try {
+        const { invalidatePublicRestaurantMenuCache } = await import('../../restaurant/services/restaurantMenu.service.js');
+        await invalidatePublicRestaurantMenuCache();
+    } catch (cacheError) {
+        console.error('Failed to invalidate restaurant menu cache after category rejection:', cacheError);
+    }
+
     return doc.toObject();
 }
 
@@ -2741,6 +2758,14 @@ export async function makeCategoryGlobal(id) {
     doc.globalizedAt = new Date();
     doc.approvedAt = doc.approvedAt || new Date();
     await doc.save();
+
+    try {
+        const { invalidatePublicRestaurantMenuCache } = await import('../../restaurant/services/restaurantMenu.service.js');
+        await invalidatePublicRestaurantMenuCache();
+    } catch (cacheError) {
+        console.error('Failed to invalidate restaurant menu cache after making category global:', cacheError);
+    }
+
     return doc.toObject();
 }
 
@@ -2784,17 +2809,66 @@ export async function updateCategory(id, body) {
         doc.createdByRestaurantId = doc.restaurantId;
     }
     await doc.save();
+
+    try {
+        const { invalidatePublicRestaurantMenuCache } = await import('../../restaurant/services/restaurantMenu.service.js');
+        await invalidatePublicRestaurantMenuCache();
+    } catch (cacheError) {
+        console.error('Failed to invalidate restaurant menu cache after category update:', cacheError);
+    }
+
     return doc.toObject();
 }
 
 export async function deleteCategory(id) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
-    const inUse = await FoodItem.countDocuments({ categoryId: id });
-    if (inUse > 0) {
-        throw new ValidationError('Cannot delete category while it has items');
+
+    const category = await FoodCategory.findById(id).select('name').lean();
+    if (!category) return null;
+
+    const affectedItems = await FoodItem.find({ categoryId: id, isAvailable: { $ne: false } })
+        .select('restaurantId')
+        .lean();
+
+    let deactivatedItemCount = 0;
+    if (affectedItems.length > 0) {
+        const updateResult = await FoodItem.updateMany(
+            { categoryId: id, isAvailable: { $ne: false } },
+            { $set: { isAvailable: false } }
+        );
+        deactivatedItemCount = updateResult.modifiedCount || 0;
+
+        const affectedRestaurantIds = Array.from(
+            new Set(affectedItems.map((item) => String(item.restaurantId)).filter(Boolean))
+        );
+
+        try {
+            const { notifyOwnersSafely } = await import('../../../../core/notifications/firebase.service.js');
+            await notifyOwnersSafely(
+                affectedRestaurantIds.map((restaurantId) => ({ ownerType: 'RESTAURANT', ownerId: restaurantId })),
+                {
+                    title: 'Menu Category Removed',
+                    body: `The category "${category.name}" was removed by admin. Menu items in this category have been set to inactive and are no longer visible to customers.`,
+                    data: {
+                        type: 'category_deleted',
+                        categoryId: String(id)
+                    }
+                }
+            );
+        } catch (e) {
+            console.error('Failed to notify restaurants of category deletion:', e);
+        }
+
+        try {
+            const { invalidatePublicRestaurantMenuCache } = await import('../../restaurant/services/restaurantMenu.service.js');
+            await invalidatePublicRestaurantMenuCache();
+        } catch (e) {
+            console.error('Failed to invalidate menu cache after category deletion:', e);
+        }
     }
+
     const deleted = await FoodCategory.findByIdAndDelete(id).lean();
-    return deleted ? { id } : null;
+    return deleted ? { id, deactivatedItemCount } : null;
 }
 
 export async function toggleCategoryStatus(id) {
@@ -2806,6 +2880,14 @@ export async function toggleCategoryStatus(id) {
         doc.createdByRestaurantId = doc.restaurantId;
     }
     await doc.save();
+
+    try {
+        const { invalidatePublicRestaurantMenuCache } = await import('../../restaurant/services/restaurantMenu.service.js');
+        await invalidatePublicRestaurantMenuCache();
+    } catch (cacheError) {
+        console.error('Failed to invalidate restaurant menu cache after category status toggle:', cacheError);
+    }
+
     return doc.toObject();
 }
 
@@ -3019,6 +3101,17 @@ export async function rejectRestaurantAddon(addonId, reason, performer = null) {
     return updated || null;
 }
 
+export async function deleteRestaurantAddonAdmin(addonId) {
+    if (!addonId || !mongoose.Types.ObjectId.isValid(String(addonId))) return null;
+    const _id = new mongoose.Types.ObjectId(String(addonId));
+    const updated = await FoodAddon.findOneAndUpdate(
+        { _id, isDeleted: { $ne: true } },
+        { $set: { isDeleted: true } },
+        { new: true }
+    ).lean();
+    return updated ? { id: updated._id } : null;
+}
+
 // ----- Foods (separate collection) -----
 export async function getFoods(query) {
     const limit = Math.min(Math.max(parseInt(query.limit, 10) || 100, 1), 1000);
@@ -3030,7 +3123,7 @@ export async function getFoods(query) {
         filter.restaurantId = query.restaurantId;
     }
     if (query.search && String(query.search).trim()) {
-        const term = String(query.search).trim();
+        const term = String(query.search).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         filter.$or = [
             { name: { $regex: term, $options: 'i' } },
             { categoryName: { $regex: term, $options: 'i' } }
@@ -3581,11 +3674,9 @@ export async function approveRestaurant(id, performer = null) {
                 status: 'approved',
                 isVisibleToUsers: true,
                 approvedAt: new Date(),
-                rejectedAt: undefined,
-                rejectionReason: undefined,
                 approvedBy: performer
             },
-            $unset: { reVerification: "" }
+            $unset: { reVerification: "", rejectedAt: "", rejectionReason: "" }
         },
         { new: true, runValidators: false }
     ).lean();
@@ -3752,7 +3843,8 @@ export async function getAllOffers(_query = {}) {
             maxDiscount: o.maxDiscount ?? null,
             usageLimit: o.usageLimit ?? null,
             usedCount: o.usedCount ?? 0,
-            restaurantScope: o.restaurantScope
+            restaurantScope: o.restaurantScope,
+            freeDelivery: Boolean(o.freeDelivery)
         };
     });
 
@@ -3780,7 +3872,8 @@ export async function createAdminOffer(body) {
         isFirstOrderOnly: body.isFirstOrderOnly ?? false,
         endDate: body.endDate,
         status: body.endDate && new Date(body.endDate).getTime() <= Date.now() ? 'inactive' : 'active',
-        showInCart: true
+        showInCart: true,
+        freeDelivery: Boolean(body.freeDelivery)
     });
 
     if (doc.restaurantScope === 'selected' && doc.restaurantId) {
@@ -3843,7 +3936,7 @@ export async function getDeliveryJoinRequests(query) {
 
     const andParts = [];
     if (search && typeof search === 'string' && search.trim()) {
-        const term = search.trim();
+        const term = search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         andParts.push({
             $or: [
                 { name: { $regex: term, $options: 'i' } },
@@ -3935,7 +4028,7 @@ export async function getDeliverySupportTickets(query = {}) {
     if (status && String(status).trim()) filter.status = String(status).trim();
     if (priority && String(priority).trim()) filter.priority = String(priority).trim();
     if (search && typeof search === 'string' && search.trim()) {
-        const term = search.trim();
+        const term = search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         filter.$or = [
             { subject: { $regex: term, $options: 'i' } },
             { description: { $regex: term, $options: 'i' } },
@@ -4010,7 +4103,7 @@ export async function getDeliveryPartners(query) {
     const { page = 1, limit = 1000, search } = query;
     const filter = { status: 'approved' };
     if (search && typeof search === 'string' && search.trim()) {
-        const term = search.trim();
+        const term = search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         filter.$or = [
             { name: { $regex: term, $options: 'i' } },
             { phone: { $regex: term, $options: 'i' } },
@@ -4093,7 +4186,7 @@ export async function getDeliveryPartnerBonusTransactions(query = {}) {
 
     // For search (name/phone/email/transactionId) we do a two-step lookup to keep it simple.
     if (search && typeof search === 'string' && search.trim()) {
-        const term = search.trim();
+        const term = search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const partnerIds = await FoodDeliveryPartner.find({
             $or: [
                 { name: { $regex: term, $options: 'i' } },
@@ -4450,7 +4543,7 @@ export async function getEarningAddonHistory(query = {}) {
     let partnerIds = null;
     let offerIds = null;
     if (search && typeof search === 'string' && search.trim()) {
-        const term = search.trim();
+        const term = search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         partnerIds = await FoodDeliveryPartner.find({
             $or: [
                 { name: { $regex: term, $options: 'i' } },
@@ -4946,7 +5039,7 @@ export async function getZones(query) {
     const page = Math.max(parseInt(query.page, 10) || 1, 1);
     const skip = (page - 1) * limit;
     const isActive = query.isActive;
-    const search = typeof query.search === 'string' ? query.search.trim() : '';
+    const search = typeof query.search === 'string' ? query.search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : '';
 
     const filter = {};
     if (isActive !== undefined && isActive !== '') {
@@ -5019,6 +5112,10 @@ export async function updateZone(id, body) {
 }
 
 export async function deleteZone(id) {
+    const restaurantCount = await FoodRestaurant.countDocuments({ zoneId: id });
+    if (restaurantCount > 0) {
+        throw new ValidationError(`Cannot delete zone: ${restaurantCount} restaurant(s) are still assigned to it`);
+    }
     const zone = await FoodZone.findByIdAndDelete(id);
     return zone ? { id } : null;
 }
@@ -5329,8 +5426,8 @@ export async function getSidebarBadges() {
         ] = await Promise.all([
             FoodRestaurant.countDocuments({ status: 'pending' }),
             FoodDeliveryPartner.countDocuments({ status: 'pending' }),
-            FoodItem.countDocuments({ status: 'pending' }),
-            FoodAddon.countDocuments({ status: 'pending' }),
+            FoodItem.countDocuments({ approvalStatus: 'pending' }),
+            FoodAddon.countDocuments({ approvalStatus: 'pending' }),
             FoodOrder.countDocuments({ orderStatus: { $in: ['created', 'placed'] } }),
             FoodOrder.countDocuments({ paymentMethod: 'offline_payment', orderStatus: { $in: ['created', 'placed'] } }),
             FoodRestaurantWithdrawal.countDocuments({ status: 'pending' }),
@@ -5714,7 +5811,7 @@ export async function getZoneHubs(query = {}) {
 
     const filter = {};
     if (query.search) {
-        filter.name = { $regex: query.search, $options: 'i' };
+        filter.name = { $regex: String(query.search).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
     }
 
     const [zones, total] = await Promise.all([

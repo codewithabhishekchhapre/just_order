@@ -136,6 +136,7 @@ export function validateCreateOrderDto(body) {
         customerName: z.string().optional(),
         customerPhone: z.string().optional(),
         pricing: pricingSchema,
+        couponCode: z.string().optional(),
         deliveryFleet: z.string().optional(),
         note: z.string().optional(),
         sendCutlery: z.boolean().optional(),

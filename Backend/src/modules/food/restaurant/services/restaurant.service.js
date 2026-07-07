@@ -2514,7 +2514,8 @@ export const listPublicOffers = async (query = {}) => {
             restaurantRating: typeof restaurant?.rating === 'number' ? restaurant.rating : 0,
             endDate: o.endDate || null,
             showInCart: o.showInCart !== false,
-            minOrderValue: o.minOrderValue ?? 0
+            minOrderValue: o.minOrderValue ?? 0,
+            freeDelivery: Boolean(o.freeDelivery)
         };
     });
 
@@ -2573,7 +2574,8 @@ export const listPublicOffers = async (query = {}) => {
                 showInCart: true,
                 minOrderValue: c.minOrderAmount ?? 0,
                 usageLimit: c.usageLimit ?? null,
-                usedCount: c.usedCount ?? 0
+                usedCount: c.usedCount ?? 0,
+                freeDelivery: Boolean(c.freeDelivery)
             };
         });
     } catch (err) {

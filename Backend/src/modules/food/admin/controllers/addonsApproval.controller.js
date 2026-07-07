@@ -63,3 +63,19 @@ export async function updateRestaurantAddon(req, res, next) {
         next(error);
     }
 }
+
+export async function deleteRestaurantAddon(req, res, next) {
+    try {
+        const { id } = req.params;
+        if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ success: false, message: 'Invalid add-on id' });
+        }
+        const result = await adminService.deleteRestaurantAddonAdmin(id);
+        if (!result) {
+            return res.status(404).json({ success: false, message: 'Add-on not found' });
+        }
+        res.status(200).json({ success: true, message: 'Add-on deleted successfully', data: result });
+    } catch (error) {
+        next(error);
+    }
+}
