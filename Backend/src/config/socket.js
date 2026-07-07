@@ -109,10 +109,18 @@ export const initSocket = async (server) => {
         try {
             const { createAdapter } = await import('@socket.io/redis-adapter');
             const { createClient } = await import('redis');
-            const pubClient = createClient({ url: config.redisUrl });
+            const pubClient = createClient({
+                url: config.redisUrl,
+                socket: {
+                    // Give up after a few attempts so an unreachable Redis falls back
+                    // to the in-memory adapter instead of retrying (and logging) forever.
+                    reconnectStrategy: (retries) =>
+                        retries >= 3 ? new Error('Redis unreachable') : Math.min(retries * 200, 1000),
+                },
+            });
             const subClient = pubClient.duplicate();
-            pubClient.on('error', (err) => logger.error(`Socket.IO Redis pub client: ${err.message}`));
-            subClient.on('error', (err) => logger.error(`Socket.IO Redis sub client: ${err.message}`));
+            pubClient.on('error', (err) => logger.error(`Socket.IO Redis pub client: ${err.message || err.code || err}`));
+            subClient.on('error', (err) => logger.error(`Socket.IO Redis sub client: ${err.message || err.code || err}`));
             await Promise.all([pubClient.connect(), subClient.connect()]);
             io.adapter(createAdapter(pubClient, subClient));
             logger.info('Socket.IO Redis adapter attached for horizontal scaling');

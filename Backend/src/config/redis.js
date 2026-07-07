@@ -15,10 +15,16 @@ export const createRedisClient = () => {
     }
 
     const client = createClient({
-        url: config.redisUrl
+        url: config.redisUrl,
+        socket: {
+            // Bounded backoff: stop retrying after ~10 attempts so an unreachable
+            // Redis surfaces one clear failure instead of logging errors forever.
+            reconnectStrategy: (retries) =>
+                retries >= 10 ? new Error('Redis unreachable, giving up') : Math.min(retries * 200, 2000),
+        },
     });
 
-    client.on('error', (err) => logger.error(`Redis Client Error: ${err.message}`));
+    client.on('error', (err) => logger.error(`Redis Client Error: ${err.message || err.code || err}`));
     client.on('connect', () => logger.info('Redis connecting...'));
     client.on('ready', () => logger.info('Redis client ready'));
     client.on('end', () => logger.warn('Redis client disconnected'));
