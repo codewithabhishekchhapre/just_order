@@ -22,7 +22,7 @@ import webhookRoutes from '../core/payments/routes/webhook.routes.js';
 import sellerRoutes from '../modules/quick-commerce/seller/routes/seller.routes.js';
 import searchRoutes from '../modules/food/search/routes/search.routes.js';
 import subscriptionRoutes from '../modules/food/subscriptions/routes/subscription.routes.js';
-import { getPublicFeeSummary } from '../modules/food/admin/controllers/admin.controller.js';
+import { getPublicFeeSummary, getPublicDeliverySpeedOptions } from '../modules/food/admin/controllers/admin.controller.js';
 
 
 import commonSettingsRoutes from '../modules/common/routes/settings.routes.js';
@@ -61,6 +61,9 @@ router.use('/v1/common/onboarding-fees', onboardingFeeRoutes);
 
 // Backward compatibility for public settings
 router.get('/v1/food/admin/business-settings/public', getPublicSettings);
+router.get('/v1/food/delivery-speed-options/public', getPublicDeliverySpeedOptions);
+router.get('/v1/food/public/delivery-speed-options', getPublicDeliverySpeedOptions);
+router.get('/v1/food/fee-settings/public', getPublicFeeSummary);
 router.get('/v1/food/admin/fee-settings/public', getPublicFeeSummary);
 
 router.use('/v1/food/admin', authMiddleware, requireRoles('ADMIN', 'EMPLOYEE'), restaurantAdminRoutes);

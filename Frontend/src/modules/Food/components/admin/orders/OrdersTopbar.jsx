@@ -8,6 +8,7 @@ import {
   DropdownMenuTrigger,
 } from "@food/components/ui/dropdown-menu"
 import { FileSpreadsheet, FileText } from "lucide-react"
+import RefreshButton from "@/shared/components/ui/RefreshButton"
 
 export default function OrdersTopbar({
   title,
@@ -18,6 +19,8 @@ export default function OrdersTopbar({
   activeFiltersCount,
   onExport,
   onSettingsClick,
+  onRefresh,
+  refreshing = false,
 }) {
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
@@ -43,6 +46,7 @@ export default function OrdersTopbar({
               <Search className="w-4 h-4 text-slate-500" />
             </button>
           </div>
+          {onRefresh && <RefreshButton onClick={onRefresh} loading={refreshing} />}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button className="px-4 py-2.5 text-sm font-medium rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 flex items-center gap-2 transition-all">

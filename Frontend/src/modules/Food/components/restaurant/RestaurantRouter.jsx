@@ -31,6 +31,7 @@ const ShippingPolicyPage     = lazy(() => import("@food/pages/restaurant/Shippin
 const CancellationPolicyPage = lazy(() => import("@food/pages/restaurant/CancellationPolicyPage"))
 const MenuCategoriesPage     = lazy(() => import("@food/pages/restaurant/MenuCategoriesPage"))
 const CreateCouponsPage      = lazy(() => import("@food/pages/restaurant/CreateCouponsPage"))
+const EditCouponPage         = lazy(() => import("@food/pages/restaurant/EditCouponPage"))
 const RestaurantStatus       = lazy(() => import("@food/pages/restaurant/RestaurantStatus"))
 const ExploreMore            = lazy(() => import("@food/pages/restaurant/ExploreMore"))
 const OutletOperations       = lazy(() => import("@food/pages/restaurant/OutletOperations"))
@@ -121,6 +122,8 @@ export default function RestaurantRouter() {
             {/* Menu */}
             <Route path="menu-categories"     element={<MenuCategoriesPage />} />
             <Route path="create-coupons"      element={<CreateCouponsPage />} />
+            <Route path="coupon/new"          element={<EditCouponPage />} />
+            <Route path="coupon/:id/edit"     element={<EditCouponPage />} />
             <Route path="inventory"           element={<Inventory />} />
             <Route path="hub-menu/item/:id"   element={<ItemDetailsPage />} />
 

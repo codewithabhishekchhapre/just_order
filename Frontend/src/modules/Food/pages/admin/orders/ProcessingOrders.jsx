@@ -1,3 +1,4 @@
+import { useState, useCallback } from "react"
 import { emptyOrders } from "@food/utils/adminFallbackData"
 import OrdersTopbar from "@food/components/admin/orders/OrdersTopbar"
 import OrdersTable from "@food/components/admin/orders/OrdersTable"
@@ -6,9 +7,21 @@ import ViewOrderDialog from "@food/components/admin/orders/ViewOrderDialog"
 import SettingsDialog from "@food/components/admin/orders/SettingsDialog"
 import { useOrdersManagement } from "@food/components/admin/orders/useOrdersManagement"
 
-const processingOrders = emptyOrders.filter((order) => order.orderStatus === "Processing")
+const getProcessingOrders = () => emptyOrders.filter((order) => order.orderStatus === "Processing")
 
 export default function ProcessingOrders() {
+  const [processingOrders, setProcessingOrders] = useState(getProcessingOrders)
+  const [refreshing, setRefreshing] = useState(false)
+
+  const refreshOrders = useCallback(async () => {
+    setRefreshing(true)
+    try {
+      setProcessingOrders(getProcessingOrders())
+    } finally {
+      setRefreshing(false)
+    }
+  }, [])
+
   const {
     searchQuery,
     setSearchQuery,
@@ -46,6 +59,8 @@ export default function ProcessingOrders() {
         activeFiltersCount={activeFiltersCount}
         onExport={handleExport}
         onSettingsClick={() => setIsSettingsOpen(true)}
+        onRefresh={refreshOrders}
+        refreshing={refreshing}
       />
       <FilterPanel
         isOpen={isFilterOpen}

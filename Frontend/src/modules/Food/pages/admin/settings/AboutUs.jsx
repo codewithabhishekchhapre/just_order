@@ -254,14 +254,22 @@ export default function AboutUs() {
             {aboutData.features.map((feature, index) => {
               const IconComponent = iconMap[feature.icon] || Heart
               return (
-                <Card key={index} className="border-2">
-                  <CardContent className="p-4">
-                    <div className="flex items-start gap-4">
+                <Card key={index} className="border-2 relative">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => removeFeature(index)}
+                    className="absolute top-2 right-2 text-red-600 hover:text-red-700 hover:bg-red-50 z-10"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                  <CardContent className="p-4 sm:p-6 pt-10 sm:pt-6">
+                    <div className="flex flex-col sm:flex-row items-start gap-4">
                       <div className={`${feature.bgColor} rounded-lg p-3 shrink-0`}>
                         <IconComponent className={`h-6 w-6 ${feature.color}`} />
                       </div>
-                      <div className="flex-1 space-y-3">
-                        <div className="grid grid-cols-2 gap-3">
+                      <div className="flex-1 space-y-4 w-full">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 pr-0 sm:pr-8">
                           <div>
                             <Label>Icon</Label>
                             <Select
@@ -318,14 +326,6 @@ export default function AboutUs() {
                           />
                         </div>
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => removeFeature(index)}
-                        className="text-red-600 hover:text-red-700"
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
                     </div>
                   </CardContent>
                 </Card>
@@ -338,8 +338,8 @@ export default function AboutUs() {
         </Card>
 
         {/* Save Button */}
-        <div className="flex justify-end">
-          <Button onClick={handleSave} disabled={saving} size="lg">
+        <div className="flex justify-end pb-8">
+          <Button onClick={handleSave} disabled={saving} className="w-full sm:w-auto" size="lg">
             {saving ? 'Saving...' : 'Save Changes'}
           </Button>
         </div>

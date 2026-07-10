@@ -16,8 +16,7 @@ import {
   ThumbsUp,
   Pencil
 } from "lucide-react"
-import RestaurantNavbar from "@food/components/restaurant/RestaurantNavbar"
-import BottomNavOrders from "@food/components/restaurant/BottomNavOrders"
+import RestaurantPageShell from "@food/components/restaurant/RestaurantPageShell"
 import { Switch } from "@food/components/ui/switch"
 import { useNavigate } from "react-router-dom"
 import { restaurantAPI, uploadAPI } from "@food/api"
@@ -805,6 +804,7 @@ export default function Inventory() {
   const [addons, setAddons] = useState([])
   const [loadingAddons, setLoadingAddons] = useState(false)
   const [isAddAddonOpen, setIsAddAddonOpen] = useState(false)
+  const [editingAddonId, setEditingAddonId] = useState(null)
   const [addonName, setAddonName] = useState("")
   const [addonDescription, setAddonDescription] = useState("")
   const [addonPrice, setAddonPrice] = useState("")
@@ -950,8 +950,35 @@ export default function Inventory() {
           })
 
           const nowMs = Date.now()
+          const availableItemIds = new Set()
+          convertedCategories.forEach((category) => {
+            ;(category.items || []).forEach((item) => {
+              if (item.isAvailable !== false) {
+                availableItemIds.add(String(item.id))
+              }
+            })
+          })
+
+          if (availableItemIds.size > 0) {
+            setStockRules((prev) => {
+              const next = { ...prev }
+              let changed = false
+              availableItemIds.forEach((itemId) => {
+                if (next[itemId]) {
+                  delete next[itemId]
+                  changed = true
+                }
+              })
+              return changed ? next : prev
+            })
+          }
+
           const withStockRules = convertedCategories.map((category) => {
             const ruledItems = (category.items || []).map((item) => {
+              if (item.isAvailable !== false) {
+                return { ...item, inStock: true, isAvailable: true, stockRule: null }
+              }
+
               const rule = stockRules?.[String(item.id)] || null
               const isActiveRule =
                 rule &&
@@ -1094,7 +1121,23 @@ export default function Inventory() {
       addonImageInputRef.current.value = ""
     }
     setIsAddAddonOpen(false)
+    setEditingAddonId(null)
     localStorage.removeItem(INVENTORY_ADDON_FORM_KEY)
+  }
+
+  const handleEditAddon = (addon) => {
+    const source = addon.draft || addon
+    setAddonName(source.name || "")
+    setAddonDescription(source.description || "")
+    setAddonPrice(source.price !== undefined ? String(source.price) : "")
+    setAddonFoodType(source.foodType || "Veg")
+    setAddonImagePreview(source.image || (source.images && source.images[0]) || "")
+    setAddonImageFile(null)
+    setEditingAddonId(addon.id || addon._id)
+    setIsAddAddonOpen(true)
+    
+    // Smooth scroll to the form if it's near the top
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   const handleAddonImageSelect = (e) => {
@@ -1145,10 +1188,14 @@ export default function Inventory() {
         images: imageUrl ? [imageUrl] : [],
         foodType: addonFoodType,
       }
-      await restaurantAPI.addAddon(payload)
-      toast.success("Add-on submitted to admin for approval")
+      if (editingAddonId) {
+        await restaurantAPI.updateAddon(editingAddonId, { draft: payload })
+        toast.success("Add-on updated successfully")
+      } else {
+        await restaurantAPI.addAddon(payload)
+        toast.success("Add-on submitted to admin for approval")
+      }
       resetAddonForm()
-      setIsAddAddonOpen(false)
       fetchAddons(true)
     } catch (error) {
       debugError("Error saving add-on:", error)
@@ -1802,18 +1849,9 @@ export default function Inventory() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] flex flex-col">
-      {/* Navbar */}
-      <div className="sticky top-0 z-50 bg-white dark:bg-[#111]">
-        <RestaurantNavbar
-          showSearch={false}
-          showOfflineOnlineTag={false}
-          showNotifications={false}
-        />
-      </div>
-
+    <RestaurantPageShell title="Inventory" flush maxWidth="full" contentClassName="flex flex-col">
       {/* Tabs */}
-      <div className="bg-gray-50 dark:bg-[#0a0a0a] px-4 pt-4 pb-4">
+      <div className="bg-gray-50 dark:bg-[#0a0a0a] px-4 sm:px-6 pt-4 pb-4">
         <div ref={tabBarRef} className="grid grid-cols-2 gap-3">
           <motion.button
             onClick={() => setActiveTab("all-items")}
@@ -1987,6 +2025,7 @@ export default function Inventory() {
             <>
               {isAddAddonOpen && (
                 <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4 shadow-sm">
+                  <h3 className="text-lg font-bold text-gray-900 mb-4">{editingAddonId ? "Edit Add-on" : "New Add-on"}</h3>
                   <div className="grid grid-cols-1 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Add-on Name *</label>
@@ -2169,6 +2208,17 @@ export default function Inventory() {
                           {addon.approvalStatus === 'rejected' && addon.rejectionReason && (
                             <p className="mt-2 text-xs font-medium text-red-600">Reason: {addon.rejectionReason}</p>
                           )}
+                          <button
+                            type="button"
+                            onClick={() => handleEditAddon(addon)}
+                            className={`mt-2 inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold transition-colors ${addon.approvalStatus === 'rejected'
+                              ? "bg-red-600 text-white hover:bg-red-700"
+                              : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-100"
+                              }`}
+                          >
+                            <Pencil className="h-3 w-3" />
+                            {addon.approvalStatus === 'rejected' ? "Fix & resubmit" : "Edit"}
+                          </button>
                         </div>
                         <div className="flex items-start gap-3">
                           {addon.images && addon.images.length > 0 && addon.images[0] && (
@@ -2438,73 +2488,77 @@ export default function Inventory() {
               onClick={() => setFilterOpen(false)}
             />
             <motion.div
-              initial={{ y: "100%" }}
-              animate={{ y: 0 }}
-              exit={{ y: "100%" }}
-              transition={{ type: "spring", damping: 30, stiffness: 300 }}
-              className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl z-50"
+              initial={{ opacity: 0, scale: 0.95, y: "-50%", x: "-50%" }}
+              animate={{ opacity: 1, scale: 1, y: "-50%", x: "-50%" }}
+              exit={{ opacity: 0, scale: 0.95, y: "-50%", x: "-50%" }}
+              transition={{ type: "spring", damping: 25, stiffness: 300 }}
+              className="fixed top-1/2 left-1/2 w-[95%] max-w-lg bg-white rounded-2xl shadow-2xl z-50 flex flex-col max-h-[90vh]"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="p-6">
-                <div className="flex items-start justify-between gap-4 mb-6">
-                  <div>
-                    <h2 className="text-lg font-bold text-gray-900">Filters</h2>
-                    <p className="text-sm text-gray-500 mt-1">
-                      {activeTab === "add-ons"
-                        ? "Refine the add-ons list by availability or approval status."
-                        : "Refine your inventory by stock state, recommendation, or food type."}
-                    </p>
-                  </div>
-                  {selectedFilter !== "all" ? (
-                    <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700">
-                      Active
-                    </span>
-                  ) : null}
+              <div className="flex items-start justify-between gap-4 p-6 border-b border-gray-100">
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900">Filters</h2>
+                  <p className="text-sm text-gray-500 mt-1">
+                    {activeTab === "add-ons"
+                      ? "Refine the add-ons list by availability or approval status."
+                      : "Refine your inventory by stock state, recommendation, or food type."}
+                  </p>
                 </div>
+                <button
+                  onClick={() => setFilterOpen(false)}
+                  className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors flex-shrink-0"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
 
-                <div className="space-y-4 mb-6">
-                  {activeFilterOptions.map((option) => {
-                    const count = activeTab === "add-ons"
-                      ? (addonFilterCounts[option.value] || 0)
-                      : (menuFilterCounts[option.value] || 0)
+              <div className="p-6 overflow-y-auto space-y-3">
+                {activeFilterOptions.map((option) => {
+                  const count = activeTab === "add-ons"
+                    ? (addonFilterCounts[option.value] || 0)
+                    : (menuFilterCounts[option.value] || 0)
 
-                    return (
-                      <label key={option.value} className="flex items-center justify-between gap-3 cursor-pointer rounded-xl border border-gray-200 px-4 py-3">
-                        <div className="flex items-center gap-3">
-                          <input
-                            type="radio"
-                            name="filter"
-                            checked={selectedFilter === option.value}
-                            onChange={() => setSelectedFilter(option.value)}
-                            className="w-5 h-5 text-black border-gray-300 focus:ring-black"
-                          />
-                          <span className="text-base text-gray-900">{option.label}</span>
-                        </div>
-                        <span className="min-w-[28px] h-7 rounded-full bg-gray-100 flex items-center justify-center text-xs font-medium text-gray-700">
-                          {count}
-                        </span>
-                      </label>
-                    )
-                  })}
-                </div>
+                  return (
+                    <label key={option.value} className="flex items-center justify-between gap-3 cursor-pointer rounded-xl border border-gray-200 px-4 py-3 hover:bg-gray-50 transition-colors">
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="radio"
+                          name="filter"
+                          checked={selectedFilter === option.value}
+                          onChange={() => setSelectedFilter(option.value)}
+                          className="w-5 h-5 text-black border-gray-300 focus:ring-black"
+                        />
+                        <span className="text-base font-medium text-gray-900">{option.label}</span>
+                      </div>
+                      <span className="min-w-[28px] h-7 rounded-full bg-gray-100 flex items-center justify-center text-xs font-semibold text-gray-700">
+                        {count}
+                      </span>
+                    </label>
+                  )
+                })}
+              </div>
 
-                <div className="flex gap-3">
+              <div className="p-6 border-t border-gray-100 flex flex-col-reverse sm:flex-row gap-3">
+                <div className="flex gap-3 sm:w-1/2">
                   <button
-                    onClick={() => {
-                      setSelectedFilter("all")
-                      setFilterOpen(false)
-                    }}
-                    className="flex-1 border border-gray-300 text-gray-900 py-3 rounded-lg font-medium hover:bg-gray-50 transition-colors"
+                    onClick={() => setSelectedFilter("all")}
+                    className="flex-1 py-2.5 px-4 rounded-xl font-semibold border border-gray-200 text-gray-700 bg-white hover:bg-gray-50 transition-colors text-sm"
                   >
-                    Back
+                    Reset
                   </button>
                   <button
-                    onClick={handleFilterApply}
-                    className={`${selectedFilter !== "all" ? 'flex-1' : 'w-full'} bg-black text-white py-3 rounded-lg font-medium hover:bg-gray-800 transition-colors`}
+                    onClick={() => setFilterOpen(false)}
+                    className="flex-1 py-2.5 px-4 rounded-xl font-semibold border border-gray-200 text-gray-700 bg-white hover:bg-gray-50 transition-colors text-sm"
                   >
-                    Apply
+                    Cancel
                   </button>
                 </div>
+                <button
+                  onClick={handleFilterApply}
+                  className="flex-1 py-2.5 px-4 rounded-xl font-semibold bg-[#FF6A00] text-white hover:bg-[#e65f00] shadow-sm transition-colors text-sm sm:w-1/2"
+                >
+                  Apply Filters
+                </button>
               </div>
             </motion.div>
           </>
@@ -2786,76 +2840,73 @@ export default function Inventory() {
           </span>
           <span>{isMenuOpen ? "Close" : "Menu"}</span>
         </motion.button>
-
-        <AnimatePresence>
-          {isMenuOpen && (
-            <>
-              {/* Backdrop */}
-              <motion.div
-                className="fixed inset-0 bg-black/40 z-30"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                onClick={() => setIsMenuOpen(false)}
-              />
-
-              {/* Menu Popup */}
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 20 }}
-                transition={{ duration: 0.2 }}
-                className="fixed right-4 bottom-36 z-30 h-[45vh] w-[60vw] max-w-sm overflow-hidden rounded-[28px] border border-white/80 bg-white shadow-[0_24px_60px_-30px_rgba(15,23,42,0.55)]"
-              >
-                <div className="h-full flex flex-col">
-                  <div className="bg-[linear-gradient(135deg,#f8fbff_0%,#eef6ff_100%)] px-4 pt-4 pb-3">
-                    <p className="text-sm font-semibold text-slate-950">Jump to category</p>
-                  </div>
-                  <div className="mx-4 h-px bg-slate-200" />
-                  <div className="flex-1 overflow-y-auto px-4 py-2 space-y-1">
-                    {categories.map((category, index) => {
-                      const itemCount =
-                        category.itemCount || (category.items?.length || 0)
-                      const isLast = index === categories.length - 1
-
-                      return (
-                        <button
-                          key={category.id}
-                          type="button"
-                          onClick={() => {
-                            setIsMenuOpen(false)
-                            if (activeTab === "add-ons") {
-                              setActiveTab("all-items")
-                            }
-                            setTimeout(() => scrollToCategory(category.id), 200)
-                          }}
-                          className="w-full text-left py-3 focus:outline-none"
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm font-medium text-slate-900">
-                              {category.name}
-                            </span>
-                            <span className="flex h-7 min-w-[28px] items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-xs font-semibold text-slate-700">
-                              {itemCount}
-                            </span>
-                          </div>
-                          {!isLast && (
-                            <div className="mt-3 border-t border-dashed border-slate-200" />
-                          )}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-              </motion.div>
-            </>
-          )}
-        </AnimatePresence>
       </div>
 
-      {/* Bottom Navigation */}
-      <BottomNavOrders />
-    </div>
+      <AnimatePresence>
+        {isMenuOpen && (
+          <>
+            {/* Backdrop */}
+            <motion.div
+              className="fixed inset-0 bg-black/50 z-50"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsMenuOpen(false)}
+            />
+
+            {/* Menu Popup */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              transition={{ duration: 0.2 }}
+              className="fixed right-4 bottom-36 z-[51] h-[45vh] w-[60vw] max-w-sm overflow-hidden rounded-[28px] border border-white/80 bg-white shadow-[0_24px_60px_-30px_rgba(15,23,42,0.55)]"
+            >
+              <div className="h-full flex flex-col">
+                <div className="bg-[linear-gradient(135deg,#f8fbff_0%,#eef6ff_100%)] px-4 pt-4 pb-3">
+                  <p className="text-sm font-semibold text-slate-950">Jump to category</p>
+                </div>
+                <div className="mx-4 h-px bg-slate-200" />
+                <div className="flex-1 overflow-y-auto px-4 py-2 space-y-1">
+                  {categories.map((category, index) => {
+                    const itemCount =
+                      category.itemCount || (category.items?.length || 0)
+                    const isLast = index === categories.length - 1
+
+                    return (
+                      <button
+                        key={category.id}
+                        type="button"
+                        onClick={() => {
+                          setIsMenuOpen(false)
+                          if (activeTab === "add-ons") {
+                            setActiveTab("all-items")
+                          }
+                          setTimeout(() => scrollToCategory(category.id), 200)
+                        }}
+                        className="w-full text-left py-3 focus:outline-none"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-medium text-slate-900">
+                            {category.name}
+                          </span>
+                          <span className="flex h-7 min-w-[28px] items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-xs font-semibold text-slate-700">
+                            {itemCount}
+                          </span>
+                        </div>
+                        {!isLast && (
+                          <div className="mt-3 border-t border-dashed border-slate-200" />
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+    </RestaurantPageShell>
   )
 }
 

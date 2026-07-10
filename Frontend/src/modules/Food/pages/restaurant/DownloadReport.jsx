@@ -1,8 +1,8 @@
 import { useState, useMemo, useEffect } from "react"
-import { useNavigate } from "react-router-dom"
 import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation"
 import { Mail, CheckCircle2, FileDown, Store } from "lucide-react"
 import { toast } from "sonner"
+import RestaurantPageShell from "@food/components/restaurant/RestaurantPageShell"
 
 const REPORT_VIEWS = [
   { id: "detailed", label: "Detailed report",    desc: "Full breakdown of all orders and revenue" },
@@ -40,22 +40,22 @@ export default function DownloadReport() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] flex flex-col">
-      {/* Header */}
-      <div className="bg-white dark:bg-[#111] border-b border-gray-100 dark:border-gray-800 px-4 py-4">
-        <h1 className="text-base font-bold text-gray-900 dark:text-white">Download Report</h1>
-        <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Export order and sales data via email</p>
-      </div>
-
+    <RestaurantPageShell
+      title="Download Report"
+      subtitle="Export order and sales data via email"
+      onBack={goBack}
+      maxWidth="lg"
+      contentClassName="flex flex-col space-y-5"
+    >
       {/* Outlet banner */}
-      <div className="bg-amber-50 dark:bg-amber-900/10 border-b border-amber-100 dark:border-amber-900/20 px-4 py-2.5 flex items-center gap-2">
+      <div className="-mx-4 sm:-mx-6 lg:-mx-8 -mt-4 sm:-mt-6 bg-amber-50 dark:bg-amber-900/10 border-b border-amber-100 dark:border-amber-900/20 px-4 sm:px-6 lg:px-8 py-2.5 flex items-center gap-2">
         <Store className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 flex-shrink-0" />
         <p className="text-xs text-amber-800 dark:text-amber-300">
           Generating report for <span className="font-semibold">All Outlets</span>
         </p>
       </div>
 
-      <div className="flex-1 max-w-lg mx-auto w-full px-4 py-5 space-y-5">
+      <div className="space-y-5">
         {/* Report view */}
         <div className="bg-white dark:bg-[#111] rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
           <p className="text-xs font-bold text-gray-400 dark:text-gray-600 uppercase tracking-widest px-4 pt-4 pb-3">Report type</p>
@@ -131,8 +131,7 @@ export default function DownloadReport() {
         </div>
       </div>
 
-      {/* CTA */}
-      <div className="bg-white dark:bg-[#111] border-t border-gray-100 dark:border-gray-800 px-4 py-4">
+      <div className="pt-4 mt-auto border-t border-gray-100 dark:border-gray-800">
         <button
           onClick={handleSend}
           disabled={sending}
@@ -145,6 +144,6 @@ export default function DownloadReport() {
           )}
         </button>
       </div>
-    </div>
+    </RestaurantPageShell>
   )
 }

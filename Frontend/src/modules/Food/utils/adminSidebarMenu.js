@@ -15,23 +15,23 @@ export const adminSidebarMenu = [
   },
   {
     type: "section",
-    label: "FOOD MANAGEMENT",
+    label: "MENU MANAGEMENT",
     permissionKey: "food_management",
     items: [
       {
         type: "link",
-        label: "Food Approval",
+        label: "Menu Approval",
         permissionKey: "food_approval",
         path: "/admin/food/food-approval",
         icon: "CheckCircle2",
       },
       {
         type: "expandable",
-        label: "Foods",
+        label: "Menus",
         permissionKey: "foods",
         icon: "Utensils",
         subItems: [
-          { label: "Restaurant Foods List", path: "/admin/food/foods", permissionKey: "list" },
+          { label: "Restaurant Menus List", path: "/admin/food/foods", permissionKey: "list" },
           { label: "Restaurant Addons List", path: "/admin/food/addons", permissionKey: "addons" },
         ],
       },

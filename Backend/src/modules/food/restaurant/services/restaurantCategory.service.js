@@ -283,7 +283,6 @@ export async function updateRestaurantCategory(restaurantId, id, body = {}) {
         const type = String(body.type || '').trim();
         if (doc.type !== type) {
             doc.type = type;
-            needsApproval = true;
         }
     }
     if (body.isActive !== undefined) doc.isActive = body.isActive !== false;
@@ -300,7 +299,6 @@ export async function updateRestaurantCategory(restaurantId, id, body = {}) {
         }
         if (doc.foodTypeScope !== nextFoodTypeScope) {
             doc.foodTypeScope = nextFoodTypeScope;
-            needsApproval = true;
         }
     }
 
@@ -341,11 +339,13 @@ export async function deleteRestaurantCategory(restaurantId, id) {
     const category = await FoodCategory.findOne({ _id: id, restaurantId: context.restaurantId }).select('_id').lean();
     if (!category?._id) return null;
 
-    const updateResult = await FoodItem.updateMany(
-        { categoryId: id, restaurantId: context.restaurantId, isAvailable: { $ne: false } },
-        { $set: { isAvailable: false } }
+    const itemsToUpdate = await FoodItem.find({ categoryId: id, restaurantId: context.restaurantId }).select('isAvailable').lean();
+    const deactivatedItemCount = itemsToUpdate.filter(i => i.isAvailable !== false).length;
+
+    await FoodItem.updateMany(
+        { categoryId: id, restaurantId: context.restaurantId },
+        { $set: { isAvailable: false }, $unset: { categoryId: 1, categoryName: 1 } }
     );
-    const deactivatedItemCount = updateResult.modifiedCount || 0;
 
     const deleted = await FoodCategory.findOneAndDelete({ _id: id, restaurantId: context.restaurantId }).lean();
     if (!deleted) return null;

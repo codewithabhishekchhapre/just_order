@@ -6,6 +6,7 @@ import {
   Star, Navigation, ChevronRight, Info,
 } from "lucide-react"
 import { Modal } from "@food/components/restaurant/Modal"
+import RestaurantPageShell, { RESTAURANT_CARD_CLASS } from "@food/components/restaurant/RestaurantPageShell"
 
 const debugLog = (...args) => {}
 
@@ -32,14 +33,13 @@ export default function ManageOutlets() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a]">
-      <div className="bg-white dark:bg-[#111] border-b border-gray-100 dark:border-gray-800 px-4 py-4">
-        <h1 className="text-base font-bold text-gray-900 dark:text-white">Manage Outlet</h1>
-        <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Edit your restaurant details</p>
-      </div>
-
-      <div className="max-w-lg mx-auto px-4 py-4">
-        <div className="bg-white dark:bg-[#111] rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
+    <RestaurantPageShell
+      title="Manage Outlet"
+      subtitle="Edit your restaurant details"
+      onBack={goBack}
+      maxWidth="lg"
+    >
+        <div className={`${RESTAURANT_CARD_CLASS} overflow-hidden`}>
           {OPTIONS.map((opt, i) => {
             const Icon = opt.icon
             const isLast = i === OPTIONS.length - 1
@@ -64,9 +64,7 @@ export default function ManageOutlets() {
             )
           })}
         </div>
-      </div>
 
-      {/* Delivery area info toast */}
       <Modal
         open={showInfo}
         onClose={() => setShowInfo(false)}
@@ -78,6 +76,6 @@ export default function ManageOutlets() {
           Your delivery area is determined by the distance our delivery partners can travel efficiently. It may vary based on time of day or conditions like weather.
         </p>
       </Modal>
-    </div>
+    </RestaurantPageShell>
   )
 }

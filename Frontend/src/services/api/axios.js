@@ -13,7 +13,7 @@ import axios from "axios";
 const baseURL =
   typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE_URL
     ? String(import.meta.env.VITE_API_BASE_URL).replace(/\/$/, "")
-    : "";
+    : "/api/v1";
 
 const apiClient = axios.create({
   baseURL: baseURL || undefined,
@@ -23,7 +23,14 @@ const apiClient = axios.create({
 
 function getModuleFromUrl(url = "") {
   const normalized = (typeof url === "string" ? url : (url?.url || "")).toLowerCase();
-  
+
+  // Public fee summary is user-facing (cart) even though legacy path contains /admin/.
+  if (
+    normalized.includes("/fee-settings/public") ||
+    normalized.includes("/delivery-speed-options/public") ||
+    normalized.includes("/public/delivery-speed-options")
+  ) return "user";
+
   // 1. Admin detection (Priority)
   if (
     normalized.includes("/admin/") || 

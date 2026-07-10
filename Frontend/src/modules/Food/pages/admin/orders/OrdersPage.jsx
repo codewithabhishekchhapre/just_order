@@ -43,6 +43,7 @@ export default function OrdersPage({ statusKey = "all" }) {
   const config = statusConfig[statusKey] || statusConfig["all"]
   const [orders, setOrders] = useState([])
   const [isLoading, setIsLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [processingRefund, setProcessingRefund] = useState(null)
   const [processingActionOrderId, setProcessingActionOrderId] = useState(null)
   const [deletingOrderId, setDeletingOrderId] = useState(null)
@@ -789,6 +790,15 @@ export default function OrdersPage({ statusKey = "all" }) {
     }
   }
 
+  const handleManualRefresh = useCallback(async () => {
+    setRefreshing(true)
+    try {
+      await fetchOrders({ silent: true, withRingCheck: false })
+    } finally {
+      setRefreshing(false)
+    }
+  }, [fetchOrders])
+
   // Handle refund button click
   const handleRefund = (order) => {
     setSelectedOrderForRefund(order)
@@ -953,6 +963,8 @@ export default function OrdersPage({ statusKey = "all" }) {
         activeFiltersCount={activeFiltersCount}
         onExport={handleExport}
         onSettingsClick={() => setIsSettingsOpen(true)}
+        onRefresh={handleManualRefresh}
+        refreshing={refreshing}
       />
       <FilterPanel
         isOpen={isFilterOpen}

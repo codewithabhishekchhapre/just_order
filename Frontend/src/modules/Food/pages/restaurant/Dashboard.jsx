@@ -8,6 +8,7 @@ import {
   XCircle, Loader2, RefreshCw,
 } from "lucide-react"
 import { restaurantAPI } from "@food/api"
+import RestaurantPageShell from "@food/components/restaurant/RestaurantPageShell"
 
 const BASE = "/food/restaurant"
 
@@ -198,9 +199,8 @@ export default function Dashboard() {
   const today = new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" })
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a]">
-      {/* ── Hero header ────────────────────────────────────── */}
-      <div className="bg-white dark:bg-[#111] border-b border-gray-100 dark:border-gray-800 px-4 sm:px-6 pt-5 pb-6">
+    <RestaurantPageShell hideHeader maxWidth="6xl" contentClassName="!py-0 !px-0">
+      <div className="bg-white dark:bg-[#111] border-b border-gray-100 dark:border-gray-800 px-4 sm:px-6 lg:px-8 pt-5 pb-6">
         <div className="max-w-6xl mx-auto">
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -438,6 +438,6 @@ export default function Dashboard() {
           </section>
         </div>
       </div>
-    </div>
+    </RestaurantPageShell>
   )
 }

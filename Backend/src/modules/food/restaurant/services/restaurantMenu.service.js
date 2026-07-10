@@ -115,6 +115,66 @@ export async function getRestaurantMenu(restaurantId) {
     return buildMenuFromFoods(foods);
 }
 
+export async function listRestaurantMenuItems(restaurantId, query = {}) {
+    if (!restaurantId || !mongoose.Types.ObjectId.isValid(String(restaurantId))) {
+        throw new ValidationError('Invalid restaurant id');
+    }
+
+    const limit = Math.min(Math.max(parseInt(query.limit, 10) || 20, 1), 100);
+    const page = Math.max(parseInt(query.page, 10) || 1, 1);
+    const skip = (page - 1) * limit;
+
+    const filter = { restaurantId };
+    const search = String(query.search || '').trim();
+    if (search) {
+        filter.name = { $regex: search, $options: 'i' };
+    }
+    if (query.category && query.category !== 'All' && mongoose.Types.ObjectId.isValid(String(query.category))) {
+        filter.categoryId = query.category;
+    }
+
+    const [foods, total] = await Promise.all([
+        FoodItem.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+        FoodItem.countDocuments(filter)
+    ]);
+
+    const categoryIds = Array.from(
+        new Set(foods.map((food) => (food?.categoryId ? String(food.categoryId) : '')).filter(Boolean))
+    );
+    const categoryDocs = categoryIds.length
+        ? await FoodCategory.find({ _id: { $in: categoryIds } }).select('name').lean()
+        : [];
+    const categoryMap = new Map(categoryDocs.map((doc) => [String(doc._id), doc]));
+
+    const items = foods.map((food) => {
+        const categoryId = food?.categoryId ? String(food.categoryId) : '';
+        const categoryName = categoryMap.get(categoryId)?.name || food?.categoryName || food?.category || 'Menu';
+        return {
+            id: String(food._id),
+            _id: food._id,
+            categoryId: categoryId || null,
+            categoryName,
+            category: categoryName,
+            name: food.name,
+            description: food.description || '',
+            price: getFoodDisplayPrice(food),
+            otherPrice: getFoodDisplayOtherPrice(food),
+            variants: serializeFoodVariants(food.variants),
+            variations: serializeFoodVariants(food.variants),
+            image: food.image || '',
+            images: Array.isArray(food.images) && food.images.length > 0 ? food.images.filter(Boolean) : (food.image ? [food.image] : []),
+            foodType: food.foodType || 'Non-Veg',
+            isAvailable: food.isAvailable !== false,
+            approvalStatus: food.approvalStatus || 'approved',
+            stock: food.stock,
+            createdAt: food.createdAt,
+            updatedAt: food.updatedAt
+        };
+    });
+
+    return { items, total, page, limit };
+}
+
 export async function updateRestaurantMenu(restaurantId, body = {}) {
     // Option A: single source of truth (food_items). Menu layout snapshots are disabled.
     // Keep endpoint for backward compatibility, but make it explicit.

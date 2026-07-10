@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom"
 import { motion, AnimatePresence } from "framer-motion"
 import { Bell, HelpCircle, Menu, Search, SlidersHorizontal, Calendar, ChevronLeft, X, Loader2, ChevronRight, Star } from "lucide-react"
 import { DateRangeCalendar } from "@food/components/ui/date-range-calendar"
-import BottomNavOrders from "@food/components/restaurant/BottomNavOrders"
+import RestaurantPageShell from "@food/components/restaurant/RestaurantPageShell"
 import { restaurantAPI } from "@food/api"
 
 const debugLog = (...args) => {}
@@ -387,57 +387,42 @@ export default function Feedback() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-100 flex flex-col" onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
-      <div className="sticky bg-white top-0 z-40 px-4 py-3 border-b border-gray-200">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-[10px] tracking-wider text-gray-500 uppercase">Showing data for</p>
-            <p className="text-md font-bold text-gray-900">{restaurantData?.name || "Restaurant"}</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => navigate("/food/restaurant/notifications")}
-              className="p-1 rounded-full hover:bg-gray-100 active:scale-95 transition-all"
-              aria-label="Open notifications"
-            >
-              <Bell className="w-6 h-6 text-gray-700" />
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate("/food/restaurant/help-centre/support")}
-              className="p-1 rounded-full hover:bg-gray-100 active:scale-95 transition-all"
-              aria-label="Open support"
-            >
-              <HelpCircle className="w-6 h-6 text-gray-700" />
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate("/food/restaurant/explore")}
-              className="p-1 rounded-full hover:bg-gray-100 active:scale-95 transition-all"
-              aria-label="Open explore"
-            >
-              <Menu className="w-6 h-6 text-gray-700" />
-            </button>
-          </div>
-        </div>
-        
-        <div className="flex gap-2 mt-4">
+    <RestaurantPageShell
+      title="Customer Feedback"
+      subtitle={restaurantData?.name ? `Showing data for ${restaurantData.name}` : "Complaints and reviews"}
+      flush
+      maxWidth="full"
+      actions={(
+        <>
+          <button type="button" onClick={() => navigate("/food/restaurant/notifications")} className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors" aria-label="Open notifications">
+            <Bell className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+          </button>
+          <button type="button" onClick={() => navigate("/food/restaurant/help-centre/support")} className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors" aria-label="Open support">
+            <HelpCircle className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+          </button>
+        </>
+      )}
+      tabs={(
+        <div className="flex gap-2 pb-3 overflow-x-auto">
           {tabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`px-6 py-2 rounded-full text-sm font-bold transition-all ${
-                activeTab === tab.id ? "bg-[#FF6A00] text-white shadow-lg shadow-[#FF6A00]/20" : "bg-white text-gray-600 border border-gray-200"
+              className={`px-4 sm:px-6 py-2 rounded-full text-sm font-bold transition-all whitespace-nowrap ${
+                activeTab === tab.id ? "bg-[#FF6A00] text-white shadow-lg shadow-[#FF6A00]/20" : "bg-white dark:bg-[#111] text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700"
               }`}
             >
               {tab.label}
             </button>
           ))}
         </div>
-      </div>
-
-      <div className="flex-1 p-4">
+      )}
+      contentClassName="flex flex-col min-h-0"
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+    >
+      <div className="flex-1 p-4 sm:px-6">
         {activeTab === "complaints" ? (
           <div className="space-y-4">
             <div className="flex gap-2">
@@ -533,7 +518,6 @@ export default function Feedback() {
           </div>
         )}
       </div>
-      <BottomNavOrders />
-    </div>
+    </RestaurantPageShell>
   )
 }

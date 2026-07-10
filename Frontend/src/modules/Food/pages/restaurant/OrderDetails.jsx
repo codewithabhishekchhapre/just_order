@@ -7,7 +7,6 @@ import { jsPDF } from "jspdf"
 import autoTable from "jspdf-autotable"
 import { restaurantAPI } from "@food/api"
 import {
-  ArrowLeft,
   Printer,
   Copy,
   User,
@@ -22,6 +21,7 @@ import {
   Phone,
 } from "lucide-react"
 import ResendNotificationButton from "@food/components/restaurant/ResendNotificationButton"
+import RestaurantPageShell from "@food/components/restaurant/RestaurantPageShell"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -618,20 +618,21 @@ export default function OrderDetails() {
   // Loading state
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="w-8 h-8 animate-spin text-gray-600 mx-auto mb-4" />
-          <p className="text-gray-600">Loading order details...</p>
+      <RestaurantPageShell hideHeader maxWidth="6xl">
+        <div className="flex items-center justify-center py-20">
+          <div className="text-center">
+            <Loader2 className="w-8 h-8 animate-spin text-gray-600 mx-auto mb-4" />
+            <p className="text-gray-600">Loading order details...</p>
+          </div>
         </div>
-      </div>
+      </RestaurantPageShell>
     )
   }
 
-  // Error state
   if (error && !orderData) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] flex items-center justify-center">
-        <div className="bg-white dark:bg-[#111] rounded-2xl border border-gray-100 dark:border-gray-800 p-8 max-w-md w-full mx-4 text-center">
+      <RestaurantPageShell title="Order details" onBack={goBack} maxWidth="6xl">
+        <div className="bg-white dark:bg-[#111] rounded-2xl border border-gray-100 dark:border-gray-800 p-8 max-w-md w-full mx-auto text-center">
           <XCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Order Not Found</h2>
           <p className="text-gray-600 mb-6">{error}</p>
@@ -642,15 +643,14 @@ export default function OrderDetails() {
             Back to Orders
           </button>
         </div>
-      </div>
+      </RestaurantPageShell>
     )
   }
 
-  // No order data
   if (!orderData) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] flex items-center justify-center">
-        <div className="bg-white dark:bg-[#111] rounded-2xl border border-gray-100 dark:border-gray-800 p-8 max-w-md w-full mx-4 text-center">
+      <RestaurantPageShell title="Order details" onBack={goBack} maxWidth="6xl">
+        <div className="bg-white dark:bg-[#111] rounded-2xl border border-gray-100 dark:border-gray-800 p-8 max-w-md w-full mx-auto text-center">
           <XCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Order Not Found</h2>
           <p className="text-gray-600 mb-6">The order you're looking for doesn't exist.</p>
@@ -661,50 +661,35 @@ export default function OrderDetails() {
             Back to Orders
           </button>
         </div>
-      </div>
+      </RestaurantPageShell>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a]">
-      {/* Header */}
-      <div className="bg-white dark:bg-[#111] border-b border-gray-100 dark:border-gray-800 px-4 py-4 sticky top-0 z-50">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={goBack}
-            className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-colors"
-            aria-label="Go back"
-          >
-            <ArrowLeft className="w-5 h-5 text-gray-900 dark:text-white" />
-          </button>
-          <div className="flex-1 min-w-0">
-            <h1 className="text-base font-bold text-gray-900 dark:text-white">Order details</h1>
-            <p className="text-xs text-gray-400 dark:text-gray-500 truncate">
-              ID: {orderData.id}, {orderData.restaurant?.substring(0, 20) || 'Restaurant'}...
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handlePrintReceipt}
-              disabled={isGeneratingPDF}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed relative"
-              aria-label="Print"
-            >
-              {isGeneratingPDF ? (
-                <svg className="animate-spin h-5 w-5 text-gray-900" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-              ) : (
-                <Printer className="w-5 h-5 text-gray-900" />
-              )}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Main Content */}
-      <div className="px-4 py-4 space-y-4">
+    <RestaurantPageShell
+      title="Order details"
+      subtitle={`ID: ${orderData.id}, ${orderData.restaurant?.substring(0, 20) || 'Restaurant'}...`}
+      onBack={goBack}
+      maxWidth="6xl"
+      contentClassName="space-y-4"
+      actions={(
+        <button
+          onClick={handlePrintReceipt}
+          disabled={isGeneratingPDF}
+          className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed relative"
+          aria-label="Print"
+        >
+          {isGeneratingPDF ? (
+            <svg className="animate-spin h-5 w-5 text-gray-900" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+          ) : (
+            <Printer className="w-5 h-5 text-gray-900 dark:text-white" />
+          )}
+        </button>
+      )}
+    >
         {/* Order Summary Card */}
         <div className="bg-white dark:bg-[#111] rounded-2xl border border-gray-100 dark:border-gray-800 p-4">
           {/* Status and Order ID Row */}
@@ -982,7 +967,6 @@ export default function OrderDetails() {
             </div>
           </div>
         </div>
-      </div>
 
       {/* Toast Notification */}
       <AnimatePresence>
@@ -992,7 +976,7 @@ export default function OrderDetails() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 50 }}
             transition={{ duration: 0.3 }}
-            className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[60] bg-gray-900 text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-2 max-w-sm"
+            className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[60] bg-gray-900 text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-2 max-w-sm"
           >
             {isGeneratingPDF ? (
               <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -1008,7 +992,7 @@ export default function OrderDetails() {
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+    </RestaurantPageShell>
   )
 }
 

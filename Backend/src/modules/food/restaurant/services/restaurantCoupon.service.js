@@ -19,6 +19,9 @@ export async function createRestaurantCoupon(restaurantId, body) {
     }
     const rid = new mongoose.Types.ObjectId(String(restaurantId));
     
+    const couponName = String(body?.couponName || '').trim();
+    if (!couponName) throw new ValidationError('Coupon name is required');
+
     const couponCode = String(body?.couponCode || '').trim().toUpperCase();
     if (!couponCode) throw new ValidationError('Coupon code is required');
     
@@ -45,23 +48,44 @@ export async function createRestaurantCoupon(restaurantId, body) {
         throw new ValidationError('Discount value must be greater than 0');
     }
 
-    const expiryDate = body?.expiryDate ? new Date(body.expiryDate) : null;
-    if (!expiryDate || Number.isNaN(expiryDate.getTime())) {
-        throw new ValidationError('A valid expiry date is required');
+    const maxDiscount = Number(body?.maxDiscount) || 0;
+
+    const startDate = body?.startDate ? new Date(body.startDate) : null;
+    if (!startDate || Number.isNaN(startDate.getTime())) {
+        throw new ValidationError('A valid start date is required');
+    }
+
+    const endDate = body?.endDate || body?.expiryDate ? new Date(body.endDate || body.expiryDate) : null;
+    if (!endDate || Number.isNaN(endDate.getTime())) {
+        throw new ValidationError('A valid end date (expiry date) is required');
     }
 
     const doc = await RestaurantCoupon.create({
         restaurantId: rid,
         restaurantName: restaurant.restaurantName || 'Unknown Restaurant',
+        couponName,
         couponCode,
         discountType,
         discountValue,
+        maxDiscount,
         minOrderAmount: Number(body?.minOrderAmount) || 0,
-        expiryDate,
+        startDate,
+        endDate,
         usageLimit: body?.usageLimit ? Number(body.usageLimit) : null,
+        perUserLimit: body?.perUserLimit ? Number(body.perUserLimit) : 1,
         description: String(body?.description || '').trim(),
-        status: 'Pending',
-        freeDelivery: Boolean(body?.freeDelivery)
+        termsAndConditions: String(body?.termsAndConditions || '').trim(),
+        applicableCategories: Array.isArray(body?.applicableCategories) ? body.applicableCategories.filter(id => mongoose.Types.ObjectId.isValid(id)).map(id => new mongoose.Types.ObjectId(String(id))) : [],
+        applicableItems: Array.isArray(body?.applicableItems) ? body.applicableItems.filter(id => mongoose.Types.ObjectId.isValid(id)).map(id => new mongoose.Types.ObjectId(String(id))) : [],
+        approvalStatus: 'pending',
+        requestedAt: new Date(),
+        freeDelivery: Boolean(body?.freeDelivery),
+        statusHistory: [{
+            action: 'submitted',
+            note: 'Coupon submitted for admin approval',
+            changedAt: new Date(),
+            changedBy: null,
+        }],
     });
 
     try {
@@ -89,6 +113,9 @@ export async function updateRestaurantCoupon(restaurantId, couponId, body) {
         throw new ValidationError('Coupon not found');
     }
 
+    const couponName = String(body?.couponName || existingCoupon.couponName || '').trim();
+    if (!couponName) throw new ValidationError('Coupon name is required');
+
     const couponCode = String(body?.couponCode || '').trim().toUpperCase();
     if (!couponCode) throw new ValidationError('Coupon code is required');
 
@@ -113,26 +140,80 @@ export async function updateRestaurantCoupon(restaurantId, couponId, body) {
         throw new ValidationError('Discount value must be greater than 0');
     }
 
-    const expiryDate = body?.expiryDate ? new Date(body.expiryDate) : null;
-    if (!expiryDate || Number.isNaN(expiryDate.getTime())) {
-        throw new ValidationError('A valid expiry date is required');
+    const maxDiscount = Number(body?.maxDiscount) || 0;
+
+    const startDate = body?.startDate ? new Date(body.startDate) : null;
+    if (!startDate || Number.isNaN(startDate.getTime())) {
+        throw new ValidationError('A valid start date is required');
+    }
+
+    const endDate = body?.endDate || body?.expiryDate ? new Date(body.endDate || body.expiryDate) : null;
+    if (!endDate || Number.isNaN(endDate.getTime())) {
+        throw new ValidationError('A valid end date is required');
+    }
+
+    const updatePayload = {
+        couponName,
+        couponCode,
+        discountType,
+        discountValue,
+        maxDiscount,
+        minOrderAmount: Number(body?.minOrderAmount) || 0,
+        startDate,
+        endDate,
+        usageLimit: body?.usageLimit ? Number(body.usageLimit) : null,
+        perUserLimit: body?.perUserLimit ? Number(body.perUserLimit) : 1,
+        description: String(body?.description || '').trim(),
+        termsAndConditions: String(body?.termsAndConditions || '').trim(),
+        applicableCategories: Array.isArray(body?.applicableCategories) ? body.applicableCategories.filter(id => mongoose.Types.ObjectId.isValid(id)).map(id => new mongoose.Types.ObjectId(String(id))) : [],
+        applicableItems: Array.isArray(body?.applicableItems) ? body.applicableItems.filter(id => mongoose.Types.ObjectId.isValid(id)).map(id => new mongoose.Types.ObjectId(String(id))) : [],
+        freeDelivery: Boolean(body?.freeDelivery)
+    };
+
+    // If the coupon was already approved or rejected, changing any field resets it to pending
+    // We store the previously approved values into `previousApproved`
+    const isCurrentlyApprovedOrRejected = existingCoupon.approvalStatus === 'approved' || existingCoupon.approvalStatus === 'rejected';
+    
+    if (isCurrentlyApprovedOrRejected) {
+        updatePayload.approvalStatus = 'pending';
+        updatePayload.requestedAt = new Date();
+        updatePayload.rejectionReason = '';
+        updatePayload.approvedAt = null;
+        updatePayload.rejectedAt = null;
+        updatePayload.previousApproved = {
+            couponName: existingCoupon.couponName,
+            couponCode: existingCoupon.couponCode,
+            discountType: existingCoupon.discountType,
+            discountValue: existingCoupon.discountValue,
+            maxDiscount: existingCoupon.maxDiscount,
+            minOrderAmount: existingCoupon.minOrderAmount,
+            startDate: existingCoupon.startDate,
+            endDate: existingCoupon.endDate || existingCoupon.expiryDate,
+            usageLimit: existingCoupon.usageLimit,
+            perUserLimit: existingCoupon.perUserLimit,
+            description: existingCoupon.description,
+            termsAndConditions: existingCoupon.termsAndConditions,
+            applicableCategories: existingCoupon.applicableCategories,
+            applicableItems: existingCoupon.applicableItems,
+            freeDelivery: existingCoupon.freeDelivery
+        };
+    }
+
+    const updateQuery = { $set: updatePayload };
+    if (isCurrentlyApprovedOrRejected) {
+        updateQuery.$push = {
+            statusHistory: {
+                action: 'submitted',
+                note: 'Coupon resubmitted for admin review',
+                changedAt: new Date(),
+                changedBy: null,
+            },
+        };
     }
 
     const updated = await RestaurantCoupon.findOneAndUpdate(
         { _id: cid, restaurantId: rid },
-        {
-            $set: {
-                couponCode,
-                discountType,
-                discountValue,
-                minOrderAmount: Number(body?.minOrderAmount) || 0,
-                expiryDate,
-                usageLimit: body?.usageLimit ? Number(body.usageLimit) : null,
-                description: String(body?.description || '').trim(),
-                status: 'Pending', // Reset to Pending upon edit
-                freeDelivery: Boolean(body?.freeDelivery)
-            }
-        },
+        updateQuery,
         { new: true }
     ).lean();
 

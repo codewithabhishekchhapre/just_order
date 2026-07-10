@@ -87,16 +87,24 @@ export const requestUserOtp = async (phone) => {
     throw new ValidationError("Phone or Email is required");
   }
   const isEmail = String(phone || "").includes("@");
+  let userDoc;
   if (isEmail) {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(phone)) {
       throw new ValidationError("Invalid email format");
     }
+    const emailLower = String(phone || "").trim().toLowerCase();
+    userDoc = await FoodUser.findOne({ email: emailLower });
   } else {
     const digits = String(phone || "").replace(/\D/g, "");
     if (digits.length < 8) {
       throw new ValidationError("Phone number must be at least 8 digits");
     }
+    userDoc = await FoodUser.findOne({ phone });
+  }
+
+  if (userDoc && userDoc.isActive === false) {
+    throw new AuthError("Your account has been deactivated by the admin.");
   }
 
   const otp = await createOrUpdateOtp(phone);

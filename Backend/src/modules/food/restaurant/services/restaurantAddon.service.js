@@ -151,6 +151,9 @@ export async function updateRestaurantAddon(restaurantId, addonId, updateDto) {
     const rid = new mongoose.Types.ObjectId(String(restaurantId));
     const _id = new mongoose.Types.ObjectId(String(addonId));
 
+    const existing = await FoodAddon.findOne({ _id, restaurantId: rid, isDeleted: { $ne: true } }).lean();
+    if (!existing) return null;
+
     const set = {};
 
     if (updateDto?.isAvailable !== undefined) {
@@ -159,6 +162,8 @@ export async function updateRestaurantAddon(restaurantId, addonId, updateDto) {
 
     if (updateDto?.draft) {
         const d = updateDto.draft;
+        let isCriticalChange = false;
+
         if (d.name !== undefined) {
             const name = String(d.name || '').trim();
             if (!name) throw new ValidationError('Add-on name is required');
@@ -177,31 +182,44 @@ export async function updateRestaurantAddon(restaurantId, addonId, updateDto) {
             if (exists?._id) throw new ValidationError('Add-on already exists');
 
             set['draft.name'] = name;
+            if (name !== existing.draft?.name) isCriticalChange = true;
         }
-        if (d.description !== undefined) set['draft.description'] = String(d.description || '').trim();
+        if (d.description !== undefined) {
+            set['draft.description'] = String(d.description || '').trim();
+        }
         if (d.price !== undefined) {
             const price = Number(d.price);
             if (!Number.isFinite(price) || price < 0) throw new ValidationError('Price must be >= 0');
             set['draft.price'] = price;
+            if (price !== existing.draft?.price) isCriticalChange = true;
         }
-        if (d.image !== undefined) set['draft.image'] = String(d.image || '').trim();
+        if (d.image !== undefined) {
+            const img = String(d.image || '').trim();
+            set['draft.image'] = img;
+            if (img !== existing.draft?.image) isCriticalChange = true;
+        }
         if (d.images !== undefined) {
             const imgs = Array.isArray(d.images) ? d.images.filter(Boolean).slice(0, 10) : [];
             set['draft.images'] = imgs;
+            if (JSON.stringify(imgs) !== JSON.stringify(existing.draft?.images || [])) isCriticalChange = true;
         }
-        if (d.foodType !== undefined) set['draft.foodType'] = d.foodType === 'Non-Veg' ? 'Non-Veg' : 'Veg';
+        if (d.foodType !== undefined) {
+            const foodType = d.foodType === 'Non-Veg' ? 'Non-Veg' : 'Veg';
+            set['draft.foodType'] = foodType;
+            if (foodType !== existing.draft?.foodType) isCriticalChange = true;
+        }
 
-        // Any draft content change must go through admin approval again.
-        set.approvalStatus = 'pending';
-        set.rejectionReason = '';
-        set.requestedAt = new Date();
-        set.approvedAt = null;
-        set.rejectedAt = null;
+        if (isCriticalChange) {
+            set.approvalStatus = 'pending';
+            set.rejectionReason = '';
+            set.requestedAt = new Date();
+            set.approvedAt = null;
+            set.rejectedAt = null;
+        }
     }
 
     if (Object.keys(set).length === 0) {
-        const existing = await FoodAddon.findOne({ _id, restaurantId: rid, isDeleted: { $ne: true } }).lean();
-        return existing ? normalizeAddonDoc(existing) : null;
+        return normalizeAddonDoc(existing);
     }
 
     const updated = await FoodAddon.findOneAndUpdate(

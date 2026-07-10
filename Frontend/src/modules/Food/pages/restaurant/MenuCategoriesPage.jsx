@@ -20,7 +20,11 @@ import { toast } from "sonner"
 import { ImageSourcePicker } from "@food/components/ImageSourcePicker"
 import { isFlutterBridgeAvailable } from "@food/utils/imageUploadUtils"
 import { Modal, ModalFooter } from "@food/components/restaurant/Modal"
+import RestaurantPageShell, { RESTAURANT_CARD_CLASS } from "@food/components/restaurant/RestaurantPageShell"
 import NameSuggestionField from "@food/components/NameSuggestionField"
+import useInfiniteList from "@food/hooks/useInfiniteList"
+import InfiniteScrollSentinel from "@/shared/components/ui/InfiniteScrollSentinel"
+import RefreshButton from "@/shared/components/ui/RefreshButton"
 
 const defaultFormData = {
   name: "",
@@ -48,8 +52,6 @@ export default function MenuCategoriesPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const goBack = useRestaurantBackNavigation()
-  const [categories, setCategories] = useState([])
-  const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [editingCategory, setEditingCategory] = useState(null)
   const [formData, setFormData] = useState(defaultFormData)
@@ -59,10 +61,6 @@ export default function MenuCategoriesPage() {
   const [isPhotoPickerOpen, setIsPhotoPickerOpen] = useState(false)
   const [isNameDuplicate, setIsNameDuplicate] = useState(false)
   const fileInputRef = useRef(null)
-
-  useEffect(() => {
-    fetchCategories()
-  }, [])
 
   useEffect(() => {
     const draftCategoryName = String(location.state?.draftCategoryName || "").trim()
@@ -75,24 +73,32 @@ export default function MenuCategoriesPage() {
     navigate(location.pathname, { replace: true, state: null })
   }, [location.pathname, location.state, navigate])
 
+  const {
+    items: categories,
+    total,
+    hasMore,
+    loading,
+    loadingMore,
+    loadMore,
+    refresh: fetchCategories,
+  } = useInfiniteList(
+    async (params, { signal }) => {
+      const response = await restaurantAPI.getAllCategories(params, { signal })
+      return {
+        items: response?.data?.data?.categories || [],
+        total: response?.data?.data?.total || 0,
+      }
+    },
+    {
+      pageSize: 20,
+      cacheKey: "restaurant-menu-categories",
+    }
+  )
+
   const ownCategories = useMemo(
     () => categories.filter((category) => category.ownedByRestaurant),
     [categories],
   )
-
-  const fetchCategories = async () => {
-    try {
-      setLoading(true)
-      const response = await restaurantAPI.getAllCategories()
-      const list = response?.data?.data?.categories || []
-      setCategories(Array.isArray(list) ? list : [])
-    } catch (error) {
-      toast.error(error?.response?.data?.message || "Failed to load categories")
-      setCategories([])
-    } finally {
-      setLoading(false)
-    }
-  }
 
   const resetModal = () => {
     setShowModal(false)
@@ -241,35 +247,35 @@ export default function MenuCategoriesPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] pb-24">
-      <div className="sticky top-0 z-40 border-b border-gray-100 dark:border-gray-800 bg-white/95 dark:bg-[#111]/95 backdrop-blur">
-        <div className="px-4 py-4 flex items-center gap-3">
-          <button onClick={goBack} className="rounded-full p-1 hover:bg-gray-100 dark:hover:bg-gray-800">
-            <ArrowLeft className="h-5 w-5 text-gray-700 dark:text-gray-300" />
-          </button>
-          <div>
-            <h1 className="text-base font-bold text-gray-900 dark:text-white">Menu Categories</h1>
-            <p className="text-xs text-gray-400 dark:text-gray-500">Create categories, track approvals, and resubmit edits safely.</p>
-          </div>
-        </div>
-      </div>
-
-      <div className="p-4 space-y-4">
-        <div className="rounded-2xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-[#111] p-4">
+    <RestaurantPageShell
+      title="Menu Categories"
+      subtitle="Create categories, track approvals, and resubmit edits safely."
+      onBack={goBack}
+      maxWidth="6xl"
+      contentClassName="space-y-4"
+    >
+        <div className={`${RESTAURANT_CARD_CLASS} p-4`}>
           <p className="text-sm font-semibold text-gray-900 dark:text-white">How this works</p>
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-            New categories stay pending until admin approval. Editing an approved category sends it back for review.
+            New categories stay pending until admin approval. Changing the name or image of an approved category sends it back for review.
             Only approved categories can be used for food uploads.
           </p>
         </div>
 
-        <button
-          onClick={openCreateModal}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#FF6A00] px-4 py-3 font-semibold text-white"
-        >
-          <Plus className="h-5 w-5" />
-          Add Category
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={openCreateModal}
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#FF6A00] px-4 py-3 font-semibold text-white"
+          >
+            <Plus className="h-5 w-5" />
+            Add Category
+          </button>
+          <RefreshButton
+            onClick={fetchCategories}
+            loading={loading}
+            className="h-auto w-auto px-4 py-3 rounded-xl"
+          />
+        </div>
 
         {loading ? (
           <div className="flex items-center justify-center py-12">
@@ -329,7 +335,7 @@ export default function MenuCategoriesPage() {
                         {isGlobal ? (
                           <p>Admin controls this category now, so you can use it but not rename or delete it.</p>
                         ) : status === "approved" ? (
-                          <p>Editing this category will send it back for admin approval.</p>
+                          <p>Changing name or image will send it back for admin approval.</p>
                         ) : (
                           <p>Foods can be added only after approval.</p>
                         )}
@@ -348,14 +354,12 @@ export default function MenuCategoriesPage() {
                     >
                       {category?.isActive !== false ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
                     </button>
-                    {status !== "approved" && (
-                      <button
-                        onClick={() => openEditModal(category)}
-                        className="rounded-xl bg-[#FF6A00]/10 p-2 text-[#FF6A00] hover:bg-[#FF6A00]/20 transition-colors"
-                      >
-                        <Edit2 className="h-4 w-4" />
-                      </button>
-                    )}
+                    <button
+                      onClick={() => openEditModal(category)}
+                      className="rounded-xl bg-[#FF6A00]/10 p-2 text-[#FF6A00] hover:bg-[#FF6A00]/20 transition-colors"
+                    >
+                      <Edit2 className="h-4 w-4" />
+                    </button>
                     <button
                       onClick={() => handleDeleteCategory(category)}
                       className="rounded-xl bg-red-50 dark:bg-red-900/20 p-2 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
@@ -366,16 +370,23 @@ export default function MenuCategoriesPage() {
                 </motion.div>
               )
             })}
+            <InfiniteScrollSentinel
+              onIntersect={loadMore}
+              hasMore={hasMore}
+              loading={loadingMore}
+              total={total}
+              loadedCount={ownCategories.length}
+            />
           </div>
         )}
-      </div>
+
 
       <Modal
         open={showModal}
         onClose={resetModal}
         title={editingCategory ? "Edit Category" : "Create Category"}
         description={editingCategory
-          ? "Any edit sends this category back for admin approval."
+          ? "Changing name or image sends this category back for admin approval."
           : "Choose the diet scope carefully before sending it for approval."}
         icon={Plus}
         size="lg"
@@ -479,6 +490,6 @@ export default function MenuCategoriesPage() {
         fileNamePrefix="category-photo"
         galleryInputRef={fileInputRef}
       />
-    </div>
+    </RestaurantPageShell>
   )
 }

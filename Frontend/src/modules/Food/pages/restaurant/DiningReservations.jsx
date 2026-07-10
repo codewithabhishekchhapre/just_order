@@ -1,11 +1,13 @@
 import { useState, useEffect, useMemo } from "react"
 import { useNavigate } from "react-router-dom"
 import { motion, AnimatePresence } from "framer-motion"
-import { Calendar, Clock, Users, Search, MessageSquare, CheckCircle2, Clock4, UploadCloud, ImagePlus, ChevronDown, ChevronUp, Sparkles, MapPin, Phone, Info, X, ArrowLeft } from "lucide-react"
+import { Calendar, Clock, Users, Search, MessageSquare, CheckCircle2, Clock4, UploadCloud, ImagePlus, ChevronDown, ChevronUp, Sparkles, MapPin, Phone, Info, X } from "lucide-react"
 import { diningAPI, restaurantAPI } from "@food/api"
 import Loader from "@food/components/Loader"
 import { Badge } from "@food/components/ui/badge"
 import { toast } from "sonner"
+import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation"
+import RestaurantPageShell from "@food/components/restaurant/RestaurantPageShell"
 const debugError = (...args) => {}
 
 const getRestaurantFromResponse = (response) =>
@@ -72,6 +74,7 @@ const getBookerPhone = (booking) =>
 
 export default function DiningReservations() {
     const navigate = useNavigate()
+    const goBack = useRestaurantBackNavigation()
     const [bookings, setBookings] = useState([])
     const [loading, setLoading] = useState(true)
     const [restaurant, setRestaurant] = useState(null)
@@ -404,59 +407,41 @@ export default function DiningReservations() {
 
     if (loading) return <Loader />
 
-    return (
-        <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] pb-20">
-            {/* Header */}
-            <div className="bg-white/90 dark:bg-[#111]/90 backdrop-blur-xl sticky top-0 z-30 border-b border-gray-100 dark:border-gray-800">
-                <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <motion.div
-                        initial={{ opacity: 0, x: -20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        className="flex items-center gap-4"
-                    >
-                        <button
-                            onClick={() => navigate(-1)}
-                            className="p-2 rounded-xl bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 transition-colors"
-                        >
-                            <ArrowLeft className="w-5 h-5" />
-                        </button>
-                        <div>
-                            <h1 className="text-xl font-black text-gray-900 dark:text-white tracking-tight flex items-center gap-2">
-                                Table Reservations
-                                <span className="flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                            </h1>
-                            <p className="text-gray-400 dark:text-gray-500 text-xs font-bold uppercase tracking-widest mt-1">Live Queue Management</p>
-                        </div>
-                    </motion.div>
-
-                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-                        <div className="relative">
-                            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                            <input
-                                type="text"
-                                id="reservation-search"
-                                name="reservation-search"
-                                placeholder="Search guests…"
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                                className="w-full sm:w-64 pl-10 pr-4 py-2.5 bg-gray-100 dark:bg-gray-800 border border-transparent rounded-xl text-sm font-medium focus:bg-white dark:focus:bg-gray-800 focus:border-[#FF6A00]/30 outline-none dark:text-white"
-                            />
-                        </div>
-                        <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-xl">
-                            <button
-                                onClick={() => setActiveSection("reservations")}
-                                className={`px-4 py-2 text-xs font-bold uppercase tracking-widest rounded-lg transition-all ${activeSection === "reservations" ? "bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm" : "text-gray-400 dark:text-gray-500"}`}
-                            >Queue</button>
-                            <button
-                                onClick={() => setActiveSection("media")}
-                                className={`px-4 py-2 text-xs font-bold uppercase tracking-widest rounded-lg transition-all ${activeSection === "media" ? "bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm" : "text-gray-400 dark:text-gray-500"}`}
-                            >Media</button>
-                        </div>
-                    </div>
-                </div>
+    const headerActions = (
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+            <div className="relative">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                    type="text"
+                    id="reservation-search"
+                    name="reservation-search"
+                    placeholder="Search guests…"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-full sm:w-64 pl-10 pr-4 py-2.5 bg-gray-100 dark:bg-gray-800 border border-transparent rounded-xl text-sm font-medium focus:bg-white dark:focus:bg-gray-800 focus:border-[#FF6A00]/30 outline-none dark:text-white"
+                />
             </div>
+            <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-xl">
+                <button
+                    onClick={() => setActiveSection("reservations")}
+                    className={`px-4 py-2 text-xs font-bold uppercase tracking-widest rounded-lg transition-all ${activeSection === "reservations" ? "bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm" : "text-gray-400 dark:text-gray-500"}`}
+                >Queue</button>
+                <button
+                    onClick={() => setActiveSection("media")}
+                    className={`px-4 py-2 text-xs font-bold uppercase tracking-widest rounded-lg transition-all ${activeSection === "media" ? "bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm" : "text-gray-400 dark:text-gray-500"}`}
+                >Media</button>
+            </div>
+        </div>
+    )
 
-            <div className="max-w-7xl mx-auto px-4 md:px-6 py-5">
+    return (
+        <RestaurantPageShell
+            title="Table Reservations"
+            subtitle="Live Queue Management"
+            onBack={goBack}
+            maxWidth="7xl"
+            actions={headerActions}
+        >
                 {/* Stats */}
                 <div className="grid grid-cols-3 gap-3 mb-6">
                     {[
@@ -1062,8 +1047,7 @@ export default function DiningReservations() {
                     )}
                 </div>
             )}
-        </div>
-    </div>
+        </RestaurantPageShell>
     )
 }
 

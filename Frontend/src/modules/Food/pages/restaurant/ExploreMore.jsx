@@ -38,7 +38,9 @@ import { DateRangeCalendar } from "@food/components/ui/date-range-calendar"
 import { clearModuleAuth, clearAuthData, getCurrentUser } from "@food/utils/auth"
 import { restaurantAPI } from "@food/api"
 import { firebaseAuth, ensureFirebaseInitialized } from "@food/firebase"
-import BottomNavOrders from "@food/components/restaurant/BottomNavOrders"
+import { useCompanyName } from "@food/hooks/useCompanyName"
+import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation"
+import RestaurantPageShell from "@food/components/restaurant/RestaurantPageShell"
 import RestaurantProfile from "@food/pages/restaurant/RestaurantProfile"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -339,6 +341,7 @@ function TimePickerWheel({
 
 export default function ExploreMore() {
   const navigate = useNavigate()
+  const goBack = useRestaurantBackNavigation()
   const [profileOpen, setProfileOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
@@ -870,62 +873,34 @@ export default function ExploreMore() {
   )
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{
-        duration: 0.2,
-        ease: [0.25, 0.1, 0.25, 1]
-      }}
-      className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] overflow-x-hidden pb-24"
+    <RestaurantPageShell
+      title="Explore more"
+      onBack={goBack}
+      maxWidth="6xl"
+      contentClassName="py-6"
+      actions={(
+        <>
+          <button
+            onClick={() => setSearchOpen(true)}
+            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+            aria-label="Search"
+          >
+            <Search className="w-5 h-5 text-gray-900 dark:text-white" />
+          </button>
+          <button
+            onClick={() => setProfileOpen(true)}
+            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 bg-gray-200 dark:bg-gray-700 rounded-full transition-colors overflow-hidden flex items-center justify-center"
+            aria-label="Profile"
+          >
+            {userData.profileImage?.url ? (
+              <img src={userData.profileImage.url} alt="Profile" className="w-5 h-5 object-cover rounded-full" />
+            ) : (
+              <UserRound className="w-5 h-5 text-gray-900 dark:text-white" />
+            )}
+          </button>
+        </>
+      )}
     >
-      {/* Header */}
-      <motion.div
-        initial={{ opacity: 0, y: -8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{
-          duration: 0.25,
-          ease: [0.25, 0.1, 0.25, 1]
-        }}
-        className="bg-white dark:bg-[#111] border-b border-gray-100 dark:border-gray-800 px-4 py-4 sticky top-0 z-50"
-      >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3 flex-1">
-            <button
-              onClick={() => navigate("/food/restaurant")}
-              className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
-              aria-label="Go back"
-            >
-              <ArrowLeft className="w-6 h-6 text-gray-900 dark:text-white" />
-            </button>
-            <h1 className="text-lg font-bold text-gray-900 dark:text-white">Explore more</h1>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setSearchOpen(true)}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-              aria-label="Search"
-            >
-              <Search className="w-5 h-5 text-gray-900" />
-            </button>
-            <button
-              onClick={() => setProfileOpen(true)}
-              className="p-2 hover:bg-gray-100 bg-gray-200 rounded-full transition-colors overflow-hidden flex items-center justify-center"
-              aria-label="Profile"
-            >
-              {userData.profileImage?.url ? (
-                <img src={userData.profileImage.url} alt="Profile" className="w-5 h-5 object-cover rounded-full" />
-              ) : (
-                <UserRound className="w-5 h-5 text-gray-900" />
-              )}
-            </button>
-          </div>
-        </div>
-      </motion.div>
-
-      {/* Main Content */}
-      <div className="px-4 py-6">
         {/* Restaurant Information Card */}
         <motion.div
           initial={{ opacity: 0, y: 8 }}
@@ -1007,7 +982,6 @@ export default function ExploreMore() {
           </div>
           <ChevronRight className="w-5 h-5 text-red-400 shrink-0" />
         </motion.button>
-      </div>
 
       {/* Search Popup */}
       <AnimatePresence>
@@ -1559,8 +1533,7 @@ export default function ExploreMore() {
           </>
         )}
       </AnimatePresence>
-      <BottomNavOrders />
-    </motion.div>
+    </RestaurantPageShell>
   )
 }
 

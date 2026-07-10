@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from "react"
+import { useMemo, useState, useEffect, useCallback } from "react"
 import { Package, Truck, CheckCircle, Clock, XCircle, Loader2 } from "lucide-react"
 import { adminAPI } from "@food/api"
 import { toast } from "sonner"
@@ -286,44 +286,54 @@ export default function OrderDetectDelivery() {
 
   const [orders, setOrders] = useState([])
   const [isLoading, setIsLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState(null)
 
   // Fetch orders from backend
-  useEffect(() => {
-    const fetchOrders = async () => {
-      try {
+  const fetchOrders = useCallback(async (options = {}) => {
+    const { silent = false } = options
+    try {
+      if (silent) {
+        setRefreshing(true)
+      } else {
         setIsLoading(true)
-        setError(null)
-        const params = {
-          page: 1,
-          limit: 1000, // Fetch all orders for now
-        }
-        
-        const response = await adminAPI.getOrders(params)
-        
-        if (response.data?.success && response.data?.data?.orders) {
-          const transformedOrders = response.data.data.orders.map((order, index) => 
-            transformOrder(order, index)
-          )
-          setOrders(transformedOrders)
-        } else {
-          debugError("Failed to fetch orders:", response.data)
-          setError(response.data?.message || "Failed to fetch orders")
-          toast.error("Failed to fetch orders")
-          setOrders([])
-        }
-      } catch (error) {
-        debugError("Error fetching orders:", error)
-        setError(error.response?.data?.message || "Failed to fetch orders")
-        toast.error(error.response?.data?.message || "Failed to fetch orders")
+      }
+      setError(null)
+      const params = {
+        page: 1,
+        limit: 1000, // Fetch all orders for now
+      }
+
+      const response = await adminAPI.getOrders(params)
+
+      if (response.data?.success && response.data?.data?.orders) {
+        const transformedOrders = response.data.data.orders.map((order, index) =>
+          transformOrder(order, index)
+        )
+        setOrders(transformedOrders)
+      } else {
+        debugError("Failed to fetch orders:", response.data)
+        setError(response.data?.message || "Failed to fetch orders")
+        toast.error("Failed to fetch orders")
         setOrders([])
-      } finally {
+      }
+    } catch (error) {
+      debugError("Error fetching orders:", error)
+      setError(error.response?.data?.message || "Failed to fetch orders")
+      toast.error(error.response?.data?.message || "Failed to fetch orders")
+      setOrders([])
+    } finally {
+      if (silent) {
+        setRefreshing(false)
+      } else {
         setIsLoading(false)
       }
     }
-
-    fetchOrders()
   }, [])
+
+  useEffect(() => {
+    fetchOrders()
+  }, [fetchOrders])
 
   const {
     searchQuery,
@@ -428,6 +438,8 @@ export default function OrderDetectDelivery() {
         activeFiltersCount={activeFiltersCount}
         onExport={handleExport}
         onSettingsClick={() => setIsSettingsOpen(true)}
+        onRefresh={() => fetchOrders({ silent: true })}
+        refreshing={refreshing}
       />
 
       {/* Statistics Cards */}

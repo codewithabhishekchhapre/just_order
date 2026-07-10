@@ -1,12 +1,12 @@
-import { useState, useRef, useEffect } from "react"
-import { useNavigate, useLocation } from "react-router-dom"
+import { useState, useRef, useEffect, useMemo } from "react"
+import { useLocation } from "react-router-dom"
 import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation"
 import { motion, AnimatePresence } from "framer-motion"
-import { ArrowLeft, ChevronDown, ChevronUp, Download, Mail, Info } from "lucide-react"
+import { ChevronDown, ChevronUp, Download, Mail, Info } from "lucide-react"
 import { Modal } from "@food/components/restaurant/Modal"
+import RestaurantPageShell from "@food/components/restaurant/RestaurantPageShell"
 
 export default function FinanceDetailsPage() {
-  const navigate = useNavigate()
   const goBack = useRestaurantBackNavigation()
   const location = useLocation()
   const financeData = location.state?.financeData || null
@@ -122,90 +122,74 @@ export default function FinanceDetailsPage() {
     }))
   }
 
-  return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] flex flex-col">
-      {/* Header */}
-      <div className="sticky bg-white dark:bg-[#111] top-0 z-40 px-4 py-4 border-b border-gray-100 dark:border-gray-800">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={goBack}
-            className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-colors"
+  const tabButtons = (
+    <div
+      ref={topTabBarRef}
+      className="flex gap-2 overflow-x-auto scrollbar-hide bg-transparent rounded-full py-2"
+      style={{
+        scrollbarWidth: 'none',
+        msOverflowStyle: 'none',
+        WebkitOverflowScrolling: 'touch'
+      }}
+    >
+      <style>{`
+        .scrollbar-hide::-webkit-scrollbar {
+          display: none;
+        }
+      `}</style>
+      {tabs.map((tab) => {
+        const isActive = activeTab === tab.id
+        return (
+          <motion.button
+            key={tab.id}
+            onClick={() => {
+              if (!isTransitioning) {
+                setIsTransitioning(true)
+                setActiveTab(tab.id)
+                setTimeout(() => setIsTransitioning(false), 300)
+              }
+            }}
+            className={`shrink-0 px-6 py-3.5 rounded-full font-medium text-sm whitespace-nowrap relative overflow-hidden ${
+              isActive ? 'text-white' : 'bg-white dark:bg-[#1a1a1a] text-gray-900 dark:text-gray-300'
+            }`}
+            animate={{
+              scale: isActive ? 1.05 : 1,
+              opacity: isActive ? 1 : 0.7,
+            }}
+            transition={{
+              duration: 0.3,
+              ease: [0.25, 0.1, 0.25, 1],
+            }}
+            whileTap={{ scale: 0.95 }}
           >
-            <ArrowLeft className="w-5 h-5 text-gray-700 dark:text-gray-300" />
-          </button>
-          <div className="flex-1 min-w-0">
-            <h1 className="text-base font-bold text-gray-900 dark:text-white truncate">
-              {restaurantData?.name || "Your Restaurant"}
-            </h1>
-            <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
-              ID: {restaurantData?.restaurantId || "N/A"} • {restaurantData?.address || "Location"}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Top Navigation Tabs */}
-      <div className="sticky top-[73px] z-30 bg-gray-50 dark:bg-[#0a0a0a] pb-2">
-        <div
-          ref={topTabBarRef}
-          className="flex gap-2 overflow-x-auto scrollbar-hide bg-transparent rounded-full px-3 py-2 mt-2"
-          style={{
-            scrollbarWidth: 'none',
-            msOverflowStyle: 'none',
-            WebkitOverflowScrolling: 'touch'
-          }}
-        >
-          <style>{`
-            .scrollbar-hide::-webkit-scrollbar {
-              display: none;
-            }
-          `}</style>
-          {tabs.map((tab) => {
-            const isActive = activeTab === tab.id
-            return (
-              <motion.button
-                key={tab.id}
-                onClick={() => {
-                  if (!isTransitioning) {
-                    setIsTransitioning(true)
-                    setActiveTab(tab.id)
-                    setTimeout(() => setIsTransitioning(false), 300)
-                  }
-                }}
-                className={`shrink-0 px-6 py-3.5 rounded-full font-medium text-sm whitespace-nowrap relative overflow-hidden ${
-                  isActive ? 'text-white' : 'bg-white dark:bg-[#1a1a1a] text-gray-900 dark:text-gray-300'
-                }`}
-                animate={{
-                  scale: isActive ? 1.05 : 1,
-                  opacity: isActive ? 1 : 0.7,
-                }}
+            {isActive && (
+              <motion.div
+                layoutId="financeTopTabActive"
+                className="absolute inset-0 bg-[#FF6A00] rounded-full -z-10"
+                initial={false}
                 transition={{
-                  duration: 0.3,
-                  ease: [0.25, 0.1, 0.25, 1],
+                  type: "spring",
+                  stiffness: 500,
+                  damping: 30,
                 }}
-                whileTap={{ scale: 0.95 }}
-              >
-                {isActive && (
-                  <motion.div
-                    layoutId="financeTopTabActive"
-                    className="absolute inset-0 bg-[#FF6A00] rounded-full -z-10"
-                    initial={false}
-                    transition={{
-                      type: "spring",
-                      stiffness: 500,
-                      damping: 30,
-                    }}
-                  />
-                )}
-                <span className="relative z-10">{tab.label}</span>
-              </motion.button>
-            )
-          })}
-        </div>
-      </div>
+              />
+            )}
+            <span className="relative z-10">{tab.label}</span>
+          </motion.button>
+        )
+      })}
+    </div>
+  )
 
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto px-4 py-4">
+  return (
+    <RestaurantPageShell
+      title={restaurantData?.name || "Your Restaurant"}
+      subtitle={`ID: ${restaurantData?.restaurantId || "N/A"} • ${restaurantData?.address || "Location"}`}
+      onBack={goBack}
+      maxWidth="6xl"
+      tabs={tabButtons}
+      contentClassName="py-4"
+    >
         <AnimatePresence mode="wait">
           <motion.div
             key={activeTab}
@@ -549,7 +533,6 @@ export default function FinanceDetailsPage() {
             )}
           </motion.div>
         </AnimatePresence>
-      </div>
 
       {/* Download Popup */}
       <Modal
@@ -588,6 +571,6 @@ export default function FinanceDetailsPage() {
           Close
         </button>
       </Modal>
-    </div>
+    </RestaurantPageShell>
   )
 }

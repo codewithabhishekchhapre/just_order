@@ -117,6 +117,7 @@ router.patch('/offers/:id/cart-visibility', checkPermission('food::promotions_ma
 router.delete('/offers/:id', checkPermission('food::promotions_management::coupons', 'delete'), adminController.deleteAdminOffer);
 router.get('/restaurant-coupons', checkPermission('food::promotions_management::coupons', 'view'), adminController.getRestaurantCoupons);
 router.patch('/restaurant-coupons/:id/status', checkPermission('food::promotions_management::coupons', 'edit'), adminController.updateRestaurantCouponStatus);
+router.patch('/restaurant-coupons/:id/revert', checkPermission('food::promotions_management::coupons', 'edit'), adminController.revertRestaurantCouponRequest);
 
 // ----- Feedback Experience (Admin) -----
 router.get('/feedback-experiences', feedbackExperienceController.getFeedbackExperiences);

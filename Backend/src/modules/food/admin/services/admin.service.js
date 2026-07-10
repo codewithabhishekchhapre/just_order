@@ -14,8 +14,9 @@ import { FoodEarningAddon } from '../models/earningAddon.model.js';
 import { FoodEarningAddonHistory } from '../models/earningAddonHistory.model.js';
 import { FoodDeliveryCommissionRule } from '../models/deliveryCommissionRule.model.js';
 import { FoodFeeSettings } from '../models/feeSettings.model.js';
-import { resolveDeliverySpeedOptions } from '../utils/deliverySpeedDefaults.js';
+import { resolveDeliverySpeedOptions, formatPublicDeliverySpeedOption, getStoredDeliverySpeedOptions } from '../utils/deliverySpeedDefaults.js';
 import { resolveRestaurantCommissionPercentage } from '../../shared/restaurantCommissionDefaults.js';
+import { shouldAutoReactivateFoodOnCategoryAssignment } from '../../shared/menuItemCategoryWorkflow.js';
 import { FeedbackExperience } from '../models/feedbackExperience.model.js';
 import { FoodUser } from '../../../../core/users/user.model.js';
 import { FoodRefreshToken } from '../../../../core/refreshTokens/refreshToken.model.js';
@@ -346,12 +347,21 @@ export async function getRestaurants(query) {
     if (status && ['pending', 'approved', 'rejected'].includes(status)) {
         filter.status = status;
     }
+    const search = String(query.search || '').trim();
+    if (search) {
+        const regex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+        filter.$or = [
+            { restaurantName: regex },
+            { ownerName: regex },
+            { ownerPhone: regex },
+        ];
+    }
     const [restaurants, total] = await Promise.all([
         FoodRestaurant.find(filter)
             .sort({ createdAt: -1 })
             .skip(skip)
             .limit(limit)
-            .select('restaurantId restaurantName location area city profileImage coverImages menuImages status ownerName ownerPhone zoneId commissionPercentage isVisibleToUsers showRestaurantToUsersWithoutItems hasHadActiveItems')
+            .select('restaurantId restaurantName location addressLine1 addressLine2 area city state pincode pureVegRestaurant profileImage coverImages menuImages status ownerName ownerPhone zoneId commissionPercentage isVisibleToUsers showRestaurantToUsersWithoutItems hasHadActiveItems')
             .populate('zoneId', 'name zoneName')
             .lean(),
         FoodRestaurant.countDocuments(filter)
@@ -1212,6 +1222,29 @@ export async function getCustomers(query = {}) {
         }
     }
 
+    if (query.orderDate && String(query.orderDate).trim()) {
+        const d = new Date(String(query.orderDate));
+        if (!Number.isNaN(d.getTime())) {
+            const start = new Date(d);
+            start.setHours(0, 0, 0, 0);
+            const end = new Date(d);
+            end.setHours(23, 59, 59, 999);
+            
+            const orders = await FoodOrder.find({
+                orderType: { $in: FOOD_CUSTOMER_ORDER_TYPES },
+                createdAt: { $gte: start, $lte: end }
+            }).distinct('userId');
+            
+            if (filter._id) {
+                // If _id is already set (unlikely, but safe), we intersect.
+                // For simplicity, we can assume it's not set.
+                filter._id = { $in: orders };
+            } else {
+                filter._id = { $in: orders };
+            }
+        }
+    }
+
     if (query.search && String(query.search).trim()) {
         const raw = String(query.search).trim().slice(0, 80);
         const term = raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -1759,6 +1792,17 @@ function stripLegacyFoodFeeSettingsFields(doc) {
     return next;
 }
 
+function buildAdminFeeSettingsPayload(doc) {
+    const stored = getStoredDeliverySpeedOptions(doc);
+    const deliverySpeedOptions = (stored.length > 0 ? stored : resolveDeliverySpeedOptions(doc))
+        .map(formatPublicDeliverySpeedOption);
+    const feeSettings = stripLegacyFoodFeeSettingsFields(doc);
+    if (feeSettings) {
+        return { ...feeSettings, deliverySpeedOptions };
+    }
+    return { deliverySpeedOptions };
+}
+
 export async function getFeeSettings() {
     const doc = await FoodFeeSettings.findOne({ isActive: true }).sort({ createdAt: -1 }).lean();
     if (doc?._id && ('deliveryFeeRanges' in doc || 'freeDeliveryThreshold' in doc)) {
@@ -1769,8 +1813,21 @@ export async function getFeeSettings() {
             }
         });
     }
-    // If not configured yet, return null so UI does not show defaults automatically.
-    return { feeSettings: stripLegacyFoodFeeSettingsFields(doc) || null };
+    return { feeSettings: buildAdminFeeSettingsPayload(doc) };
+}
+
+async function loadActiveFeeSettingsDoc() {
+    return FoodFeeSettings.findOne({ isActive: true }).sort({ createdAt: -1 }).lean();
+}
+
+export async function getPublicDeliverySpeedOptions() {
+    const doc = await loadActiveFeeSettingsDoc();
+    const stored = getStoredDeliverySpeedOptions(doc);
+    const options = (stored.length > 0 ? stored : resolveDeliverySpeedOptions(doc)).map(formatPublicDeliverySpeedOption);
+    return {
+        options,
+        isConfigured: stored.length > 0,
+    };
 }
 
 // Lean, public-facing summary used by the user cart (not admin-authenticated):
@@ -1778,19 +1835,11 @@ export async function getFeeSettings() {
 // platform fee / GST rate before the authoritative calculateOrder pricing
 // call resolves.
 export async function getPublicFeeSummary() {
-    const doc = await FoodFeeSettings.findOne({ isActive: true }).sort({ createdAt: -1 }).lean();
+    const doc = await loadActiveFeeSettingsDoc();
     return {
         platformFee: Number(doc?.platformFee ?? 5),
         gstRate: Number(doc?.gstRate ?? 5),
-        deliverySpeedOptions: resolveDeliverySpeedOptions(doc).map((option) => ({
-            code: option.code,
-            label: option.label,
-            description: option.description || '',
-            etaMinutesMin: option.etaMinutesMin,
-            etaMinutesMax: option.etaMinutesMax,
-            extraFee: option.extraFee,
-            isDefault: Boolean(option.isDefault),
-        })),
+        deliverySpeedOptions: resolveDeliverySpeedOptions(doc).map(formatPublicDeliverySpeedOption),
     };
 }
 
@@ -1847,11 +1896,11 @@ export async function upsertFeeSettings(body) {
         if (Object.keys($set).length) update.$set = $set;
         if (Object.keys($unset).length) update.$unset = $unset;
         if (!Object.keys(update).length) {
-            return stripLegacyFoodFeeSettingsFields(existing.toObject());
+            return buildAdminFeeSettingsPayload(existing.toObject());
         }
 
         const updated = await FoodFeeSettings.findByIdAndUpdate(existing._id, update, { new: true }).lean();
-        return stripLegacyFoodFeeSettingsFields(updated);
+        return buildAdminFeeSettingsPayload(updated);
     }
 
     const payload = {
@@ -1875,7 +1924,7 @@ export async function upsertFeeSettings(body) {
     if (body.mixedOrderAngleLimit !== undefined) payload.mixedOrderAngleLimit = body.mixedOrderAngleLimit;
 
     const created = await FoodFeeSettings.create(payload);
-    return stripLegacyFoodFeeSettingsFields(created.toObject());
+    return buildAdminFeeSettingsPayload(created.toObject());
 }
 
 // ----- Referral Settings (admin) -----
@@ -2408,6 +2457,22 @@ export async function updateRestaurantById(id, body = {}) {
     if (body.openDays !== undefined && Array.isArray(body.openDays)) {
         doc.openDays = body.openDays.map(d => toStr(d)).filter(Boolean);
     }
+    if (body.dayTimings !== undefined && Array.isArray(body.dayTimings)) {
+        doc.dayTimings = body.dayTimings
+            .map((dt) => ({
+                day: toStr(dt?.day),
+                openingTime: normalizeRestaurantTime(dt?.openingTime) || '',
+                closingTime: normalizeRestaurantTime(dt?.closingTime) || '',
+                isOpen: dt?.isOpen !== false,
+            }))
+            .filter((dt) => dt.day);
+        const firstOpenDay = doc.dayTimings.find((dt) => dt.isOpen);
+        if (firstOpenDay) {
+            doc.openingTime = firstOpenDay.openingTime;
+            doc.closingTime = firstOpenDay.closingTime;
+            doc.openDays = doc.dayTimings.filter((dt) => dt.isOpen).map((dt) => dt.day);
+        }
+    }
     if (body.offer !== undefined) doc.offer = toStr(body.offer);
 
     if (body.estimatedDeliveryTime !== undefined) {
@@ -2456,6 +2521,14 @@ export async function updateRestaurantById(id, body = {}) {
             doc.menuImages = body.menuImages.map(m => toStr(getUrl(m))).filter(Boolean);
         } else {
             doc.menuImages = [toStr(getUrl(body.menuImages))].filter(Boolean);
+        }
+    }
+
+    if (body.coverImages !== undefined) {
+        if (Array.isArray(body.coverImages)) {
+            doc.coverImages = body.coverImages.map((m) => toStr(getUrl(m))).filter(Boolean);
+        } else {
+            doc.coverImages = [toStr(getUrl(body.coverImages))].filter(Boolean);
         }
     }
 
@@ -2826,20 +2899,20 @@ export async function deleteCategory(id) {
     const category = await FoodCategory.findById(id).select('name').lean();
     if (!category) return null;
 
-    const affectedItems = await FoodItem.find({ categoryId: id, isAvailable: { $ne: false } })
-        .select('restaurantId')
+    const affectedItems = await FoodItem.find({ categoryId: id })
+        .select('restaurantId isAvailable')
         .lean();
 
     let deactivatedItemCount = 0;
     if (affectedItems.length > 0) {
+        deactivatedItemCount = affectedItems.filter(i => i.isAvailable !== false).length;
         const updateResult = await FoodItem.updateMany(
-            { categoryId: id, isAvailable: { $ne: false } },
-            { $set: { isAvailable: false } }
+            { categoryId: id },
+            { $set: { isAvailable: false }, $unset: { categoryId: 1, categoryName: 1 } }
         );
-        deactivatedItemCount = updateResult.modifiedCount || 0;
 
         const affectedRestaurantIds = Array.from(
-            new Set(affectedItems.map((item) => String(item.restaurantId)).filter(Boolean))
+            new Set(affectedItems.filter(i => i.isAvailable !== false).map((item) => String(item.restaurantId)).filter(Boolean))
         );
 
         try {
@@ -3013,23 +3086,18 @@ export async function approveRestaurantAddon(addonId, performer = null) {
     if (!addonId || !mongoose.Types.ObjectId.isValid(String(addonId))) return null;
     const _id = new mongoose.Types.ObjectId(String(addonId));
 
-    // Use update pipeline to copy draft -> published atomically.
-    const updated = await FoodAddon.findOneAndUpdate(
-        { _id, isDeleted: { $ne: true } },
-        [
-            {
-                $set: {
-                    published: '$draft',
-                    approvalStatus: 'approved',
-                    approvedAt: '$$NOW',
-                    rejectedAt: null,
-                    rejectionReason: '',
-                    approvedBy: performer
-                }
-            }
-        ],
-        { new: true }
-    ).lean();
+    const addon = await FoodAddon.findOne({ _id, isDeleted: { $ne: true } });
+    if (!addon) return null;
+
+    // Deep copy to prevent draft and published from sharing the same object reference
+    addon.published = JSON.parse(JSON.stringify(addon.draft));
+    addon.approvalStatus = 'approved';
+    addon.approvedAt = new Date();
+    addon.rejectedAt = null;
+    addon.rejectionReason = '';
+    addon.approvedBy = performer;
+
+    const updated = await addon.save();
 
     if (updated?.restaurantId) {
         try {
@@ -3333,8 +3401,14 @@ export async function updateFood(id, body) {
     if (pricingUpdate.variants !== undefined) doc.variants = pricingUpdate.variants;
     if (body.image !== undefined) doc.image = String(body.image || '').trim();
     if (body.foodType !== undefined) doc.foodType = targetFoodType;
-    if (body.isAvailable !== undefined) doc.isAvailable = body.isAvailable !== false;
     if (body.preparationTime !== undefined) doc.preparationTime = String(body.preparationTime || '').trim();
+
+    const categoryStateBeforeUpdate = {
+        categoryId: doc.categoryId,
+        isAvailable: doc.isAvailable,
+    };
+    let didAutoReactivate = false;
+
     if (body.categoryId !== undefined || body.categoryName !== undefined || body.category !== undefined || body.foodType !== undefined) {
         const nextCategoryName = body.categoryName !== undefined
             ? String(body.categoryName || '').trim()
@@ -3347,8 +3421,33 @@ export async function updateFood(id, body) {
         });
         doc.categoryId = categoryId;
         doc.categoryName = categoryName;
+
+        if (shouldAutoReactivateFoodOnCategoryAssignment(categoryStateBeforeUpdate, {
+            nextCategoryId: doc.categoryId,
+        })) {
+            doc.isAvailable = true;
+            didAutoReactivate = true;
+        }
+    }
+
+    if (body.isAvailable !== undefined && !didAutoReactivate) {
+        const nextIsAvailable = body.isAvailable !== false;
+        if (nextIsAvailable && !doc.categoryId) {
+            throw new ValidationError('This menu item cannot be enabled because it is not assigned to a category. Please assign it to a category first.');
+        }
+        doc.isAvailable = nextIsAvailable;
     }
     await doc.save();
+
+    if (didAutoReactivate) {
+        try {
+            const { invalidatePublicRestaurantMenuCache } = await import('../../restaurant/services/restaurantMenu.service.js');
+            await invalidatePublicRestaurantMenuCache();
+        } catch (e) {
+            console.error('Failed to invalidate menu cache after admin food category reassignment:', e);
+        }
+    }
+
     return doc.toObject();
 }
 
@@ -5634,14 +5733,110 @@ export async function processRefund(orderId, refundAmount, refundTo) {
 export async function getRestaurantCoupons() {
     const { RestaurantCoupon } = await import('../models/restaurantCoupon.model.js');
     const { SellerCoupon } = await import('../../../quick-commerce/models/sellerCoupon.model.js');
+    const { FoodCategory } = await import('../models/category.model.js');
+    const { FoodItem } = await import('../models/food.model.js');
 
     const [restaurantCoupons, sellerCoupons] = await Promise.all([
-        RestaurantCoupon.find({}).lean(),
+        RestaurantCoupon.find({})
+            .populate('applicableCategories', 'name')
+            .populate('applicableItems', 'name')
+            .lean(),
         SellerCoupon.find({}).lean()
     ]);
 
-    const mappedRestaurants = restaurantCoupons.map(c => ({ ...c, type: 'restaurant' }));
-    const mappedSellers = sellerCoupons.map(c => ({ ...c, type: 'seller' }));
+    const formatCouponStatus = (value) => {
+        const normalized = String(value || 'pending').toLowerCase();
+        if (normalized === 'approved') return 'Approved';
+        if (normalized === 'rejected') return 'Rejected';
+        return 'Pending';
+    };
+
+    const collectIds = (coupons) => {
+        const categoryIds = new Set();
+        const itemIds = new Set();
+
+        for (const coupon of coupons) {
+            for (const entry of coupon?.applicableCategories || []) {
+                categoryIds.add(String(entry?._id || entry));
+            }
+            for (const entry of coupon?.applicableItems || []) {
+                itemIds.add(String(entry?._id || entry));
+            }
+            const previous = coupon?.previousApproved;
+            if (!previous) continue;
+            for (const entry of previous.applicableCategories || []) {
+                categoryIds.add(String(entry?._id || entry));
+            }
+            for (const entry of previous.applicableItems || []) {
+                itemIds.add(String(entry?._id || entry));
+            }
+        }
+
+        return { categoryIds: [...categoryIds], itemIds: [...itemIds] };
+    };
+
+    const { categoryIds, itemIds } = collectIds(restaurantCoupons);
+
+    const [categoryDocs, itemDocs] = await Promise.all([
+        categoryIds.length
+            ? FoodCategory.find({ _id: { $in: categoryIds } }).select('name').lean()
+            : [],
+        itemIds.length
+            ? FoodItem.find({ _id: { $in: itemIds } }).select('name').lean()
+            : [],
+    ]);
+
+    const categoryNameMap = Object.fromEntries(
+        categoryDocs.map((doc) => [String(doc._id), doc.name || 'Unnamed category'])
+    );
+    const itemNameMap = Object.fromEntries(
+        itemDocs.map((doc) => [String(doc._id), doc.name || 'Unnamed item'])
+    );
+
+    const resolveNamedList = (entries, nameMap) => {
+        if (!Array.isArray(entries) || entries.length === 0) return [];
+        return entries.map((entry) => {
+            const id = String(entry?._id || entry);
+            return {
+                id,
+                name: entry?.name || nameMap[id] || 'Unknown',
+            };
+        });
+    };
+
+    const mapRestaurantCoupon = (coupon) => {
+        const previousApproved = coupon?.previousApproved
+            ? {
+                ...coupon.previousApproved,
+                applicableCategoryDetails: resolveNamedList(
+                    coupon.previousApproved.applicableCategories,
+                    categoryNameMap
+                ),
+                applicableItemDetails: resolveNamedList(
+                    coupon.previousApproved.applicableItems,
+                    itemNameMap
+                ),
+            }
+            : null;
+
+        return {
+            ...coupon,
+            type: 'restaurant',
+            status: formatCouponStatus(coupon.approvalStatus || coupon.status),
+            approvalStatus: coupon.approvalStatus || 'pending',
+            expiryDate: coupon.endDate || coupon.expiryDate,
+            applicableCategoryDetails: resolveNamedList(coupon.applicableCategories, categoryNameMap),
+            applicableItemDetails: resolveNamedList(coupon.applicableItems, itemNameMap),
+            previousApproved,
+        };
+    };
+
+    const mappedRestaurants = restaurantCoupons.map(mapRestaurantCoupon);
+    const mappedSellers = sellerCoupons.map((coupon) => ({
+        ...coupon,
+        type: 'seller',
+        status: formatCouponStatus(coupon.status || coupon.approvalStatus),
+    }));
 
     return [...mappedRestaurants, ...mappedSellers].sort((a, b) => {
         const dateA = new Date(a.createdAt || 0);
@@ -5650,19 +5845,50 @@ export async function getRestaurantCoupons() {
     });
 }
 
-export async function updateRestaurantCouponStatus(id, status) {
+export async function updateRestaurantCouponStatus(id, status, rejectionReason, performer) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) {
         throw new ValidationError('Invalid coupon request ID');
     }
     if (!status || !['Approved', 'Rejected'].includes(status)) {
         throw new ValidationError('Status must be Approved or Rejected');
     }
+    const trimmedReason = String(rejectionReason || '').trim();
+    if (status === 'Rejected' && !trimmedReason) {
+        throw new ValidationError('Rejection reason is required');
+    }
+
     const { RestaurantCoupon } = await import('../models/restaurantCoupon.model.js');
     const { SellerCoupon } = await import('../../../quick-commerce/models/sellerCoupon.model.js');
 
+    const now = new Date();
+    const updateObj = { approvalStatus: status.toLowerCase() };
+    const historyEntry = {
+        action: status === 'Approved' ? 'approved' : 'rejected',
+        note: status === 'Rejected' ? trimmedReason : 'Coupon approved by admin',
+        changedAt: now,
+        changedBy: performer || null,
+    };
+
+    if (status === 'Approved') {
+        updateObj.approvedAt = now;
+        updateObj.rejectionReason = '';
+        updateObj.rejectedAt = null;
+        updateObj.rejectedBy = null;
+        if (performer) updateObj.approvedBy = performer;
+    } else if (status === 'Rejected') {
+        updateObj.rejectedAt = now;
+        updateObj.rejectionReason = trimmedReason;
+        updateObj.approvedAt = null;
+        updateObj.approvedBy = null;
+        if (performer) updateObj.rejectedBy = performer;
+    }
+
     let updated = await RestaurantCoupon.findByIdAndUpdate(
         id,
-        { $set: { status } },
+        {
+            $set: updateObj,
+            $push: { statusHistory: historyEntry },
+        },
         { new: true }
     ).lean();
 
@@ -5694,6 +5920,63 @@ export async function updateRestaurantCouponStatus(id, status) {
     }
 
     return { ...updated, type };
+}
+
+export async function revertRestaurantCouponRequest(id, performer) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+        throw new ValidationError('Invalid coupon request ID');
+    }
+
+    const { RestaurantCoupon } = await import('../models/restaurantCoupon.model.js');
+
+    const existing = await RestaurantCoupon.findById(id).lean();
+    if (!existing) {
+        throw new ValidationError('Coupon request not found');
+    }
+    if (String(existing.approvalStatus || '').toLowerCase() !== 'rejected') {
+        throw new ValidationError('Only rejected coupon requests can be reverted to pending');
+    }
+
+    const now = new Date();
+    const previousReason = String(existing.rejectionReason || '').trim();
+    const historyNote = previousReason
+        ? `Reverted to pending. Previous rejection reason: ${previousReason}`
+        : 'Reverted to pending by admin';
+
+    const updated = await RestaurantCoupon.findByIdAndUpdate(
+        id,
+        {
+            $set: {
+                approvalStatus: 'pending',
+                rejectionReason: '',
+                rejectedAt: null,
+                rejectedBy: null,
+                requestedAt: existing.requestedAt || now,
+            },
+            $push: {
+                statusHistory: {
+                    action: 'reverted_to_pending',
+                    note: historyNote,
+                    changedAt: now,
+                    changedBy: performer || null,
+                },
+            },
+        },
+        { new: true }
+    ).lean();
+
+    try {
+        const { invalidateCache } = await import('../../../../middleware/cache.js');
+        await invalidateCache('offers*');
+    } catch (err) {
+        console.error('Failed to invalidate cache on coupon revert:', err);
+    }
+
+    return {
+        ...updated,
+        type: 'restaurant',
+        status: 'Pending',
+    };
 }
 
 export async function getDepositPaymentSettings() {

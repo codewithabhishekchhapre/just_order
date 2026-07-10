@@ -619,8 +619,17 @@ const getZoneCenter = (zone) => {
   return null
 }
 
-function TimeSelector({ label, value, onChange }) {
-  const timeValue = stringToTime(value)
+function TimeSelector({ label, value, onChange, error }) {
+  const [showPicker, setShowPicker] = useState(false)
+  
+  // Local state for immediate typing (format HH:MM)
+  const [timeValue, setTimeValue] = useState(value || "")
+
+  useEffect(() => {
+    setTimeValue(value || "")
+  }, [value])
+
+  const timeParsed = stringToTime(value)
 
   const handleTimeChange = (newValue) => {
     if (!newValue) {
@@ -632,13 +641,13 @@ function TimeSelector({ label, value, onChange }) {
   }
 
   return (
-    <div className="border border-gray-200 rounded-md px-3 py-2 bg-gray-50/60">
-      <div className="flex items-center gap-2 mb-2">
-        <Clock className="w-4 h-4 text-gray-800" />
-        <span className="text-xs font-medium text-gray-900">{label}</span>
+    <div className="border border-gray-200 dark:border-gray-800 rounded-md px-1.5 py-1 sm:px-2 sm:py-1.5 bg-gray-50/60 dark:bg-gray-900 flex-1 flex flex-col justify-center min-w-0">
+      <div className="flex items-center gap-1 mb-1">
+        <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-gray-800 dark:text-gray-300" />
+        <span className="text-[10px] sm:text-[11px] font-medium text-gray-900 dark:text-white truncate">{label}</span>
       </div>
       <MobileTimePicker
-        value={timeValue}
+        value={timeParsed}
         onChange={handleTimeChange}
         onAccept={handleTimeChange}
         slotProps={{
@@ -647,9 +656,10 @@ function TimeSelector({ label, value, onChange }) {
             size: "small",
             placeholder: "Select time",
             sx: {
+              width: "100%",
               "& .MuiOutlinedInput-root": {
-                height: "36px",
-                fontSize: "12px",
+                height: "30px",
+                fontSize: "11px",
                 backgroundColor: "white",
                 "& fieldset": {
                   borderColor: "#e5e7eb",
@@ -662,8 +672,8 @@ function TimeSelector({ label, value, onChange }) {
                 },
               },
               "& .MuiInputBase-input": {
-                padding: "8px 12px",
-                fontSize: "12px",
+                padding: "4px 6px",
+                fontSize: "11px",
               },
             },
             onBlur: (event) => {
@@ -675,7 +685,10 @@ function TimeSelector({ label, value, onChange }) {
           },
         }}
         format="hh:mm a"
+        showPicker={showPicker}
+        setShowPicker={setShowPicker}
       />
+      {error && <p className="text-red-500 text-[10px] mt-1">{error}</p>}
     </div>
   )
 }
@@ -689,6 +702,7 @@ export default function RestaurantOnboarding() {
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
+  const [fieldErrors, setFieldErrors] = useState({})
   const [isLoggingOut, setIsLoggingOut] = useState(false)
   const [feeConfig, setFeeConfig] = useState(undefined)
   const [fetchingFees, setFetchingFees] = useState(false)
@@ -1441,55 +1455,92 @@ export default function RestaurantOnboarding() {
   // Validation functions for each step
   const validateStep1 = () => {
     const errors = []
+    const fErrors = {}
 
     if (!step1.restaurantName?.trim()) {
       errors.push("Restaurant name is required")
+      fErrors.restaurantName = "Required"
+    } else if (step1.restaurantName.trim().length < 2) {
+      errors.push("Restaurant name must be at least 2 characters")
+      fErrors.restaurantName = "Min 2 characters required"
+    } else if (step1.restaurantName.trim().length > 50) {
+      errors.push("Restaurant name must be at most 50 characters")
+      fErrors.restaurantName = "Max 50 characters allowed"
     }
-    if (typeof step1.pureVegRestaurant !== "boolean") {
+    
+    if (step1.pureVegRestaurant === null) {
       errors.push("Please select whether your restaurant is pure veg")
+      fErrors.pureVegRestaurant = "Required"
     }
+    
     if (!step1.ownerName?.trim()) {
       errors.push("Owner name is required")
+      fErrors.ownerName = "Required"
+    } else if (step1.ownerName.trim().length < 2) {
+      errors.push("Owner name must be at least 2 characters")
+      fErrors.ownerName = "Min 2 characters required"
+    } else if (step1.ownerName.trim().length > 50) {
+      errors.push("Owner name must be at most 50 characters")
+      fErrors.ownerName = "Max 50 characters allowed"
     } else if (!NAME_REGEX.test(step1.ownerName.trim())) {
       errors.push("Owner name must contain only letters")
+      fErrors.ownerName = "Only letters allowed"
     }
+    
     if (!step1.ownerEmail?.trim()) {
       errors.push("Owner email is required")
+      fErrors.ownerEmail = "Required"
     } else if (!OWNER_EMAIL_REGEX.test(step1.ownerEmail.trim())) {
       errors.push("Email must be a valid @gmail.com address")
+      fErrors.ownerEmail = "Invalid email format"
     }
+    
     if (!step1.ownerPhone?.trim()) {
       errors.push("Owner phone number is required")
-    } else if (!PHONE_NUMBER_REGEX.test(step1.ownerPhone.trim())) {
-      errors.push("Owner phone number must be a valid 10 to 12-digit number")
+      fErrors.ownerPhone = "Required"
+    } else if (!PRIMARY_PHONE_NUMBER_REGEX.test(step1.ownerPhone.trim())) {
+      errors.push("Owner phone number must be exactly 10 digits")
+      fErrors.ownerPhone = "Must be exactly 10 digits"
     }
+    
     if (!step1.primaryContactNumber?.trim()) {
       errors.push("Primary contact number is required")
+      fErrors.primaryContactNumber = "Required"
     } else if (!PRIMARY_PHONE_NUMBER_REGEX.test(step1.primaryContactNumber.trim())) {
       errors.push("Primary contact number must contain exactly 10 digits")
+      fErrors.primaryContactNumber = "Must be exactly 10 digits"
     }
+    
     if (!step1.zoneId?.trim()) {
       errors.push("Service zone is required")
+      fErrors.zoneId = "Zone selection is required"
     }
     if (!step1.location?.addressLine1?.trim()) {
       errors.push("Address line 1 is required")
+      fErrors.addressLine1 = "Required"
     }
     if (!step1.location?.area?.trim()) {
       errors.push("Area/Sector/Locality is required")
+      fErrors.area = "Required"
     }
     if (!step1.location?.city?.trim()) {
       errors.push("City is required")
+      fErrors.city = "Required"
     }
     if (!step1.location?.state?.trim()) {
       errors.push("State is required")
+      fErrors.state = "Required"
     }
     if (!step1.location?.pincode?.trim()) {
       errors.push("Pincode is required")
+      fErrors.pincode = "Required"
     } else if (!PINCODE_REGEX.test(step1.location.pincode.trim())) {
       errors.push("Pincode must contain exactly 6 digits")
+      fErrors.pincode = "Must be exactly 6 digits"
     }
     if (!step1.location?.latitude || !step1.location?.longitude) {
       errors.push("Map coordinates are required")
+      fErrors.mapCoordinates = "Map coordinates are required (Search Location)"
     }
 
     // Geofencing Validation: Ensure coordinates are inside the selected zone
@@ -1503,24 +1554,29 @@ export default function RestaurantOnboarding() {
         )
         if (!isInside) {
           errors.push("Selected address is outside the selected zone")
+          fErrors.location = "Selected address is outside the selected zone"
         }
       }
     }
 
+    setFieldErrors(prev => ({ ...prev, ...fErrors }))
     return errors
   }
 
   const validateStep2 = () => {
     const errors = []
+    const fErrors = {}
 
     if (!step2.cuisines || step2.cuisines.length === 0) {
       errors.push("At least one cuisine is required")
+      fErrors.cuisines = "Required"
     }
 
     // Check menu images - must have at least one File or existing URL
     const hasMenuImages = step2.menuImages && step2.menuImages.length > 0
     if (!hasMenuImages) {
       errors.push("At least one menu image is required")
+      fErrors.menuImages = "Required"
     } else {
       // Verify that menu images are either File objects or have valid URLs
       const validMenuImages = step2.menuImages.filter(img => {
@@ -1531,12 +1587,14 @@ export default function RestaurantOnboarding() {
       })
       if (validMenuImages.length === 0) {
         errors.push("Please upload at least one valid menu image")
+        fErrors.menuImages = "Invalid image"
       }
     }
 
     // Check profile image - must be a File or existing URL
     if (!step2.profileImage) {
       errors.push("Restaurant profile image is required")
+      fErrors.profileImage = "Required"
     } else {
       // Verify profile image is either a File or has a valid URL
       const isValidProfileImage =
@@ -1545,6 +1603,7 @@ export default function RestaurantOnboarding() {
         (typeof step2.profileImage === 'string' && step2.profileImage.startsWith('http'))
       if (!isValidProfileImage) {
         errors.push("Please upload a valid restaurant profile image")
+        fErrors.profileImage = "Invalid image"
       }
     }
 
@@ -1554,9 +1613,11 @@ export default function RestaurantOnboarding() {
         hasOpenDay = true;
         if (!dt.openingTime?.trim()) {
           errors.push(`Opening time is required for ${dt.day}`);
+          fErrors[`openingTime_${dt.day}`] = "Required";
         }
         if (!dt.closingTime?.trim()) {
           errors.push(`Closing time is required for ${dt.day}`);
+          fErrors[`closingTime_${dt.day}`] = "Required";
         }
         // Basic check for time logic
         if (dt.openingTime && dt.closingTime) {
@@ -1566,46 +1627,80 @@ export default function RestaurantOnboarding() {
           }
           const op = parseTime(dt.openingTime)
           const cl = parseTime(dt.closingTime)
-          if (op === cl) errors.push(`Opening and closing time cannot be the same for ${dt.day}`);
-          if (cl < op) errors.push(`Closing time cannot be before opening time for ${dt.day}`);
+          if (op === cl) {
+            errors.push(`Opening and closing time cannot be the same for ${dt.day}`);
+            fErrors[`closingTime_${dt.day}`] = "Cannot be same";
+          }
+          if (cl < op) {
+            errors.push(`Closing time cannot be before opening time for ${dt.day}`);
+            fErrors[`closingTime_${dt.day}`] = "Cannot be before opening";
+          }
         }
       }
     });
 
     if (!hasOpenDay) {
       errors.push("Please set at least one day as open");
+      fErrors.dayTimings = "Required";
     }
 
+    setFieldErrors(prev => ({ ...prev, ...fErrors }))
     return errors
   }
 
   const validateStep4 = () => {
     const errors = []
+    const fErrors = {}
+    
     if (!step4.estimatedDeliveryTime || !step4.estimatedDeliveryTime.trim()) {
       errors.push("Estimated delivery time is required")
+      fErrors.estimatedDeliveryTime = "Required"
     }
+    
     if (!step4.featuredDish || !step4.featuredDish.trim()) {
       errors.push("Featured dish name is required")
+      fErrors.featuredDish = "Required"
+    } else if (step4.featuredDish.trim().length > 30) {
+      errors.push("Featured dish name must be at most 30 characters")
+      fErrors.featuredDish = "Max 30 characters"
     } else if (!FEATURED_DISH_NAME_REGEX.test(step4.featuredDish.trim())) {
       errors.push("Featured dish name must contain only letters")
+      fErrors.featuredDish = "Only letters allowed"
     }
+
+    if (step4.offer) {
+      if (step4.offer.trim().length > 50) {
+        errors.push("Special offer must be at most 50 characters")
+        fErrors.offer = "Max 50 characters"
+      } else if (!/^[A-Za-z0-9 %$₹]*$/.test(step4.offer)) {
+        errors.push("Special offer must contain only letters, numbers, and %, $, ₹")
+        fErrors.offer = "Only alphanumeric, %, $, and ₹ allowed"
+      }
+    }
+
+    setFieldErrors(prev => ({ ...prev, ...fErrors }))
     return errors
   }
 
   const validateStep3 = () => {
     const errors = []
+    const fErrors = {}
 
     if (!step3.panNumber?.trim()) {
       errors.push("PAN number is required")
+      fErrors.panNumber = "Required"
     } else if (!PAN_NUMBER_REGEX.test(step3.panNumber.trim().toUpperCase())) {
       errors.push("PAN number must be valid (e.g., ABCDE1234F)")
+      fErrors.panNumber = "Invalid format (e.g., ABCDE1234F)"
     }
     if (!step3.nameOnPan?.trim()) {
       errors.push("Name on PAN is required")
+      fErrors.nameOnPan = "Required"
     }
     // Validate PAN image - must be a File or existing URL
     if (!step3.panImage) {
       errors.push("PAN image is required")
+      fErrors.panImage = "Required"
     } else {
       const isValidPanImage =
         isUploadableFile(step3.panImage) ||
@@ -1613,22 +1708,28 @@ export default function RestaurantOnboarding() {
         (typeof step3.panImage === 'string' && step3.panImage.startsWith('http'))
       if (!isValidPanImage) {
         errors.push("Please upload a valid PAN image")
+        fErrors.panImage = "Invalid image"
       }
     }
 
     if (!step3.fssaiNumber?.trim()) {
       errors.push("FSSAI number is required")
+      fErrors.fssaiNumber = "Required"
     } else if (!FSSAI_NUMBER_REGEX.test(step3.fssaiNumber.trim())) {
       errors.push("FSSAI number must contain exactly 14 digits")
+      fErrors.fssaiNumber = "Must be 14 digits"
     }
     if (!step3.fssaiExpiry?.trim()) {
       errors.push("FSSAI expiry date is required")
+      fErrors.fssaiExpiry = "Required"
     } else if (step3.fssaiExpiry < getTodayLocalYMD()) {
       errors.push("FSSAI expiry date cannot be in the past")
+      fErrors.fssaiExpiry = "Cannot be in the past"
     }
     // Validate FSSAI image - must be a File or existing URL
     if (!step3.fssaiImage) {
       errors.push("FSSAI image is required")
+      fErrors.fssaiImage = "Required"
     } else {
       const isValidFssaiImage =
         isUploadableFile(step3.fssaiImage) ||
@@ -1636,6 +1737,7 @@ export default function RestaurantOnboarding() {
         (typeof step3.fssaiImage === 'string' && step3.fssaiImage.startsWith('http'))
       if (!isValidFssaiImage) {
         errors.push("Please upload a valid FSSAI image")
+        fErrors.fssaiImage = "Invalid image"
       }
     }
 
@@ -1643,20 +1745,26 @@ export default function RestaurantOnboarding() {
     if (step3.gstRegistered) {
       if (!step3.gstNumber?.trim()) {
         errors.push("GST number is required when GST registered")
+        fErrors.gstNumber = "Required"
       } else if (!GST_NUMBER_REGEX.test(step3.gstNumber.trim().toUpperCase())) {
         errors.push("GST number must be a valid 15-character GSTIN")
+        fErrors.gstNumber = "Invalid GSTIN"
       }
       if (!step3.gstLegalName?.trim()) {
         errors.push("GST legal name is required when GST registered")
+        fErrors.gstLegalName = "Required"
       } else if (!GST_LEGAL_NAME_REGEX.test(step3.gstLegalName.trim())) {
         errors.push("GST legal name must contain only letters")
+        fErrors.gstLegalName = "Only letters allowed"
       }
       if (!step3.gstAddress?.trim()) {
         errors.push("GST registered address is required when GST registered")
+        fErrors.gstAddress = "Required"
       }
       // Validate GST image if GST registered
       if (!step3.gstImage) {
         errors.push("GST image is required when GST registered")
+        fErrors.gstImage = "Required"
       } else {
         const isValidGstImage =
           isUploadableFile(step3.gstImage) ||
@@ -1664,39 +1772,52 @@ export default function RestaurantOnboarding() {
           (typeof step3.gstImage === 'string' && step3.gstImage.startsWith('http'))
         if (!isValidGstImage) {
           errors.push("Please upload a valid GST image")
+          fErrors.gstImage = "Invalid image"
         }
       }
     }
 
     if (!step3.accountNumber?.trim()) {
       errors.push("Account number is required")
+      fErrors.accountNumber = "Required"
     } else if (!BANK_ACCOUNT_NUMBER_REGEX.test(step3.accountNumber.trim())) {
       errors.push("Account number must contain 9 to 18 digits only")
+      fErrors.accountNumber = "Must be 9 to 18 digits"
     }
     if (!step3.confirmAccountNumber?.trim()) {
       errors.push("Please confirm your account number")
+      fErrors.confirmAccountNumber = "Required"
     } else if (!BANK_ACCOUNT_NUMBER_REGEX.test(step3.confirmAccountNumber.trim())) {
       errors.push("Confirm account number must contain 9 to 18 digits only")
+      fErrors.confirmAccountNumber = "Must be 9 to 18 digits"
     }
     if (step3.accountNumber && step3.confirmAccountNumber && step3.accountNumber !== step3.confirmAccountNumber) {
       errors.push("Account number and confirmation do not match")
+      fErrors.confirmAccountNumber = "Does not match account number"
     }
     if (!step3.ifscCode?.trim()) {
       errors.push("IFSC code is required")
+      fErrors.ifscCode = "Required"
     } else if (!IFSC_CODE_REGEX.test(step3.ifscCode.trim().toUpperCase())) {
       errors.push("IFSC code must contain exactly 11 alphanumeric characters")
+      fErrors.ifscCode = "Must be 11 alphanumeric characters"
     }
     if (!step3.accountHolderName?.trim()) {
       errors.push("Account holder name is required")
+      fErrors.accountHolderName = "Required"
     } else if (!ACCOUNT_HOLDER_NAME_REGEX.test(step3.accountHolderName.trim())) {
       errors.push("Account holder name must contain only letters")
+      fErrors.accountHolderName = "Only letters allowed"
     }
     if (!step3.accountType?.trim()) {
       errors.push("Account type is required")
+      fErrors.accountType = "Required"
     } else if (!["Saving", "Current"].includes(step3.accountType.trim())) {
       errors.push("Account type must be either Saving or Current")
+      fErrors.accountType = "Must be Saving or Current"
     }
 
+    setFieldErrors(prev => ({ ...prev, ...fErrors }))
     return errors
   }
 
@@ -1896,14 +2017,7 @@ export default function RestaurantOnboarding() {
     }
 
     if (validationErrors.length > 0) {
-      // Show error toast for each validation error
-      validationErrors.forEach((error, index) => {
-        setTimeout(() => {
-          toast.error(error, {
-            duration: 4000,
-          })
-        }, index * 100)
-      })
+      toast.error("Please fill in all highlighted fields correctly.", { duration: 3000 })
       debugLog('? Validation failed:', validationErrors)
       return
     }
@@ -2193,10 +2307,14 @@ export default function RestaurantOnboarding() {
                 const val = e.target.value.replace(/[^A-Za-z ]/g, "")
                 setStep1({ ...step1, restaurantName: val })
               }}
-              className="mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border-gray-200 dark:border-gray-800 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 focus-visible:ring-[#FF6A00]"
+              maxLength={50}
+              className={`mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border ${fieldErrors.restaurantName ? 'border-red-500' : 'border-gray-200 dark:border-gray-800'} text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 focus-visible:ring-[#FF6A00]`}
               placeholder="Customers will see this name"
               disabled={!isEditing}
             />
+            {fieldErrors.restaurantName && (
+              <p className="text-red-500 text-xs mt-1">{fieldErrors.restaurantName}</p>
+            )}
           </div>
           <div>
             <Label className="text-xs font-bold text-gray-700 dark:text-gray-300">Dietary Preference*</Label>
@@ -2246,10 +2364,14 @@ export default function RestaurantOnboarding() {
                 const val = e.target.value.replace(/[^A-Za-z ]/g, "")
                 setStep1({ ...step1, ownerName: val })
               }}
-              className="mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border-gray-200 dark:border-gray-800 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 focus-visible:ring-[#FF6A00]"
+              maxLength={50}
+              className={`mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border ${fieldErrors.ownerName ? 'border-red-500' : 'border-gray-200 dark:border-gray-800'} text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 focus-visible:ring-[#FF6A00]`}
               placeholder="Owner full name"
               disabled={!isEditing}
             />
+            {fieldErrors.ownerName && (
+              <p className="text-red-500 text-xs mt-1">{fieldErrors.ownerName}</p>
+            )}
           </div>
           <div>
             <Label className="text-xs font-bold text-gray-700 dark:text-gray-300">Email Address*</Label>
@@ -2263,12 +2385,15 @@ export default function RestaurantOnboarding() {
                   ownerEmail: String(e.target.value || "").trim().toLowerCase(),
                 }))
               }
-              className="mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border-gray-200 dark:border-gray-800 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 focus-visible:ring-[#FF6A00]"
+              className={`mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border ${fieldErrors.ownerEmail ? 'border-red-500' : 'border-gray-200 dark:border-gray-800'} text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 focus-visible:ring-[#FF6A00]`}
               placeholder="owner@example.com"
               inputMode="email"
               pattern={OWNER_EMAIL_REGEX.source}
               disabled={!isEditing}
             />
+            {fieldErrors.ownerEmail && (
+              <p className="text-red-500 text-xs mt-1">{fieldErrors.ownerEmail}</p>
+            )}
           </div>
           <div>
             <Label className="text-xs font-bold text-gray-700 dark:text-gray-300">Phone Number*</Label>
@@ -2277,10 +2402,13 @@ export default function RestaurantOnboarding() {
               value={step1.ownerPhone || verifiedPhoneNumber || ""}
               readOnly={true}
               maxLength={10}
-              className="mt-1.5 h-11 rounded-xl bg-gray-55 dark:bg-gray-900 border-gray-200 dark:border-gray-800 text-sm text-gray-900 dark:text-white cursor-not-allowed opacity-80"
+              className={`mt-1.5 h-11 rounded-xl bg-gray-55 dark:bg-gray-900 border ${fieldErrors.ownerPhone ? 'border-red-500' : 'border-gray-200 dark:border-gray-800'} text-sm text-gray-900 dark:text-white cursor-not-allowed opacity-80`}
               placeholder="Owner phone number"
               disabled={true}
             />
+            {fieldErrors.ownerPhone && (
+              <p className="text-red-500 text-xs mt-1">{fieldErrors.ownerPhone}</p>
+            )}
             {verifiedPhoneNumber ? (
               <p className="text-[11px] text-gray-450 mt-1.5">
                 This is your OTP-verified number and cannot be changed.
@@ -2318,10 +2446,13 @@ export default function RestaurantOnboarding() {
               }}
               maxLength={10}
               inputMode="numeric"
-              className="mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border-gray-200 dark:border-gray-800 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 focus-visible:ring-[#FF6A00]"
+              className={`mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border ${fieldErrors.primaryContactNumber ? 'border-red-500' : 'border-gray-200 dark:border-gray-800'} text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 focus-visible:ring-[#FF6A00]`}
               placeholder="Primary contact number (10 digits)"
               disabled={!isEditing}
             />
+            {fieldErrors.primaryContactNumber && (
+              <p className="text-red-500 text-xs mt-1">{fieldErrors.primaryContactNumber}</p>
+            )}
             <p className="text-[11px] text-gray-450 mt-1.5">
               Customers, delivery partners and {companyName} may call on this number for order support.
             </p>
@@ -2337,7 +2468,7 @@ export default function RestaurantOnboarding() {
               <select
                 value={step1.zoneId || ""}
                 onChange={(e) => setStep1({ ...step1, zoneId: e.target.value })}
-                className="mt-1.5 w-full h-11 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 px-3 text-sm text-gray-900 dark:text-white focus:border-[#FF6A00] focus:ring-2 focus:ring-[#FF6A00]/10 outline-none transition-all"
+                className={`mt-1.5 w-full h-11 rounded-xl border ${fieldErrors.zoneId ? 'border-red-500' : 'border-gray-200 dark:border-gray-800'} bg-white dark:bg-gray-950 px-3 text-sm text-gray-900 dark:text-white focus:border-[#FF6A00] focus:ring-2 focus:ring-[#FF6A00]/10 outline-none transition-all`}
                 disabled={zonesLoading || !isEditing}
               >
                 <option value="" className="text-gray-400">{zonesLoading ? "Loading zones..." : "Select a zone"}</option>
@@ -2351,6 +2482,9 @@ export default function RestaurantOnboarding() {
                   )
                 })}
               </select>
+              {fieldErrors.zoneId && (
+                <p className="text-red-500 text-xs mt-1">{fieldErrors.zoneId}</p>
+              )}
               <p className="text-[11px] text-gray-500 mt-1.5">
                 Choose the service zone where your restaurant will be available.
               </p>
@@ -2360,8 +2494,9 @@ export default function RestaurantOnboarding() {
               <Label className="text-xs font-bold text-gray-700 dark:text-gray-300">Search Location</Label>
               <Input
                 ref={locationSearchInputRef}
-                className="mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border-gray-200 dark:border-gray-800 text-sm focus-visible:ring-[#FF6A00]"
-                placeholder="Start typing your restaurant address..."
+                className="mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border-gray-200 dark:border-gray-800 text-sm focus-visible:ring-[#FF6A00] disabled:opacity-50 disabled:cursor-not-allowed"
+                placeholder={step1.zoneId ? "Start typing your restaurant address..." : "Please select a Service Zone first"}
+                disabled={!step1.zoneId || !isEditing}
                 onChange={(e) => {
                   const typed = e.target.value
                   setLocationPickedFromSuggestion(false)
@@ -2390,6 +2525,12 @@ export default function RestaurantOnboarding() {
                   <span>Location confirmed from suggestion.</span>
                 </p>
               )}
+              {fieldErrors.mapCoordinates && (
+                <p className="text-red-500 text-xs mt-1">{fieldErrors.mapCoordinates}</p>
+              )}
+              {fieldErrors.location && (
+                <p className="text-red-500 text-xs mt-1">{fieldErrors.location}</p>
+              )}
             </div>
             
             <div className="space-y-4 pt-2">
@@ -2403,9 +2544,12 @@ export default function RestaurantOnboarding() {
                       location: { ...step1.location, addressLine1: e.target.value },
                     })
                   }
-                  className="mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border-gray-200 dark:border-gray-800 text-sm focus-visible:ring-[#FF6A00]"
+                  className={`mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border ${fieldErrors.addressLine1 ? 'border-red-500' : 'border-gray-200 dark:border-gray-800'} text-sm focus-visible:ring-[#FF6A00]`}
                   placeholder="Shop no. / building no."
                 />
+                {fieldErrors.addressLine1 && (
+                  <p className="text-red-500 text-xs mt-1">{fieldErrors.addressLine1}</p>
+                )}
               </div>
               <div>
                 <Label className="text-xs font-bold text-gray-700 dark:text-gray-300">Address Line 2 <span className="text-gray-400 font-normal">(optional)</span></Label>
@@ -2445,9 +2589,12 @@ export default function RestaurantOnboarding() {
                       location: { ...step1.location, area: e.target.value },
                     })
                   }
-                  className="mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border-gray-200 dark:border-gray-800 text-sm focus-visible:ring-[#FF6A00]"
+                  className={`mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border ${fieldErrors.area ? 'border-red-500' : 'border-gray-200 dark:border-gray-800'} text-sm focus-visible:ring-[#FF6A00]`}
                   placeholder="e.g., Koramangala, Sector 4"
                 />
+                {fieldErrors.area && (
+                  <p className="text-red-500 text-xs mt-1">{fieldErrors.area}</p>
+                )}
               </div>
               <div>
                 <Label className="text-xs font-bold text-gray-700 dark:text-gray-300">City*</Label>
@@ -2459,9 +2606,12 @@ export default function RestaurantOnboarding() {
                       location: { ...step1.location, city: e.target.value.replace(/[^A-Za-z ]/g, "") },
                     })
                   }
-                  className="mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border-gray-200 dark:border-gray-800 text-sm focus-visible:ring-[#FF6A00]"
+                  className={`mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border ${fieldErrors.city ? 'border-red-500' : 'border-gray-200 dark:border-gray-800'} text-sm focus-visible:ring-[#FF6A00]`}
                   placeholder="e.g., Bengaluru"
                 />
+                {fieldErrors.city && (
+                  <p className="text-red-500 text-xs mt-1">{fieldErrors.city}</p>
+                )}
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
@@ -2474,9 +2624,12 @@ export default function RestaurantOnboarding() {
                         location: { ...step1.location, state: e.target.value.replace(/[^A-Za-z ]/g, "") },
                       })
                     }
-                    className="mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border-gray-200 dark:border-gray-800 text-sm focus-visible:ring-[#FF6A00]"
+                    className={`mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border ${fieldErrors.state ? 'border-red-500' : 'border-gray-200 dark:border-gray-800'} text-sm focus-visible:ring-[#FF6A00]`}
                     placeholder="e.g., Karnataka"
                   />
+                  {fieldErrors.state && (
+                    <p className="text-red-500 text-xs mt-1">{fieldErrors.state}</p>
+                  )}
                 </div>
                 <div>
                   <Label className="text-xs font-bold text-gray-700 dark:text-gray-300">Pincode*</Label>
@@ -2488,11 +2641,14 @@ export default function RestaurantOnboarding() {
                         location: { ...step1.location, pincode: e.target.value.replace(/\D/g, "").slice(0, 6) },
                       })
                     }
-                    className="mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border-gray-200 dark:border-gray-800 text-sm focus-visible:ring-[#FF6A00]"
+                    className={`mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border ${fieldErrors.pincode ? 'border-red-500' : 'border-gray-200 dark:border-gray-800'} text-sm focus-visible:ring-[#FF6A00]`}
                     placeholder="6-digit pincode"
                     inputMode="numeric"
                     maxLength={6}
                   />
+                  {fieldErrors.pincode && (
+                    <p className="text-red-500 text-xs mt-1">{fieldErrors.pincode}</p>
+                  )}
                 </div>
               </div>
             </div>
@@ -2702,6 +2858,9 @@ export default function RestaurantOnboarding() {
               <span className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">
                 Supports JPG, PNG, WebP. You can choose multiple files.
               </span>
+              {fieldErrors.menuImages && (
+                <p className="text-red-500 text-xs mt-1">{fieldErrors.menuImages}</p>
+              )}
             </div>
             <Button
               type="button"
@@ -2862,6 +3021,9 @@ export default function RestaurantOnboarding() {
                 <span className="text-[11px] text-gray-450 dark:text-gray-500 mt-0.5">
                   This will be shown on your listing card and restaurant page.
                 </span>
+                {fieldErrors.profileImage && (
+                  <p className="text-red-500 text-xs mt-1">{fieldErrors.profileImage}</p>
+                )}
               </div>
               <Button
                 type="button"
@@ -2922,6 +3084,9 @@ export default function RestaurantOnboarding() {
         <div className="border-b border-gray-100 dark:border-gray-900 pb-3">
           <h2 className="text-lg font-extrabold text-gray-900 dark:text-white tracking-tight">Cuisines</h2>
           <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Select the cuisines your restaurant serves (at least one required)</p>
+          {fieldErrors.cuisines && (
+            <p className="text-red-500 text-xs mt-1">{fieldErrors.cuisines}</p>
+          )}
         </div>
         <div className="flex flex-wrap gap-2">
           {ALL_CUISINES.map((cuisine) => {
@@ -2960,45 +3125,19 @@ export default function RestaurantOnboarding() {
           <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Specify your operational delivery hours and open days</p>
         </div>
 
-        <div className="rounded-2xl border border-orange-100 bg-orange-50/60 p-4 dark:border-orange-900/40 dark:bg-orange-950/20">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <Label className="text-sm font-extrabold text-gray-900 dark:text-white">
-                Show restaurant to users without items?
-              </Label>
-              <p className="mt-1 text-xs font-medium text-gray-500 dark:text-gray-400">
-                Enable this if you want the restaurant listing visible before any active menu item is added.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() =>
-                setStep2((prev) => ({
-                  ...prev,
-                  showRestaurantToUsersWithoutItems: !prev.showRestaurantToUsersWithoutItems,
-                }))
-              }
-              className={`relative inline-flex h-7 w-13 shrink-0 items-center rounded-full transition-colors ${
-                step2.showRestaurantToUsersWithoutItems ? "bg-[#FF6A00]" : "bg-gray-300 dark:bg-gray-700"
-              }`}
-              aria-pressed={step2.showRestaurantToUsersWithoutItems}
-            >
-              <span
-                className={`block h-5 w-5 rounded-full bg-white shadow transition-transform ${
-                  step2.showRestaurantToUsersWithoutItems ? "translate-x-7" : "translate-x-1"
-                }`}
-              />
-            </button>
-          </div>
-        </div>
 
         {/* Timings */}
-        <div className="space-y-3">
-          <Label className="text-xs font-bold text-gray-700 dark:text-gray-300">Delivery Timings</Label>
-          <div className="space-y-4">
+        <div className="space-y-2">
+          <div>
+            <Label className="text-xs font-bold text-gray-700 dark:text-gray-300">Delivery Timings</Label>
+            {fieldErrors.dayTimings && (
+              <p className="text-red-500 text-xs mt-1">{fieldErrors.dayTimings}</p>
+            )}
+          </div>
+          <div className="space-y-2">
             {(step2.dayTimings || []).map((dt, index) => (
-              <div key={dt.day} className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 border border-gray-200 dark:border-gray-800 rounded-xl bg-gray-50/40 dark:bg-gray-950/40">
-                <div className="flex items-center gap-2 sm:w-1/4">
+              <div key={dt.day} className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-2 p-1.5 sm:p-2 border border-gray-200 dark:border-gray-800 rounded-xl bg-gray-50/40 dark:bg-gray-950/40">
+                <div className="flex items-center gap-1.5 sm:w-1/4">
                   <input
                     type="checkbox"
                     checked={dt.isOpen}
@@ -3007,18 +3146,19 @@ export default function RestaurantOnboarding() {
                       newTimings[index].isOpen = e.target.checked;
                       setStep2({ ...step2, dayTimings: newTimings });
                     }}
-                    className="w-4 h-4 text-[#FF6A00] rounded focus:ring-[#FF6A00]"
+                    className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#FF6A00] rounded focus:ring-[#FF6A00]"
                   />
-                  <span className="text-sm font-semibold text-gray-900 dark:text-white w-10">{dt.day}</span>
-                  <span className={`text-xs ${dt.isOpen ? "text-green-600" : "text-gray-400"} font-medium ml-2`}>
+                  <span className="text-xs sm:text-sm font-semibold text-gray-900 dark:text-white w-9 sm:w-10">{dt.day}</span>
+                  <span className={`text-[10px] sm:text-xs ${dt.isOpen ? "text-green-600" : "text-gray-400"} font-medium ml-1.5 sm:ml-2`}>
                     {dt.isOpen ? "Open" : "Closed"}
                   </span>
                 </div>
                 {dt.isOpen && (
-                  <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="flex-1 grid grid-cols-2 gap-1.5 sm:gap-2 mt-1 sm:mt-0 w-full min-w-0">
                     <TimeSelector
                       label="Opening Time"
                       value={dt.openingTime || ""}
+                      error={fieldErrors[`openingTime_${dt.day}`]}
                       onChange={(val) => {
                         const newTimings = [...step2.dayTimings];
                         newTimings[index].openingTime = normalizeTimeValue(val) || "";
@@ -3028,6 +3168,7 @@ export default function RestaurantOnboarding() {
                     <TimeSelector
                       label="Closing Time"
                       value={dt.closingTime || ""}
+                      error={fieldErrors[`closingTime_${dt.day}`]}
                       onChange={(val) => {
                         const newTimings = [...step2.dayTimings];
                         newTimings[index].closingTime = normalizeTimeValue(val) || "";
@@ -3065,9 +3206,12 @@ export default function RestaurantOnboarding() {
                   .slice(0, 10)
                 setStep3({ ...step3, panNumber: normalized })
               }}
-              className="mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border-gray-200 dark:border-gray-800 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 focus-visible:ring-[#FF6A00]"
+              className={`mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border ${fieldErrors.panNumber ? 'border-red-500' : 'border-gray-200 dark:border-gray-800'} text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 focus-visible:ring-[#FF6A00]`}
               placeholder="e.g., ABCDE1234F"
             />
+            {fieldErrors.panNumber && (
+              <p className="text-red-500 text-xs mt-1">{fieldErrors.panNumber}</p>
+            )}
           </div>
           <div>
             <Label className="text-xs font-bold text-gray-700 dark:text-gray-300">PAN Card Holder Name*</Label>
@@ -3079,9 +3223,12 @@ export default function RestaurantOnboarding() {
                   nameOnPan: e.target.value.replace(/[^A-Za-z ]/g, ""),
                 })
               }
-              className="mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border-gray-200 dark:border-gray-800 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 focus-visible:ring-[#FF6A00]"
+              className={`mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border ${fieldErrors.nameOnPan ? 'border-red-500' : 'border-gray-200 dark:border-gray-800'} text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 focus-visible:ring-[#FF6A00]`}
               placeholder="As printed on PAN card"
             />
+            {fieldErrors.nameOnPan && (
+              <p className="text-red-500 text-xs mt-1">{fieldErrors.nameOnPan}</p>
+            )}
           </div>
         </div>
         
@@ -3111,6 +3258,9 @@ export default function RestaurantOnboarding() {
               <Upload className="w-4 h-4 mr-1.5 text-gray-500" />
               Choose Document
             </Button>
+            {fieldErrors.panImage && (
+              <p className="text-red-500 text-xs mt-1 sm:mt-0">{fieldErrors.panImage}</p>
+            )}
             <input
               type="file"
               accept={GALLERY_IMAGE_ACCEPT}
@@ -3209,9 +3359,12 @@ export default function RestaurantOnboarding() {
                       gstNumber: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 15),
                     })
                   }
-                  className="mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border-gray-200 dark:border-gray-800 text-sm focus-visible:ring-[#FF6A00]"
+                  className={`mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border ${fieldErrors.gstNumber ? 'border-red-500' : 'border-gray-200 dark:border-gray-800'} text-sm focus-visible:ring-[#FF6A00]`}
                   placeholder="15-digit GSTIN"
                 />
+                {fieldErrors.gstNumber && (
+                  <p className="text-red-500 text-xs mt-1">{fieldErrors.gstNumber}</p>
+                )}
               </div>
               <div>
                 <Label className="text-xs font-bold text-gray-700 dark:text-gray-300">GST Legal Name*</Label>
@@ -3223,9 +3376,12 @@ export default function RestaurantOnboarding() {
                       gstLegalName: e.target.value.replace(/[^A-Za-z ]/g, ""),
                     })
                   }
-                  className="mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border-gray-200 dark:border-gray-800 text-sm focus-visible:ring-[#FF6A00]"
+                  className={`mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border ${fieldErrors.gstLegalName ? 'border-red-500' : 'border-gray-200 dark:border-gray-800'} text-sm focus-visible:ring-[#FF6A00]`}
                   placeholder="As registered in GST certificate"
                 />
+                {fieldErrors.gstLegalName && (
+                  <p className="text-red-500 text-xs mt-1">{fieldErrors.gstLegalName}</p>
+                )}
               </div>
             </div>
             
@@ -3234,9 +3390,12 @@ export default function RestaurantOnboarding() {
               <Input
                 value={step3.gstAddress || ""}
                 onChange={(e) => setStep3({ ...step3, gstAddress: e.target.value })}
-                className="mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border-gray-200 dark:border-gray-800 text-sm focus-visible:ring-[#FF6A00]"
+                className={`mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border ${fieldErrors.gstAddress ? 'border-red-500' : 'border-gray-200 dark:border-gray-800'} text-sm focus-visible:ring-[#FF6A00]`}
                 placeholder="Full address as in GST certificate"
               />
+              {fieldErrors.gstAddress && (
+                <p className="text-red-500 text-xs mt-1">{fieldErrors.gstAddress}</p>
+              )}
             </div>
             
             <div>
@@ -3265,6 +3424,9 @@ export default function RestaurantOnboarding() {
                   <Upload className="w-4 h-4 mr-1.5 text-gray-500" />
                   Choose Document
                 </Button>
+                {fieldErrors.gstImage && (
+                  <p className="text-red-500 text-xs mt-1 sm:mt-0">{fieldErrors.gstImage}</p>
+                )}
                 <input
                   type="file"
                   accept={GALLERY_IMAGE_ACCEPT}
@@ -3332,9 +3494,12 @@ export default function RestaurantOnboarding() {
               onChange={(e) =>
                 setStep3({ ...step3, fssaiNumber: e.target.value.replace(/\D/g, "").slice(0, 14) })
               }
-              className="mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border-gray-200 dark:border-gray-800 text-sm focus-visible:ring-[#FF6A00]"
+              className={`mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border ${fieldErrors.fssaiNumber ? 'border-red-500' : 'border-gray-200 dark:border-gray-800'} text-sm focus-visible:ring-[#FF6A00]`}
               placeholder="14-digit FSSAI number"
             />
+            {fieldErrors.fssaiNumber && (
+              <p className="text-red-500 text-xs mt-1">{fieldErrors.fssaiNumber}</p>
+            )}
           </div>
           <div>
             <Label className="text-xs font-bold text-gray-700 dark:text-gray-300">FSSAI Expiry Date*</Label>
@@ -3378,6 +3543,9 @@ export default function RestaurantOnboarding() {
                 </div>
               </PopoverContent>
             </Popover>
+            {fieldErrors.fssaiExpiry && (
+              <p className="text-red-500 text-xs mt-1">{fieldErrors.fssaiExpiry}</p>
+            )}
           </div>
         </div>
         
@@ -3407,6 +3575,9 @@ export default function RestaurantOnboarding() {
               <Upload className="w-4 h-4 mr-1.5 text-gray-500" />
               Choose Document
             </Button>
+            {fieldErrors.fssaiImage && (
+              <p className="text-red-500 text-xs mt-1 sm:mt-0">{fieldErrors.fssaiImage}</p>
+            )}
             <input
               type="file"
               accept={GALLERY_IMAGE_ACCEPT}
@@ -3472,9 +3643,12 @@ export default function RestaurantOnboarding() {
               onChange={(e) =>
                 setStep3({ ...step3, accountNumber: e.target.value.replace(/\D/g, "").slice(0, 18) })
               }
-              className="mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border-gray-200 dark:border-gray-800 text-sm focus-visible:ring-[#FF6A00]"
+              className={`mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border ${fieldErrors.accountNumber ? 'border-red-500' : 'border-gray-200 dark:border-gray-800'} text-sm focus-visible:ring-[#FF6A00]`}
               placeholder="Account number"
             />
+            {fieldErrors.accountNumber && (
+              <p className="text-red-500 text-xs mt-1">{fieldErrors.accountNumber}</p>
+            )}
           </div>
           <div>
             <Label className="text-xs font-bold text-gray-700 dark:text-gray-300">Confirm Account Number*</Label>
@@ -3486,9 +3660,12 @@ export default function RestaurantOnboarding() {
                   confirmAccountNumber: e.target.value.replace(/\D/g, "").slice(0, 18),
                 })
               }
-              className="mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border-gray-200 dark:border-gray-800 text-sm focus-visible:ring-[#FF6A00]"
+              className={`mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border ${fieldErrors.confirmAccountNumber ? 'border-red-500' : 'border-gray-200 dark:border-gray-800'} text-sm focus-visible:ring-[#FF6A00]`}
               placeholder="Re-enter account number"
             />
+            {fieldErrors.confirmAccountNumber && (
+              <p className="text-red-500 text-xs mt-1">{fieldErrors.confirmAccountNumber}</p>
+            )}
           </div>
         </div>
         
@@ -3503,9 +3680,12 @@ export default function RestaurantOnboarding() {
                   ifscCode: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 11),
                 })
               }
-              className="mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border-gray-200 dark:border-gray-800 text-sm focus-visible:ring-[#FF6A00]"
+              className={`mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border ${fieldErrors.ifscCode ? 'border-red-500' : 'border-gray-200 dark:border-gray-800'} text-sm focus-visible:ring-[#FF6A00]`}
               placeholder="e.g., SBIN0001234"
             />
+            {fieldErrors.ifscCode && (
+              <p className="text-red-500 text-xs mt-1">{fieldErrors.ifscCode}</p>
+            )}
           </div>
           <div>
             <Label className="text-xs font-bold text-gray-700 dark:text-gray-300">Account Type*</Label>
@@ -3521,6 +3701,9 @@ export default function RestaurantOnboarding() {
                 <SelectItem value="Current">Current</SelectItem>
               </SelectContent>
             </Select>
+            {fieldErrors.accountType && (
+              <p className="text-red-500 text-xs mt-1">{fieldErrors.accountType}</p>
+            )}
           </div>
         </div>
         
@@ -3534,9 +3717,12 @@ export default function RestaurantOnboarding() {
                 accountHolderName: e.target.value.replace(/[^A-Za-z ]/g, ""),
               })
             }
-            className="mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border-gray-200 dark:border-gray-800 text-sm focus-visible:ring-[#FF6A00]"
+            className={`mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border ${fieldErrors.accountHolderName ? 'border-red-500' : 'border-gray-200 dark:border-gray-800'} text-sm focus-visible:ring-[#FF6A00]`}
             placeholder="As matching with bank records"
           />
+          {fieldErrors.accountHolderName && (
+            <p className="text-red-500 text-xs mt-1">{fieldErrors.accountHolderName}</p>
+          )}
         </div>
       </section>
     </div>
@@ -3559,7 +3745,7 @@ export default function RestaurantOnboarding() {
                 value={step4.estimatedDeliveryTime || ""}
                 onValueChange={(value) => setStep4({ ...step4, estimatedDeliveryTime: value })}
               >
-                <SelectTrigger className="mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border-gray-200 dark:border-gray-800 text-sm focus:ring-[#FF6A00]">
+                <SelectTrigger className={`mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border ${fieldErrors.estimatedDeliveryTime ? 'border-red-500' : 'border-gray-200 dark:border-gray-800'} text-sm focus:ring-[#FF6A00]`}>
                   <SelectValue placeholder="Select estimated timing" />
                 </SelectTrigger>
                 <SelectContent className="bg-white dark:bg-[#151515] border-gray-100 dark:border-gray-800 rounded-xl">
@@ -3576,6 +3762,9 @@ export default function RestaurantOnboarding() {
                   ))}
                 </SelectContent>
               </Select>
+              {fieldErrors.estimatedDeliveryTime && (
+                <p className="text-red-500 text-xs mt-1">{fieldErrors.estimatedDeliveryTime}</p>
+              )}
             </div>
 
             <div>
@@ -3588,22 +3777,41 @@ export default function RestaurantOnboarding() {
                     featuredDish: e.target.value.replace(/[^A-Za-z ]/g, ""),
                   })
                 }
-                className="mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border-gray-200 dark:border-gray-800 text-sm focus-visible:ring-[#FF6A00]"
+                maxLength={30}
+                className={`mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border ${fieldErrors.featuredDish ? 'border-red-500' : 'border-gray-200 dark:border-gray-800'} text-sm focus-visible:ring-[#FF6A00]`}
                 placeholder="e.g., Butter Chicken Special"
               />
+              <div className="flex justify-between mt-1">
+                {fieldErrors.featuredDish ? (
+                  <p className="text-red-500 text-xs">{fieldErrors.featuredDish}</p>
+                ) : (
+                  <p className="text-[11px] text-gray-500">Max 30 characters</p>
+                )}
+                <span className="text-[10px] text-gray-400">{(step4.featuredDish || "").length}/30</span>
+              </div>
             </div>
 
             <div>
               <Label className="text-xs font-bold text-gray-700 dark:text-gray-300">Special Offer/Promotion (Optional)</Label>
               <Input
                 value={step4.offer || ""}
-                onChange={(e) => setStep4({ ...step4, offer: e.target.value })}
-                className="mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border-gray-200 dark:border-gray-800 text-sm focus-visible:ring-[#FF6A00]"
+                onChange={(e) => {
+                  const val = e.target.value.replace(/[^A-Za-z0-9 %$₹]/g, '');
+                  setStep4({ ...step4, offer: val });
+                }}
+                maxLength={50}
+                className={`mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border ${fieldErrors.offer ? 'border-red-500' : 'border-gray-200 dark:border-gray-800'} text-sm focus-visible:ring-[#FF6A00]`}
                 placeholder="e.g., Flat 50 Rs. OFF on Order Above Rs.199"
               />
-              <p className="text-[11px] text-gray-500 mt-1.5">
-                Leave this blank if you do not want to highlight an offer.
-              </p>
+              <div className="flex justify-between mt-1.5">
+                <div className="flex flex-col">
+                  {fieldErrors.offer && (
+                    <p className="text-red-500 text-xs mb-1">{fieldErrors.offer}</p>
+                  )}
+                  <p className="text-[11px] text-gray-500">Only letters, numbers, %, $, and ₹ allowed</p>
+                </div>
+                <span className="text-[10px] text-gray-400 shrink-0">{(step4.offer || "").length}/50</span>
+              </div>
             </div>
           </section>
 

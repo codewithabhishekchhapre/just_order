@@ -133,192 +133,173 @@ export default function RoleList() {
       value: (roles || []).filter(r => r.status !== 'active').length, 
       icon: ShieldAlert, 
       color: "bg-amber-500", 
-      textColor: "text-white",
+      color: "bg-amber-100", 
+      textColor: "text-amber-700",
       sub: "Restricted Access"
     }
   ];
 
   return (
-    <div className="p-6 max-w-[1400px] mx-auto space-y-8 animate-in fade-in duration-700">
-      {/* Page Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div>
-          <div className="flex items-center gap-3">
-             <div className="bg-primary/10 p-2.5 rounded-2xl">
-               <ShieldCheck className="w-8 h-8 text-primary" />
-             </div>
-             <div>
-               <h1 className="text-2xl font-black text-neutral-900 tracking-tighter">
-                 ROLES & PERMISSIONS
-               </h1>
-               <div className="flex items-center gap-2 mt-0.5">
-                  <span className="text-[10px] bg-neutral-100 text-neutral-500 px-1.5 py-0.5 rounded font-bold uppercase tracking-widest">Access Control</span>
-                  <div className="w-1 h-1 rounded-full bg-neutral-300" />
-                  <p className="text-xs text-neutral-500 font-medium">Provision and audit administrative security policies.</p>
-               </div>
-             </div>
+    <div className="min-h-[calc(100vh-5rem)] bg-neutral-200 overflow-x-hidden w-full" style={{ maxWidth: '100vw', boxSizing: 'border-box' }}>
+      <div className="px-4 sm:px-6 lg:px-8 py-4 sm:py-6 w-full overflow-hidden" style={{ maxWidth: '100%', boxSizing: 'border-box' }}>
+        
+        {/* Page Header */}
+        <div className="mb-4 sm:mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-xl sm:text-2xl font-bold text-[#334257] mb-1">Roles & Permissions</h1>
+            <p className="text-sm text-[#8a94aa]">Provision and audit administrative security policies</p>
           </div>
+          {canCreateRole && (
+            <Button 
+              onClick={() => navigate("/admin/food/employee-role/create")}
+              className="w-full sm:w-auto bg-[#006fbd] hover:bg-blue-700 text-white flex items-center gap-2 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              Create New Role
+            </Button>
+          )}
         </div>
-        {canCreateRole && (
-          <Button 
-            onClick={() => navigate("/admin/food/employee-role/create")}
-            className="bg-primary hover:bg-primary/90 text-white h-12 px-8 rounded-2xl font-black shadow-2xl shadow-primary/20 transition-all active:scale-95"
-          >
-            <Plus className="w-5 h-5 mr-2" />
-            CREATE NEW ROLE
-          </Button>
-        )}
-      </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {stats.map((stat, idx) => (
-          <div key={idx} className="bg-white p-6 rounded-[2rem] border border-neutral-100 shadow-xl shadow-neutral-100/50 flex items-center justify-between group hover:border-primary/20 transition-all duration-300">
-            <div className="space-y-1">
-              <p className="text-[10px] text-neutral-400 font-black tracking-[0.2em]">{stat.label}</p>
-              <p className="text-3xl font-black text-neutral-900">{stat.value}</p>
-              <p className="text-[10px] text-neutral-400 font-bold uppercase">{stat.sub}</p>
+        {/* Stats Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4 sm:mb-6">
+          {stats.map((stat, idx) => (
+            <div key={idx} className="bg-white p-4 sm:p-5 rounded-lg border border-[#e3e6ef] shadow-sm flex items-center justify-between">
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-[#8a94aa] uppercase tracking-wider">{stat.label}</p>
+                <p className="text-2xl font-bold text-[#334257]">{stat.value}</p>
+              </div>
+              <div className={cn("w-10 h-10 rounded-lg flex items-center justify-center", stat.color, stat.textColor)}>
+                <stat.icon className="w-5 h-5" />
+              </div>
             </div>
-            <div className={cn("w-14 h-14 rounded-2xl flex items-center justify-center shadow-2xl group-hover:scale-110 transition-transform duration-300", stat.color, stat.textColor)}>
-              <stat.icon className="w-7 h-7" />
-            </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
 
-      {/* Main Content Area */}
-      <div className="space-y-4">
-        {/* Toolbar */}
-        <div className="flex flex-col md:flex-row items-center justify-between gap-4 bg-white/50 p-2 rounded-[1.5rem] border border-neutral-100 backdrop-blur-sm">
-          <div className="relative w-full md:w-96 ml-2">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
+        {/* Toolbar & Search */}
+        <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-4 mb-4 sm:mb-6">
+          <div className="relative w-full md:w-96">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <Input 
-              placeholder="Search roles by name or intent..." 
-              className="pl-10 h-11 bg-white border-neutral-200 focus:ring-0 rounded-2xl text-sm font-medium transition-all"
+              placeholder="Search roles by name or description..." 
+              className="pl-10 h-10 w-full bg-white border-[#e3e6ef] text-sm focus:ring-1 focus:ring-[#006fbd]"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
-          <div className="flex items-center gap-2 mr-2">
-          </div>
         </div>
 
         {/* Roles List */}
-        <div className="bg-white rounded-[2rem] border border-neutral-200 shadow-2xl shadow-neutral-100/50 overflow-hidden">
+        <div className="bg-white rounded-lg border border-[#e3e6ef] shadow-sm overflow-hidden">
           {loading ? (
             <div className="p-12 space-y-4">
-               {[1,2,3].map(i => <div key={i} className="h-20 bg-neutral-50 rounded-2xl animate-pulse" />)}
+               {[1,2,3].map(i => <div key={i} className="h-16 bg-gray-50 rounded-lg animate-pulse" />)}
             </div>
           ) : filteredRoles.length === 0 ? (
-            <div className="py-24 px-6 flex flex-col items-center justify-center text-center space-y-6">
-              <div className="w-24 h-24 bg-neutral-50 rounded-[2.5rem] flex items-center justify-center relative">
-                <ShieldCheck className="w-12 h-12 text-neutral-200" />
-                <div className="absolute -top-2 -right-2 w-8 h-8 bg-white rounded-full shadow-lg flex items-center justify-center">
-                   <div className="w-4 h-4 bg-primary/20 rounded-full animate-ping" />
-                </div>
+            <div className="py-16 px-6 flex flex-col items-center justify-center text-center space-y-4">
+              <div className="w-16 h-16 bg-gray-50 rounded-full border border-gray-100 flex items-center justify-center">
+                <ShieldCheck className="w-8 h-8 text-gray-400" />
               </div>
-              <div className="space-y-2 max-w-sm">
-                <h3 className="text-xl font-black text-neutral-900 tracking-tight">NO ROLES CREATED YET</h3>
-                <p className="text-sm text-neutral-500 font-medium leading-relaxed">
+              <div className="space-y-1">
+                <h3 className="text-base font-semibold text-[#334257]">No Roles Found</h3>
+                <p className="text-sm text-[#8a94aa]">
                   Start by creating a role to define access boundaries for your staff members.
                 </p>
               </div>
               {canCreateRole && (
                 <Button 
                   onClick={() => navigate("/admin/food/employee-role/create")}
-                  className="bg-primary hover:bg-primary/90 text-white rounded-2xl h-12 px-8 font-black shadow-xl shadow-primary/20"
+                  className="bg-[#006fbd] hover:bg-blue-700 text-white text-sm"
                 >
-                  PROVISION FIRST ROLE <ArrowRight className="w-4 h-4 ml-2" />
+                  Create First Role
                 </Button>
               )}
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
+              <table className="w-full text-left border-collapse min-w-[800px]">
                 <thead>
-                  <tr className="bg-neutral-50/50 border-b border-neutral-100">
-                    <th className="px-8 py-5 text-[10px] font-black text-neutral-400 uppercase tracking-[0.2em]">Layer Name</th>
-                    <th className="px-8 py-5 text-[10px] font-black text-neutral-400 uppercase tracking-[0.2em]">Description</th>
-                    <th className="px-8 py-5 text-[10px] font-black text-neutral-400 uppercase tracking-[0.2em] text-center">Permissions</th>
-                    <th className="px-8 py-5 text-[10px] font-black text-neutral-400 uppercase tracking-[0.2em]">Security Status</th>
-                    <th className="px-8 py-5 text-[10px] font-black text-neutral-400 uppercase tracking-[0.2em] text-right">Actions</th>
+                  <tr className="bg-gray-50 border-b border-[#e3e6ef]">
+                    <th className="px-4 sm:px-6 py-3 text-xs font-semibold text-[#8a94aa] uppercase">Role Name</th>
+                    <th className="px-4 sm:px-6 py-3 text-xs font-semibold text-[#8a94aa] uppercase">Description</th>
+                    <th className="px-4 sm:px-6 py-3 text-xs font-semibold text-[#8a94aa] uppercase text-center">Permissions</th>
+                    <th className="px-4 sm:px-6 py-3 text-xs font-semibold text-[#8a94aa] uppercase">Status</th>
+                    <th className="px-4 sm:px-6 py-3 text-xs font-semibold text-[#8a94aa] uppercase text-right">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-neutral-100">
+                <tbody className="divide-y divide-[#e3e6ef]">
                   {filteredRoles.map((role) => (
-                    <tr key={role._id} className="hover:bg-neutral-50/50 transition-all duration-200 group">
-                      <td className="px-8 py-6">
-                        <div className="flex items-center gap-4">
+                    <tr key={role._id} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-4 sm:px-6 py-4">
+                        <div className="flex items-center gap-3">
                           <div className={cn(
-                            "w-12 h-12 rounded-2xl flex items-center justify-center font-black text-sm shadow-inner transition-transform group-hover:scale-110 duration-300",
-                            role.status === 'active' ? "bg-primary/10 text-primary" : "bg-neutral-100 text-neutral-400"
+                            "w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0",
+                            role.status === 'active' ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-500"
                           )}>
                             {role.roleName.substring(0, 2).toUpperCase()}
                           </div>
                           <div>
-                            <p className="font-black text-neutral-900 tracking-tight leading-none group-hover:text-primary transition-colors">
-                              {role.roleName.toUpperCase()}
+                            <p className="font-semibold text-[#334257]">
+                              {role.roleName}
                             </p>
                             {role.isDefault && (
-                              <div className="flex items-center gap-1.5 mt-1.5">
-                                 <div className="w-1.5 h-1.5 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]" />
-                                 <span className="text-[9px] font-black text-blue-500 uppercase tracking-widest">SYSTEM CORE</span>
-                              </div>
+                              <span className="text-[10px] font-semibold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded mt-1 inline-block uppercase">
+                                System Core
+                              </span>
                             )}
                           </div>
                         </div>
                       </td>
-                      <td className="px-8 py-6">
-                        <p className="text-xs text-neutral-500 font-bold max-w-xs leading-relaxed line-clamp-2">
+                      <td className="px-4 sm:px-6 py-4">
+                        <p className="text-sm text-[#4a5671] max-w-xs truncate">
                           {role.description || "Operational boundary not explicitly defined."}
                         </p>
                       </td>
-                      <td className="px-8 py-6 text-center">
-                        <Badge className="bg-primary text-[10px] font-black text-white hover:bg-primary/90 transition-all px-3 py-1 rounded-xl shadow-lg shadow-primary/20">
-                          {Object.keys(role.permissions || {}).length} MODULES
-                        </Badge>
+                      <td className="px-4 sm:px-6 py-4 text-center">
+                        <span className="text-xs font-medium bg-[#006fbd] text-white px-2 py-1 rounded-md">
+                          {Object.keys(role.permissions || {}).length} Modules
+                        </span>
                       </td>
-                      <td className="px-8 py-6">
+                      <td className="px-4 sm:px-6 py-4">
                         <button 
                           onClick={() => handleToggleStatus(role._id)}
                           disabled={!canEditRole}
                           className={cn(
-                            "inline-flex items-center gap-2 px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed",
+                            "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors disabled:opacity-50",
                             role.status === 'active' 
-                            ? 'bg-emerald-50 text-emerald-600 border border-emerald-100 hover:bg-emerald-100' 
-                            : 'bg-neutral-50 text-neutral-400 border border-neutral-100 hover:bg-neutral-100'
+                            ? 'bg-green-50 text-green-700 hover:bg-green-100 border border-green-200' 
+                            : 'bg-gray-50 text-gray-600 hover:bg-gray-100 border border-gray-200'
                           )}
                         >
                           {role.status === 'active' ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}
-                          {role.status === 'active' ? 'ENFORCED' : 'RESTRICTED'}
+                          {role.status === 'active' ? 'Active' : 'Restricted'}
                         </button>
                       </td>
-                      <td className="px-8 py-6 text-right">
+                      <td className="px-4 sm:px-6 py-4 text-right">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" className="h-10 w-10 rounded-xl hover:bg-neutral-100 transition-all">
-                              <MoreVertical className="h-5 w-5 text-neutral-400" />
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-500 hover:text-gray-900">
+                              <MoreVertical className="h-4 w-4" />
                             </Button>
                           </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-56 p-2 rounded-2xl border-neutral-100 shadow-2xl">
-                            <DropdownMenuLabel className="text-[10px] font-black text-neutral-400 uppercase tracking-widest px-3 py-2">Role Management</DropdownMenuLabel>
-                            <DropdownMenuSeparator className="bg-neutral-100" />
+                          <DropdownMenuContent align="end" className="w-48">
+                            <DropdownMenuLabel className="text-xs font-medium text-gray-500 uppercase">Role Management</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
                             {canEditRole && (
                               <DropdownMenuItem 
-                                className="rounded-xl h-11 font-bold text-sm focus:bg-primary/5 focus:text-primary cursor-pointer px-3"
+                                className="cursor-pointer text-sm"
                                 onClick={() => navigate(`/admin/food/employee-role/edit/${role._id}`)}
                               >
-                                <Edit2 className="w-4 h-4 mr-3 opacity-60" /> Edit Configuration
+                                <Edit2 className="w-4 h-4 mr-2" /> Edit Configuration
                               </DropdownMenuItem>
                             )}
                             {!role.isDefault && canDeleteRole && (
                               <>
-                                <DropdownMenuSeparator className="bg-neutral-100" />
+                                <DropdownMenuSeparator />
                                 <DropdownMenuItem 
-                                  className="rounded-xl h-11 font-bold text-sm text-red-600 focus:bg-red-50 focus:text-red-600 cursor-pointer px-3" 
+                                  className="cursor-pointer text-sm text-red-600 focus:text-red-600 focus:bg-red-50" 
                                   onClick={() => toast.error("Revocation requires SuperAdmin approval")}
                                 >
-                                  <Trash2 className="w-4 h-4 mr-3 opacity-60" /> Revoke Role
+                                  <Trash2 className="w-4 h-4 mr-2" /> Revoke Role
                                 </DropdownMenuItem>
                               </>
                             )}
@@ -331,18 +312,6 @@ export default function RoleList() {
               </table>
             </div>
           )}
-        </div>
-
-        {/* Footer Info */}
-        <div className="flex items-center justify-between text-[10px] font-black text-neutral-300 uppercase tracking-[0.3em] px-4">
-           <div className="flex items-center gap-6">
-             <span>SECURED BY ITZO CORE</span>
-             <span>RBAC v2.1.0</span>
-           </div>
-           <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
-              NODE STATUS: STABLE
-           </div>
         </div>
       </div>
     </div>

@@ -1,8 +1,13 @@
 import { useState, useEffect } from "react"
-import { UserPlus, User, Eye, EyeOff, Upload, ChevronDown } from "lucide-react"
+import { UserPlus, Eye, EyeOff, Upload, ChevronDown } from "lucide-react"
 import { toast } from "react-hot-toast"
 import { useNavigate, useParams, useLocation } from "react-router-dom"
 import axiosInstance from "@food/api"
+import { cn } from "@food/utils/utils"
+import FormPageShell from "@/shared/components/admin/FormPageShell"
+import FormSection from "@/shared/components/admin/FormSection"
+import FormField, { formInputClass } from "@/shared/components/admin/FormField"
+import FormActions from "@/shared/components/admin/FormActions"
 
 const NAME_REGEX = /^[A-Za-z][A-Za-z\s.'-]{0,49}$/
 const EMAIL_REGEX = /^[a-z0-9._%+-]+@gmail\.com$/
@@ -190,7 +195,7 @@ export default function AddEmployee() {
       data.append('roleId', formData.role)
       data.append('zoneId', formData.zone)
       data.append('workType', formData.workType)
-      
+
       if (formData.employeeImage) {
         data.append('employeeImage', formData.employeeImage)
       }
@@ -205,7 +210,7 @@ export default function AddEmployee() {
           headers: { 'Content-Type': 'multipart/form-data' }
         })
       }
-      
+
       if (res.data.success) {
         toast.success(res.data.message)
         navigate("/admin/food/employees")
@@ -235,286 +240,214 @@ export default function AddEmployee() {
   }
 
   return (
-    <div className="p-4 lg:p-6 bg-slate-50 min-h-screen">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center">
-              <UserPlus className="w-5 h-5 text-white" />
-            </div>
-            <h1 className="text-2xl font-bold text-slate-900">{isEditMode ? 'Update Employee' : 'Add New Employee'}</h1>
-          </div>
-        </div>
-
-        <form onSubmit={handleSubmit}>
+    <FormPageShell
+      title={isEditMode ? "Update Employee" : "Add New Employee"}
+      icon={<UserPlus className="h-5 w-5" />}
+    >
+      <form onSubmit={handleSubmit}>
+        <div className="space-y-6">
           {/* General Information */}
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
-            <div className="flex items-center gap-3 mb-6">
-              <User className="w-5 h-5 text-slate-600" />
-              <h2 className="text-lg font-semibold text-slate-900">General Information</h2>
+          <FormSection title="General Information" bodyClassName="grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Left Side - Form Fields */}
+            <div className="lg:col-span-2 space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <FormField label="First name" error={errors.firstName}>
+                  <input
+                    type="text"
+                    value={formData.firstName}
+                    onChange={(e) => handleInputChange("firstName", e.target.value)}
+                    placeholder="Ex: John"
+                    className={cn(formInputClass, errors.firstName && "border-rose-500")}
+                  />
+                </FormField>
+
+                <FormField label="Last name" error={errors.lastName}>
+                  <input
+                    type="text"
+                    value={formData.lastName}
+                    onChange={(e) => handleInputChange("lastName", e.target.value)}
+                    placeholder="Ex: Doe"
+                    className={cn(formInputClass, errors.lastName && "border-rose-500")}
+                  />
+                </FormField>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <FormField label="Zone">
+                  <div className="relative">
+                    <select
+                      value={formData.zone}
+                      onChange={(e) => handleInputChange("zone", e.target.value)}
+                      className={cn(formInputClass, "pr-8 appearance-none cursor-pointer")}
+                    >
+                      <option value="All">All</option>
+                      {zones.map(z => (
+                        <option key={z._id} value={z._id}>{z.name}</option>
+                      ))}
+                    </select>
+                    <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
+                  </div>
+                </FormField>
+
+                <FormField label="Role" error={errors.role}>
+                  <div className="relative">
+                    <select
+                      value={formData.role}
+                      onChange={(e) => handleInputChange("role", e.target.value)}
+                      className={cn(formInputClass, "pr-8 appearance-none cursor-pointer", errors.role && "border-rose-500")}
+                    >
+                      <option value="">Select Role</option>
+                      {roles.filter(r => r.status === 'active').map(r => (
+                        <option key={r._id} value={r._id}>{r.roleName}</option>
+                      ))}
+                    </select>
+                    <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
+                  </div>
+                </FormField>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <FormField label="Phone" error={errors.phone}>
+                  <div className="flex items-center gap-2">
+                    <div className="relative">
+                      <select
+                        value={formData.phoneCode}
+                        onChange={(e) => handleInputChange("phoneCode", e.target.value)}
+                        className={cn(formInputClass, "pr-8 appearance-none cursor-pointer w-auto")}
+                      >
+                        <option value="+91">🇮🇳 +91</option>
+                      </select>
+                      <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
+                    </div>
+                    <input
+                      type="tel"
+                      value={formData.phone}
+                      onChange={(e) => handleInputChange("phone", e.target.value)}
+                      placeholder="Phone number"
+                      inputMode="numeric"
+                      maxLength={10}
+                      className={cn(formInputClass, "flex-1", errors.phone && "border-rose-500")}
+                    />
+                  </div>
+                </FormField>
+
+                <FormField label="Work Type">
+                  <div className="relative">
+                    <select
+                      value={formData.workType}
+                      onChange={(e) => handleInputChange("workType", e.target.value)}
+                      className={cn(formInputClass, "pr-8 appearance-none cursor-pointer")}
+                    >
+                      <option value="Work From Home">Work From Home</option>
+                      <option value="Work From Office">Work From Office</option>
+                    </select>
+                    <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
+                  </div>
+                </FormField>
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Left Side - Form Fields */}
-              <div className="lg:col-span-2 space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* First Name */}
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-2">
-                      First name
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.firstName}
-                      onChange={(e) => handleInputChange("firstName", e.target.value)}
-                      placeholder="Ex: John"
-                      className={`w-full px-4 py-2.5 border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm ${errors.firstName ? "border-red-500" : "border-slate-300"}`}
-                    />
-                    {errors.firstName && <p className="mt-1 text-xs text-red-600">{errors.firstName}</p>}
-                  </div>
-
-                  {/* Last Name */}
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-2">
-                      Last name
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.lastName}
-                      onChange={(e) => handleInputChange("lastName", e.target.value)}
-                      placeholder="Ex: Doe"
-                      className={`w-full px-4 py-2.5 border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm ${errors.lastName ? "border-red-500" : "border-slate-300"}`}
-                    />
-                    {errors.lastName && <p className="mt-1 text-xs text-red-600">{errors.lastName}</p>}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Zone */}
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-2">
-                      Zone
-                    </label>
-                    <div className="relative">
-                      <select
-                        value={formData.zone}
-                        onChange={(e) => handleInputChange("zone", e.target.value)}
-                        className="w-full px-4 py-2.5 pr-8 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm appearance-none cursor-pointer"
-                      >
-                        <option value="All">All</option>
-                        {zones.map(z => (
-                          <option key={z._id} value={z._id}>{z.name}</option>
-                        ))}
-                      </select>
-                      <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
-                    </div>
-                  </div>
-
-                  {/* Role */}
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-2">
-                      Role
-                    </label>
-                    <div className="relative">
-                      <select
-                        value={formData.role}
-                        onChange={(e) => handleInputChange("role", e.target.value)}
-                        className={`w-full px-4 py-2.5 pr-8 border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm appearance-none cursor-pointer ${errors.role ? "border-red-500" : "border-slate-300"}`}
-                      >
-                        <option value="">Select Role</option>
-                        {roles.filter(r => r.status === 'active').map(r => (
-                          <option key={r._id} value={r._id}>{r.roleName}</option>
-                        ))}
-                      </select>
-                      <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
-                    </div>
-                    {errors.role && <p className="mt-1 text-xs text-red-600">{errors.role}</p>}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Phone */}
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-2">
-                      Phone
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <div className="relative">
-                        <select
-                          value={formData.phoneCode}
-                          onChange={(e) => handleInputChange("phoneCode", e.target.value)}
-                          className="px-4 py-2.5 pr-8 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm appearance-none cursor-pointer"
-                        >
-                          <option value="+91">🇮🇳 +91</option>
-                        </select>
-                        <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
-                      </div>
-                      <input
-                        type="tel"
-                        value={formData.phone}
-                        onChange={(e) => handleInputChange("phone", e.target.value)}
-                        placeholder="Phone number"
-                        inputMode="numeric"
-                        maxLength={10}
-                        className={`flex-1 px-4 py-2.5 border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm ${errors.phone ? "border-red-500" : "border-slate-300"}`}
+            {/* Right Side - Employee Image */}
+            <FormField label="Employee image">
+              <div className="border-2 border-dashed border-slate-300 rounded-lg p-8 text-center hover:border-blue-500 transition-colors cursor-pointer">
+                <input
+                  type="file"
+                  accept="image/jpeg,image/jpg,image/png,image/gif"
+                  onChange={(e) => handleFileUpload("employeeImage", e.target.files[0])}
+                  className="hidden"
+                  id="employee-image-upload"
+                />
+                <label htmlFor="employee-image-upload" className="cursor-pointer">
+                  {formData.employeeImage ? (
+                    <div className="w-full h-32 flex justify-center object-cover">
+                      <img
+                        src={URL.createObjectURL(formData.employeeImage)}
+                        alt="Preview"
+                        className="h-full rounded object-contain"
                       />
                     </div>
-                    {errors.phone && <p className="mt-1 text-xs text-red-600">{errors.phone}</p>}
-                  </div>
-
-                  {/* Work Type */}
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-2">
-                      Work Type
-                    </label>
-                    <div className="relative">
-                      <select
-                        value={formData.workType}
-                        onChange={(e) => handleInputChange("workType", e.target.value)}
-                        className="w-full px-4 py-2.5 pr-8 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm appearance-none cursor-pointer"
-                      >
-                        <option value="Work From Home">Work From Home</option>
-                        <option value="Work From Office">Work From Office</option>
-                      </select>
-                      <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Right Side - Employee Image */}
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-2">
-                  Employee image
-                </label>
-                <div className="border-2 border-dashed border-slate-300 rounded-lg p-8 text-center hover:border-blue-500 transition-colors cursor-pointer">
-                  <input
-                    type="file"
-                    accept="image/jpeg,image/jpg,image/png,image/gif"
-                    onChange={(e) => handleFileUpload("employeeImage", e.target.files[0])}
-                    className="hidden"
-                    id="employee-image-upload"
-                  />
-                  <label htmlFor="employee-image-upload" className="cursor-pointer">
-                    {formData.employeeImage ? (
-                      <div className="w-full h-32 flex justify-center object-cover">
-                        <img 
-                          src={URL.createObjectURL(formData.employeeImage)} 
-                          alt="Preview" 
-                          className="h-full rounded object-contain"
-                        />
+                  ) : (
+                    <>
+                      <Upload className="w-12 h-12 text-slate-400 mx-auto mb-3" />
+                      <p className="text-sm font-medium text-slate-700 mb-1">Upload Image</p>
+                      <div className="text-xs text-slate-500 space-y-1 mt-2">
+                        <p>Image format - jpg png jpeg gif</p>
+                        <p>Image Size - maximum size 2 MB</p>
+                        <p>Image Ratio - 1:1</p>
                       </div>
-                    ) : (
-                      <>
-                        <Upload className="w-12 h-12 text-slate-400 mx-auto mb-3" />
-                        <p className="text-sm font-medium text-slate-700 mb-1">Upload Image</p>
-                        <div className="text-xs text-slate-500 space-y-1 mt-2">
-                          <p>Image format - jpg png jpeg gif</p>
-                          <p>Image Size - maximum size 2 MB</p>
-                          <p>Image Ratio - 1:1</p>
-                        </div>
-                      </>
-                    )}
-                  </label>
-                </div>
+                    </>
+                  )}
+                </label>
               </div>
-            </div>
-          </div>
+            </FormField>
+          </FormSection>
 
           {/* Account Info */}
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
-            <div className="flex items-center gap-3 mb-6">
-              <User className="w-5 h-5 text-slate-600" />
-              <h2 className="text-lg font-semibold text-slate-900">Account Info</h2>
-            </div>
+          <FormSection title="Account Info" bodyClassName="grid-cols-1 gap-6">
+            <FormField label="Email" error={errors.email}>
+              <input
+                type="email"
+                value={formData.email}
+                onChange={(e) => handleInputChange("email", e.target.value)}
+                placeholder="Ex: ex@gmail.com"
+                className={cn(formInputClass, errors.email && "border-rose-500")}
+              />
+            </FormField>
 
-            <div className="space-y-6">
-              {/* Email */}
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-2">
-                  Email
-                </label>
+            <FormField
+              label={<>Password {isEditMode && <span className="text-xs text-slate-400 font-normal">(Leave blank to keep current)</span>}</>}
+              error={errors.password}
+            >
+              <div className="relative">
                 <input
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) => handleInputChange("email", e.target.value)}
-                  placeholder="Ex: ex@gmail.com"
-                  className={`w-full px-4 py-2.5 border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm ${errors.email ? "border-red-500" : "border-slate-300"}`}
+                  type={showPassword ? "text" : "password"}
+                  value={formData.password}
+                  onChange={(e) => handleInputChange("password", e.target.value)}
+                  placeholder="Password length 8+"
+                  className={cn(formInputClass, "pr-10", errors.password && "border-rose-500")}
                 />
-                {errors.email && <p className="mt-1 text-xs text-red-600">{errors.email}</p>}
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
               </div>
+            </FormField>
 
-              {/* Password */}
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-2">
-                  Password {isEditMode && <span className="text-xs text-slate-400 font-normal">(Leave blank to keep current)</span>}
-                </label>
-                <div className="relative">
-                  <input
-                    type={showPassword ? "text" : "password"}
-                    value={formData.password}
-                    onChange={(e) => handleInputChange("password", e.target.value)}
-                    placeholder="Password length 8+"
-                    className={`w-full px-4 py-2.5 pr-10 border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm ${errors.password ? "border-red-500" : "border-slate-300"}`}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-                {errors.password && <p className="mt-1 text-xs text-red-600">{errors.password}</p>}
+            <FormField
+              label={<>Confirm Password {isEditMode && <span className="text-xs text-slate-400 font-normal">(Leave blank to keep current)</span>}</>}
+              error={errors.confirmPassword}
+            >
+              <div className="relative">
+                <input
+                  type={showConfirmPassword ? "text" : "password"}
+                  value={formData.confirmPassword}
+                  onChange={(e) => handleInputChange("confirmPassword", e.target.value)}
+                  placeholder="Password length 8+"
+                  className={cn(formInputClass, "pr-10", errors.confirmPassword && "border-rose-500")}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                >
+                  {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
               </div>
-
-              {/* Confirm Password */}
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-2">
-                  Confirm Password {isEditMode && <span className="text-xs text-slate-400 font-normal">(Leave blank to keep current)</span>}
-                </label>
-                <div className="relative">
-                  <input
-                    type={showConfirmPassword ? "text" : "password"}
-                    value={formData.confirmPassword}
-                    onChange={(e) => handleInputChange("confirmPassword", e.target.value)}
-                    placeholder="Password length 8+"
-                    className={`w-full px-4 py-2.5 pr-10 border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm ${errors.confirmPassword ? "border-red-500" : "border-slate-300"}`}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                  >
-                    {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-                {errors.confirmPassword && <p className="mt-1 text-xs text-red-600">{errors.confirmPassword}</p>}
-              </div>
-            </div>
-          </div>
+            </FormField>
+          </FormSection>
 
           {/* Action Buttons */}
-          <div className="flex items-center justify-end gap-4 mb-6">
-            <button
-              type="button"
-              onClick={handleReset}
-              className="px-6 py-2.5 text-sm font-medium rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 transition-all"
-            >
-              Reset
-            </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="px-6 py-2.5 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-all shadow-md disabled:opacity-50"
-            >
-              {loading ? "Submitting..." : isEditMode ? "Update" : "Submit"}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+          <FormActions
+            onCancel={handleReset}
+            cancelLabel="Reset"
+            submitLabel={loading ? "Submitting..." : isEditMode ? "Update" : "Submit"}
+            submitting={loading}
+          />
+        </div>
+      </form>
+    </FormPageShell>
   )
 }
-

@@ -320,14 +320,14 @@ export default function PointOfSale() {
         </div>
 
         {/* Restaurant Selection Card */}
-        <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-6 mb-6">
+        <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-4 sm:p-5 mb-4 sm:mb-6">
           <div className="flex flex-col gap-4">
             <div>
-              <label className="block text-sm font-medium text-[#334257] mb-2">
+              <label className="block text-sm font-medium text-[#334257] mb-1.5">
                 Search Restaurant by Name or ID <span className="text-red-500">*</span>
               </label>
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5 z-10" />
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4 sm:w-5 sm:h-5 z-10" />
                 <input
                   type="text"
                   value={searchQuery}
@@ -342,7 +342,7 @@ export default function PointOfSale() {
                     setTimeout(() => setShowSearchResults(false), 200)
                   }}
                   placeholder="Type restaurant name or ID to search..."
-                  className="w-full h-11 pl-10 pr-3 rounded-md border border-[#e3e6ef] bg-white text-sm text-[#4a5671] focus:outline-none focus:ring-1 focus:ring-[#006fbd]"
+                  className="w-full h-10 pl-9 sm:pl-10 pr-3 rounded-md border border-[#e3e6ef] bg-white text-sm text-[#4a5671] focus:outline-none focus:ring-1 focus:ring-[#006fbd]"
                 />
 
                 {/* Search Results Dropdown */}
@@ -356,7 +356,7 @@ export default function PointOfSale() {
                           e.preventDefault()
                           handleRestaurantSelect(restaurant._id)
                         }}
-                        className="w-full px-4 py-3 text-left hover:bg-[#f9fafc] cursor-pointer border-b border-[#e3e6ef] last:border-b-0 transition-colors"
+                        className="w-full px-3 sm:px-4 py-2 sm:py-3 text-left hover:bg-[#f9fafc] cursor-pointer border-b border-[#e3e6ef] last:border-b-0 transition-colors"
                       >
                         <div className="flex items-center justify-between">
                           <div>
@@ -374,13 +374,13 @@ export default function PointOfSale() {
 
                 {/* No Results Message */}
                 {showSearchResults && searchQuery.trim() && filteredRestaurants.length === 0 && (
-                  <div className="absolute z-50 w-full mt-1 bg-white border border-[#e3e6ef] rounded-md shadow-lg p-4">
+                  <div className="absolute z-50 w-full mt-1 bg-white border border-[#e3e6ef] rounded-md shadow-lg p-3 sm:p-4">
                     <p className="text-sm text-[#8a94aa] text-center">No restaurants found matching "{searchQuery}"</p>
                   </div>
                 )}
               </div>
               {selectedRestaurant && (
-                <p className="text-xs text-green-600 mt-2">
+                <p className="text-xs text-green-600 mt-1.5">
                   Selected: {getSelectedRestaurantName()}
                 </p>
               )}
@@ -388,7 +388,7 @@ export default function PointOfSale() {
 
             {/* Alternative: Dropdown Selector */}
             <div>
-              <label className="block text-sm font-medium text-[#334257] mb-2">
+              <label className="block text-sm font-medium text-[#334257] mb-1.5">
                 Or Select from Dropdown
               </label>
               <div className="relative">
@@ -401,7 +401,7 @@ export default function PointOfSale() {
                       setSearchQuery(selected.name)
                     }
                   }}
-                  className="w-full h-11 rounded-md border border-[#e3e6ef] bg-white px-3 pr-10 text-sm text-[#4a5671] focus:outline-none focus:ring-1 focus:ring-[#006fbd]"
+                  className="w-full h-10 rounded-md border border-[#e3e6ef] bg-white px-3 pr-10 text-sm text-[#4a5671] focus:outline-none focus:ring-1 focus:ring-[#006fbd]"
                 >
                   <option value="">Select Restaurant</option>
                   {restaurants.map(restaurant => (
@@ -417,17 +417,17 @@ export default function PointOfSale() {
 
         {/* Analytics Dashboard */}
         {selectedRestaurant && !loading ? (
-          <div className="space-y-6">
+          <div className="space-y-4 sm:space-y-5">
             {/* Restaurant Header Info */}
-            <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-6">
+            <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-4 sm:p-5">
               <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="text-xl font-bold text-[#334257] mb-1">{getSelectedRestaurantName()}</h2>
-                  <p className="text-sm text-[#8a94aa]">
+                  <h2 className="text-lg sm:text-xl font-bold text-[#334257] mb-1">{getSelectedRestaurantName()}</h2>
+                  <p className="text-xs sm:text-sm text-[#8a94aa]">
                     Restaurant ID: {restaurants.find(r => r._id === selectedRestaurant)?.restaurantId || selectedRestaurant}
                   </p>
                 </div>
-                <div className={`px-4 py-2 rounded-full text-sm font-semibold ${analyticsData.status === 'active'
+                <div className={`px-3 py-1.5 rounded-full text-xs sm:text-sm font-semibold ${analyticsData.status === 'active'
                     ? 'bg-green-100 text-green-700'
                     : 'bg-red-100 text-red-700'
                   }`}>
@@ -437,66 +437,66 @@ export default function PointOfSale() {
             </div>
 
             {/* Key Metrics Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
               {/* Total Orders */}
-              <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="p-3 bg-blue-100 rounded-lg">
-                    <ShoppingCart className="w-6 h-6 text-blue-600" />
+              <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="p-2 sm:p-3 bg-blue-100 rounded-lg">
+                    <ShoppingCart className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600" />
                   </div>
-                  <TrendingUp className="w-5 h-5 text-green-500" />
+                  <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-green-500" />
                 </div>
-                <h3 className="text-sm font-medium text-[#8a94aa] mb-1">Total Orders</h3>
-                <p className="text-2xl font-bold text-[#334257]">{formatNumber(analyticsData.totalOrders)}</p>
-                <p className="text-xs text-[#8a94aa] mt-2">Completed: {formatNumber(analyticsData.completedOrders)}</p>
+                <h3 className="text-xs sm:text-sm font-medium text-[#8a94aa] mb-1">Total Orders</h3>
+                <p className="text-xl sm:text-2xl font-bold text-[#334257]">{formatNumber(analyticsData.totalOrders)}</p>
+                <p className="text-[10px] sm:text-xs text-[#8a94aa] mt-1.5 sm:mt-2">Completed: {formatNumber(analyticsData.completedOrders)}</p>
               </div>
 
               {/* Cancelled Orders */}
-              <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="p-3 bg-red-100 rounded-lg">
-                    <XCircle className="w-6 h-6 text-red-600" />
+              <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="p-2 sm:p-3 bg-red-100 rounded-lg">
+                    <XCircle className="w-5 h-5 sm:w-6 sm:h-6 text-red-600" />
                   </div>
-                  <span className="text-sm font-semibold text-red-600">{analyticsData.cancellationRate.toFixed(1)}%</span>
+                  <span className="text-xs sm:text-sm font-semibold text-red-600">{analyticsData.cancellationRate.toFixed(1)}%</span>
                 </div>
-                <h3 className="text-sm font-medium text-[#8a94aa] mb-1">Cancelled Orders</h3>
-                <p className="text-2xl font-bold text-[#334257]">{formatNumber(analyticsData.cancelledOrders)}</p>
-                <p className="text-xs text-[#8a94aa] mt-2">Cancellation Rate</p>
+                <h3 className="text-xs sm:text-sm font-medium text-[#8a94aa] mb-1">Cancelled</h3>
+                <p className="text-xl sm:text-2xl font-bold text-[#334257]">{formatNumber(analyticsData.cancelledOrders)}</p>
+                <p className="text-[10px] sm:text-xs text-[#8a94aa] mt-1.5 sm:mt-2">Cancellation Rate</p>
               </div>
 
               {/* Average Rating */}
-              <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="p-3 bg-yellow-100 rounded-lg">
-                    <Star className="w-6 h-6 text-yellow-600 fill-yellow-600" />
+              <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="p-2 sm:p-3 bg-yellow-100 rounded-lg">
+                    <Star className="w-5 h-5 sm:w-6 sm:h-6 text-yellow-600 fill-yellow-600" />
                   </div>
-                  <span className="text-sm font-semibold text-green-600">+{analyticsData.averageRating}</span>
+                  <span className="text-xs sm:text-sm font-semibold text-green-600">+{analyticsData.averageRating}</span>
                 </div>
-                <h3 className="text-sm font-medium text-[#8a94aa] mb-1">Average Rating</h3>
-                <p className="text-2xl font-bold text-[#334257]">{analyticsData.averageRating.toFixed(1)}</p>
-                <p className="text-xs text-[#8a94aa] mt-2">From {formatNumber(analyticsData.totalRatings)} reviews</p>
+                <h3 className="text-xs sm:text-sm font-medium text-[#8a94aa] mb-1">Avg Rating</h3>
+                <p className="text-xl sm:text-2xl font-bold text-[#334257]">{analyticsData.averageRating.toFixed(1)}</p>
+                <p className="text-[10px] sm:text-xs text-[#8a94aa] mt-1.5 sm:mt-2">From {formatNumber(analyticsData.totalRatings)} revs</p>
               </div>
             </div>
 
             {/* Profit & Revenue Section */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
               {/* Monthly Profit */}
-              <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-3">
-                    <div className="p-3 bg-green-100 rounded-lg">
-                      <Calendar className="w-6 h-6 text-green-600" />
+              <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-4 sm:p-5">
+                <div className="flex items-center justify-between mb-3 sm:mb-4">
+                  <div className="flex items-center gap-2 sm:gap-3">
+                    <div className="p-2 sm:p-3 bg-green-100 rounded-lg">
+                      <Calendar className="w-5 h-5 sm:w-6 sm:h-6 text-green-600" />
                     </div>
                     <div>
-                      <h3 className="text-base font-semibold text-[#334257]">Monthly Profit</h3>
-                      <p className="text-xs text-[#8a94aa]">Current Month</p>
+                      <h3 className="text-sm sm:text-base font-semibold text-[#334257]">Monthly Profit</h3>
+                      <p className="text-[10px] sm:text-xs text-[#8a94aa]">Current Month</p>
                     </div>
                   </div>
-                  <TrendingUp className="w-5 h-5 text-green-500" />
+                  <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-green-500" />
                 </div>
-                <div className="mt-4">
-                  <p className="text-3xl font-bold text-[#334257] mb-2">{formatCurrency(analyticsData.monthlyProfit)}</p>
-                  <div className="flex items-center gap-4 mt-4 text-sm">
+                <div className="mt-3 sm:mt-4">
+                  <p className="text-2xl sm:text-3xl font-bold text-[#334257] mb-1.5 sm:mb-2">{formatCurrency(analyticsData.monthlyProfit)}</p>
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4 mt-2 sm:mt-4 text-xs sm:text-sm">
                     <div>
                       <span className="text-[#8a94aa]">Orders: </span>
                       <span className="font-semibold text-[#334257]">{formatNumber(analyticsData.monthlyOrders)}</span>
@@ -510,22 +510,22 @@ export default function PointOfSale() {
               </div>
 
               {/* Yearly Profit */}
-              <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-3">
-                    <div className="p-3 bg-blue-100 rounded-lg">
-                      <BarChart3 className="w-6 h-6 text-blue-600" />
+              <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-4 sm:p-5">
+                <div className="flex items-center justify-between mb-3 sm:mb-4">
+                  <div className="flex items-center gap-2 sm:gap-3">
+                    <div className="p-2 sm:p-3 bg-blue-100 rounded-lg">
+                      <BarChart3 className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600" />
                     </div>
                     <div>
-                      <h3 className="text-base font-semibold text-[#334257]">Yearly Profit</h3>
-                      <p className="text-xs text-[#8a94aa]">Current Year</p>
+                      <h3 className="text-sm sm:text-base font-semibold text-[#334257]">Yearly Profit</h3>
+                      <p className="text-[10px] sm:text-xs text-[#8a94aa]">Current Year</p>
                     </div>
                   </div>
-                  <TrendingUp className="w-5 h-5 text-green-500" />
+                  <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-green-500" />
                 </div>
-                <div className="mt-4">
-                  <p className="text-3xl font-bold text-[#334257] mb-2">{formatCurrency(analyticsData.yearlyProfit)}</p>
-                  <div className="flex items-center gap-4 mt-4 text-sm">
+                <div className="mt-3 sm:mt-4">
+                  <p className="text-2xl sm:text-3xl font-bold text-[#334257] mb-1.5 sm:mb-2">{formatCurrency(analyticsData.yearlyProfit)}</p>
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4 mt-2 sm:mt-4 text-xs sm:text-sm">
                     <div>
                       <span className="text-[#8a94aa]">Orders: </span>
                       <span className="font-semibold text-[#334257]">{formatNumber(analyticsData.yearlyOrders)}</span>
@@ -540,113 +540,113 @@ export default function PointOfSale() {
             </div>
 
             {/* Detailed Financial Breakdown */}
-            <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-6">
-              <h3 className="text-lg font-semibold text-[#334257] mb-4">Financial Breakdown</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center py-3 border-b border-[#e3e6ef]">
-                    <span className="text-sm text-[#8a94aa]">Subtotal (Dish Price)</span>
-                    <span className="text-base font-semibold text-[#334257]">{formatCurrency(paymentSummary?.subtotal || 0)}</span>
+            <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-4 sm:p-5">
+              <h3 className="text-base sm:text-lg font-semibold text-[#334257] mb-3 sm:mb-4">Financial Breakdown</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+                <div className="space-y-2 sm:space-y-4">
+                  <div className="flex justify-between items-center py-2 sm:py-3 border-b border-[#e3e6ef]">
+                    <span className="text-xs sm:text-sm text-[#8a94aa]">Subtotal (Dish Price)</span>
+                    <span className="text-sm sm:text-base font-semibold text-[#334257]">{formatCurrency(paymentSummary?.subtotal || 0)}</span>
                   </div>
-                  <div className="flex justify-between items-center py-3 border-b border-[#e3e6ef]">
-                    <span className="text-sm text-[#8a94aa]">Total Revenue</span>
-                    <span className="text-base font-semibold text-[#334257]">{formatCurrency(analyticsData.totalRevenue)}</span>
+                  <div className="flex justify-between items-center py-2 sm:py-3 border-b border-[#e3e6ef]">
+                    <span className="text-xs sm:text-sm text-[#8a94aa]">Total Revenue</span>
+                    <span className="text-sm sm:text-base font-semibold text-[#334257]">{formatCurrency(analyticsData.totalRevenue)}</span>
                   </div>
-                  <div className="flex justify-between items-center py-3 border-b border-[#e3e6ef]">
-                    <span className="text-sm text-[#8a94aa]">Restaurant Share</span>
-                    <span className="text-base font-semibold text-green-600">{formatCurrency(analyticsData.restaurantEarning)}</span>
+                  <div className="flex justify-between items-center py-2 sm:py-3 border-b border-[#e3e6ef]">
+                    <span className="text-xs sm:text-sm text-[#8a94aa]">Restaurant Share</span>
+                    <span className="text-sm sm:text-base font-semibold text-green-600">{formatCurrency(analyticsData.restaurantEarning)}</span>
                   </div>
-                  <div className="flex justify-between items-center py-3 border-b border-[#e3e6ef]">
-                    <span className="text-sm text-[#8a94aa]">Restaurant Profit</span>
-                    <span className="text-base font-semibold text-emerald-700">{formatCurrency(analyticsData.restaurantProfit)}</span>
+                  <div className="flex justify-between items-center py-2 sm:py-3 border-b border-[#e3e6ef]">
+                    <span className="text-xs sm:text-sm text-[#8a94aa]">Restaurant Profit</span>
+                    <span className="text-sm sm:text-base font-semibold text-emerald-700">{formatCurrency(analyticsData.restaurantProfit)}</span>
                   </div>
                 </div>
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center py-3 border-b border-[#e3e6ef]">
-                    <span className="text-sm text-[#8a94aa]">Average Order Value</span>
-                    <span className="text-base font-semibold text-[#334257]">{formatCurrency(analyticsData.averageOrderValue)}</span>
+                <div className="space-y-2 sm:space-y-4">
+                  <div className="flex justify-between items-center py-2 sm:py-3 border-b border-[#e3e6ef]">
+                    <span className="text-xs sm:text-sm text-[#8a94aa]">Average Order Value</span>
+                    <span className="text-sm sm:text-base font-semibold text-[#334257]">{formatCurrency(analyticsData.averageOrderValue)}</span>
                   </div>
-                  <div className="flex justify-between items-center py-3 border-b border-[#e3e6ef]">
-                    <span className="text-sm text-[#8a94aa]">Completion Rate</span>
-                    <span className="text-base font-semibold text-green-600">{analyticsData.completionRate.toFixed(1)}%</span>
+                  <div className="flex justify-between items-center py-2 sm:py-3 border-b border-[#e3e6ef]">
+                    <span className="text-xs sm:text-sm text-[#8a94aa]">Completion Rate</span>
+                    <span className="text-sm sm:text-base font-semibold text-green-600">{analyticsData.completionRate.toFixed(1)}%</span>
                   </div>
                 </div>
               </div>
             </div>
 
             {/* Restaurant Payments (from FoodTransaction ledger) */}
-            <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-6">
-              <h3 className="text-lg font-semibold text-[#334257] mb-4">Restaurant Payments (Completed Orders)</h3>
-              <p className="text-xs text-[#8a94aa] mb-4">
+            <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-4 sm:p-5">
+              <h3 className="text-base sm:text-lg font-semibold text-[#334257] mb-2 sm:mb-4">Restaurant Payments (Completed Orders)</h3>
+              <p className="text-[10px] sm:text-xs text-[#8a94aa] mb-3 sm:mb-4">
                 Breakdown based on transaction ledger. “Subtotal” reflects total dish value (food price).
               </p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center py-2 border-b border-[#e3e6ef]">
-                    <span className="text-sm text-[#8a94aa]">Subtotal (Dish Price)</span>
-                    <span className="text-sm font-semibold text-[#334257]">{formatCurrency(paymentSummary?.subtotal || 0)}</span>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+                <div className="space-y-2 sm:space-y-3">
+                  <div className="flex justify-between items-center py-1.5 sm:py-2 border-b border-[#e3e6ef]">
+                    <span className="text-xs sm:text-sm text-[#8a94aa]">Subtotal (Dish Price)</span>
+                    <span className="text-xs sm:text-sm font-semibold text-[#334257]">{formatCurrency(paymentSummary?.subtotal || 0)}</span>
                   </div>
-                  <div className="flex justify-between items-center py-2 border-b border-[#e3e6ef]">
-                    <span className="text-sm text-[#8a94aa]">Tax</span>
-                    <span className="text-sm font-semibold text-[#334257]">{formatCurrency(paymentSummary?.tax || 0)}</span>
+                  <div className="flex justify-between items-center py-1.5 sm:py-2 border-b border-[#e3e6ef]">
+                    <span className="text-xs sm:text-sm text-[#8a94aa]">Tax</span>
+                    <span className="text-xs sm:text-sm font-semibold text-[#334257]">{formatCurrency(paymentSummary?.tax || 0)}</span>
                   </div>
-                  <div className="flex justify-between items-center py-2 border-b border-[#e3e6ef]">
-                    <span className="text-sm text-[#8a94aa]">Delivery Fee</span>
-                    <span className="text-sm font-semibold text-[#334257]">{formatCurrency(paymentSummary?.deliveryFee || 0)}</span>
+                  <div className="flex justify-between items-center py-1.5 sm:py-2 border-b border-[#e3e6ef]">
+                    <span className="text-xs sm:text-sm text-[#8a94aa]">Delivery Fee</span>
+                    <span className="text-xs sm:text-sm font-semibold text-[#334257]">{formatCurrency(paymentSummary?.deliveryFee || 0)}</span>
                   </div>
-                  <div className="flex justify-between items-center py-2 border-b border-[#e3e6ef]">
-                    <span className="text-sm text-[#8a94aa]">Platform Fee</span>
-                    <span className="text-sm font-semibold text-[#334257]">{formatCurrency(paymentSummary?.platformFee || 0)}</span>
+                  <div className="flex justify-between items-center py-1.5 sm:py-2 border-b border-[#e3e6ef]">
+                    <span className="text-xs sm:text-sm text-[#8a94aa]">Platform Fee</span>
+                    <span className="text-xs sm:text-sm font-semibold text-[#334257]">{formatCurrency(paymentSummary?.platformFee || 0)}</span>
                   </div>
-                  <div className="flex justify-between items-center py-2 border-b border-[#e3e6ef]">
-                    <span className="text-sm text-[#8a94aa]">Discount</span>
-                    <span className="text-sm font-semibold text-[#334257]">{formatCurrency(paymentSummary?.discount || 0)}</span>
+                  <div className="flex justify-between items-center py-1.5 sm:py-2 border-b border-[#e3e6ef]">
+                    <span className="text-xs sm:text-sm text-[#8a94aa]">Discount</span>
+                    <span className="text-xs sm:text-sm font-semibold text-[#334257]">{formatCurrency(paymentSummary?.discount || 0)}</span>
                   </div>
-                  <div className="flex justify-between items-center py-2">
-                    <span className="text-sm font-semibold text-[#334257]">Total Order Value</span>
-                    <span className="text-sm font-bold text-[#006fbd]">{formatCurrency(paymentSummary?.total || 0)}</span>
+                  <div className="flex justify-between items-center py-1.5 sm:py-2">
+                    <span className="text-xs sm:text-sm font-semibold text-[#334257]">Total Order Value</span>
+                    <span className="text-xs sm:text-sm font-bold text-[#006fbd]">{formatCurrency(paymentSummary?.total || 0)}</span>
                   </div>
                 </div>
 
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center py-2 border-b border-[#e3e6ef]">
-                    <span className="text-sm text-[#8a94aa]">Restaurant Share</span>
-                    <span className="text-sm font-semibold text-green-700">{formatCurrency(paymentSummary?.restaurantShare || 0)}</span>
+                <div className="space-y-2 sm:space-y-3">
+                  <div className="flex justify-between items-center py-1.5 sm:py-2 border-b border-[#e3e6ef]">
+                    <span className="text-xs sm:text-sm text-[#8a94aa]">Restaurant Share</span>
+                    <span className="text-xs sm:text-sm font-semibold text-green-700">{formatCurrency(paymentSummary?.restaurantShare || 0)}</span>
                   </div>
-                  <div className="flex justify-between items-center py-2 border-b border-[#e3e6ef]">
-                    <span className="text-sm text-[#8a94aa]">Rider Share</span>
-                    <span className="text-sm font-semibold text-[#334257]">{formatCurrency(paymentSummary?.riderShare || 0)}</span>
+                  <div className="flex justify-between items-center py-1.5 sm:py-2 border-b border-[#e3e6ef]">
+                    <span className="text-xs sm:text-sm text-[#8a94aa]">Rider Share</span>
+                    <span className="text-xs sm:text-sm font-semibold text-[#334257]">{formatCurrency(paymentSummary?.riderShare || 0)}</span>
                   </div>
-                  <div className="flex justify-between items-center py-2">
-                    <span className="text-sm text-[#8a94aa]">Platform Net Profit</span>
-                    <span className="text-sm font-semibold text-[#334257]">{formatCurrency(paymentSummary?.platformNetProfit || 0)}</span>
+                  <div className="flex justify-between items-center py-1.5 sm:py-2">
+                    <span className="text-xs sm:text-sm text-[#8a94aa]">Platform Net Profit</span>
+                    <span className="text-xs sm:text-sm font-semibold text-[#334257]">{formatCurrency(paymentSummary?.platformNetProfit || 0)}</span>
                   </div>
                 </div>
               </div>
             </div>
 
             {/* Additional Details */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
               {/* Customer Statistics */}
-              <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-6">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="p-2 bg-indigo-100 rounded-lg">
-                    <Users className="w-5 h-5 text-indigo-600" />
+              <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-4 sm:p-5">
+                <div className="flex items-center gap-2 sm:gap-3 mb-3 sm:mb-4">
+                  <div className="p-1.5 sm:p-2 bg-indigo-100 rounded-lg">
+                    <Users className="w-4 h-4 sm:w-5 sm:h-5 text-indigo-600" />
                   </div>
-                  <h3 className="text-base font-semibold text-[#334257]">Customer Statistics</h3>
+                  <h3 className="text-sm sm:text-base font-semibold text-[#334257]">Customer Statistics</h3>
                 </div>
-                <div className="space-y-3">
+                <div className="space-y-2 sm:space-y-3">
                   <div className="flex justify-between items-center">
-                    <span className="text-sm text-[#8a94aa]">Total Customers</span>
-                    <span className="text-sm font-semibold text-[#334257]">{formatNumber(analyticsData.totalCustomers)}</span>
+                    <span className="text-xs sm:text-sm text-[#8a94aa]">Total Customers</span>
+                    <span className="text-xs sm:text-sm font-semibold text-[#334257]">{formatNumber(analyticsData.totalCustomers)}</span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-sm text-[#8a94aa]">Repeat Customers</span>
-                    <span className="text-sm font-semibold text-[#334257]">{formatNumber(analyticsData.repeatCustomers)}</span>
+                    <span className="text-xs sm:text-sm text-[#8a94aa]">Repeat Customers</span>
+                    <span className="text-xs sm:text-sm font-semibold text-[#334257]">{formatNumber(analyticsData.repeatCustomers)}</span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-sm text-[#8a94aa]">Customer Retention</span>
-                    <span className="text-sm font-semibold text-green-600">
+                    <span className="text-xs sm:text-sm text-[#8a94aa]">Customer Retention</span>
+                    <span className="text-xs sm:text-sm font-semibold text-green-600">
                       {analyticsData.totalCustomers > 0
                         ? ((analyticsData.repeatCustomers / analyticsData.totalCustomers) * 100).toFixed(1)
                         : '0'}%
@@ -656,27 +656,27 @@ export default function PointOfSale() {
               </div>
 
               {/* Restaurant Details */}
-              <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-6">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="p-2 bg-red-100 rounded-lg">
-                    <Package className="w-5 h-5 text-red-600" />
+              <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-4 sm:p-5">
+                <div className="flex items-center gap-2 sm:gap-3 mb-3 sm:mb-4">
+                  <div className="p-1.5 sm:p-2 bg-red-100 rounded-lg">
+                    <Package className="w-4 h-4 sm:w-5 sm:h-5 text-red-600" />
                   </div>
-                  <h3 className="text-base font-semibold text-[#334257]">Restaurant Details</h3>
+                  <h3 className="text-sm sm:text-base font-semibold text-[#334257]">Restaurant Details</h3>
                 </div>
-                <div className="space-y-3">
+                <div className="space-y-2 sm:space-y-3">
                   <div className="flex justify-between items-center">
-                    <span className="text-sm text-[#8a94aa]">Join Date</span>
-                    <span className="text-sm font-semibold text-[#334257]">
+                    <span className="text-xs sm:text-sm text-[#8a94aa]">Join Date</span>
+                    <span className="text-xs sm:text-sm font-semibold text-[#334257]">
                       {new Date(analyticsData.joinDate).toLocaleDateString('en-IN', {
                         year: 'numeric',
-                        month: 'long',
+                        month: 'short',
                         day: 'numeric'
                       })}
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-sm text-[#8a94aa]">Status</span>
-                    <span className={`text-sm font-semibold px-2 py-1 rounded ${analyticsData.status === 'active'
+                    <span className="text-xs sm:text-sm text-[#8a94aa]">Status</span>
+                    <span className={`text-[10px] sm:text-xs font-semibold px-2 py-1 rounded ${analyticsData.status === 'active'
                         ? 'bg-green-100 text-green-700'
                         : 'bg-red-100 text-red-700'
                       }`}>
@@ -684,32 +684,32 @@ export default function PointOfSale() {
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-sm text-[#8a94aa]">Total Reviews</span>
-                    <span className="text-sm font-semibold text-[#334257]">{formatNumber(analyticsData.totalRatings)}</span>
+                    <span className="text-xs sm:text-sm text-[#8a94aa]">Total Reviews</span>
+                    <span className="text-xs sm:text-sm font-semibold text-[#334257]">{formatNumber(analyticsData.totalRatings)}</span>
                   </div>
                 </div>
               </div>
             </div>
 
             {/* Order Statistics Summary */}
-            <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-6">
-              <h3 className="text-lg font-semibold text-[#334257] mb-4">Order Statistics Summary</h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="text-center p-4 bg-blue-50 rounded-lg">
-                  <p className="text-2xl font-bold text-blue-600">{formatNumber(analyticsData.totalOrders)}</p>
-                  <p className="text-xs text-[#8a94aa] mt-1">Total Orders</p>
+            <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-4 sm:p-5">
+              <h3 className="text-base sm:text-lg font-semibold text-[#334257] mb-3 sm:mb-4">Order Statistics Summary</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
+                <div className="text-center p-3 sm:p-4 bg-blue-50 rounded-lg">
+                  <p className="text-xl sm:text-2xl font-bold text-blue-600">{formatNumber(analyticsData.totalOrders)}</p>
+                  <p className="text-[10px] sm:text-xs text-[#8a94aa] mt-1">Total Orders</p>
                 </div>
-                <div className="text-center p-4 bg-green-50 rounded-lg">
-                  <p className="text-2xl font-bold text-green-600">{formatNumber(analyticsData.completedOrders)}</p>
-                  <p className="text-xs text-[#8a94aa] mt-1">Completed</p>
+                <div className="text-center p-3 sm:p-4 bg-green-50 rounded-lg">
+                  <p className="text-xl sm:text-2xl font-bold text-green-600">{formatNumber(analyticsData.completedOrders)}</p>
+                  <p className="text-[10px] sm:text-xs text-[#8a94aa] mt-1">Completed</p>
                 </div>
-                <div className="text-center p-4 bg-red-50 rounded-lg">
-                  <p className="text-2xl font-bold text-red-600">{formatNumber(analyticsData.cancelledOrders)}</p>
-                  <p className="text-xs text-[#8a94aa] mt-1">Cancelled</p>
+                <div className="text-center p-3 sm:p-4 bg-red-50 rounded-lg">
+                  <p className="text-xl sm:text-2xl font-bold text-red-600">{formatNumber(analyticsData.cancelledOrders)}</p>
+                  <p className="text-[10px] sm:text-xs text-[#8a94aa] mt-1">Cancelled</p>
                 </div>
-                <div className="text-center p-4 bg-yellow-50 rounded-lg">
-                  <p className="text-2xl font-bold text-yellow-600">{analyticsData.completionRate.toFixed(1)}%</p>
-                  <p className="text-xs text-[#8a94aa] mt-1">Success Rate</p>
+                <div className="text-center p-3 sm:p-4 bg-yellow-50 rounded-lg">
+                  <p className="text-xl sm:text-2xl font-bold text-yellow-600">{analyticsData.completionRate.toFixed(1)}%</p>
+                  <p className="text-[10px] sm:text-xs text-[#8a94aa] mt-1">Success Rate</p>
                 </div>
               </div>
             </div>

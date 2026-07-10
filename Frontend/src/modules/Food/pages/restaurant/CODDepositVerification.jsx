@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation"
 import { 
-  ArrowLeft, 
   AlertCircle, 
   Upload, 
   Loader2, 
@@ -20,6 +19,7 @@ import {
 } from "lucide-react"
 import { restaurantAPI } from "@food/api"
 import { toast } from "sonner"
+import RestaurantPageShell from "@food/components/restaurant/RestaurantPageShell"
 
 export default function CODDepositVerification() {
   const navigate = useNavigate()
@@ -185,42 +185,35 @@ export default function CODDepositVerification() {
     })
   }
 
+  const tabButtons = (
+    <div className="flex bg-gray-100 dark:bg-gray-800 p-1 rounded-xl">
+      {["Pending", "Restaurant_Accepted", "Restaurant_Rejected"].map((tab) => (
+        <button
+          key={tab}
+          onClick={() => setActiveTab(tab)}
+          className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all duration-200 ${
+            activeTab === tab
+              ? "bg-white dark:bg-[#1a1a1a] text-[#FF6A00] shadow-sm"
+              : "text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
+          }`}
+        >
+          {tab === "Pending" && "Pending Requests"}
+          {tab === "Restaurant_Accepted" && "Accepted"}
+          {tab === "Restaurant_Rejected" && "Rejected"}
+        </button>
+      ))}
+    </div>
+  )
+
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] flex flex-col font-sans">
-      {/* Header */}
-      <div className="bg-white dark:bg-[#111] px-4 pt-4 pb-2 flex flex-col gap-3 border-b border-gray-100 dark:border-gray-800 sticky top-0 z-10">
-        <div className="flex items-center gap-3">
-          <button onClick={goBack} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-colors" aria-label="Back">
-            <ArrowLeft className="w-5 h-5 text-gray-900 dark:text-white" />
-          </button>
-          <div>
-            <h1 className="text-base font-bold text-gray-900 dark:text-white">COD Deposit Verification</h1>
-            <p className="text-xs text-gray-400 dark:text-gray-500">Verify cash handover from delivery partners</p>
-          </div>
-        </div>
-
-        {/* Tabs */}
-        <div className="flex bg-gray-100 dark:bg-gray-800 p-1 rounded-xl mb-2">
-          {["Pending", "Restaurant_Accepted", "Restaurant_Rejected"].map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all duration-200 ${
-                activeTab === tab
-                  ? "bg-white dark:bg-[#1a1a1a] text-[#FF6A00] shadow-sm"
-                  : "text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
-              }`}
-            >
-              {tab === "Pending" && "Pending Requests"}
-              {tab === "Restaurant_Accepted" && "Accepted"}
-              {tab === "Restaurant_Rejected" && "Rejected"}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Main Request Listing */}
-      <div className="flex-1 px-4 py-4 space-y-4">
+    <RestaurantPageShell
+      title="COD Deposit Verification"
+      subtitle="Verify cash handover from delivery partners"
+      onBack={goBack}
+      maxWidth="lg"
+      tabs={tabButtons}
+      contentClassName="space-y-4 font-sans"
+    >
         {loading ? (
           <div className="py-12 flex flex-col items-center justify-center gap-3 text-slate-500">
             <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
@@ -368,8 +361,6 @@ export default function CODDepositVerification() {
             ))}
           </div>
         )}
-      </div>
-
       {/* ACCEPT REQUEST DIALOG / SHEET */}
       {showAcceptModal && selectedRequest && (
         <div className="fixed inset-0 bg-black/55 z-[999] flex items-end justify-center p-0 md:p-4 md:items-center" onClick={() => setShowAcceptModal(false)}>
@@ -550,6 +541,6 @@ export default function CODDepositVerification() {
           </div>
         </div>
       )}
-    </div>
+    </RestaurantPageShell>
   )
 }

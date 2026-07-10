@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Eye, Loader2, Search, Trash2, Pencil } from "lucide-react"
 import { Switch } from "@food/components/ui/switch"
 import { adminAPI, uploadAPI } from "@food/api"
@@ -7,6 +7,9 @@ import { useAuth } from "@core/context/AuthContext"
 import { getCurrentUser } from "@food/utils/auth"
 import { canPerformAdminPermissionAction, extractAdminPermissions, extractAdminRoleId, fetchAdminRolePermissions } from "@food/utils/adminPermissions"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@food/components/ui/dialog"
+import RefreshButton from "@/shared/components/ui/RefreshButton"
+import FormField, { formInputClass } from "@/shared/components/admin/FormField"
+import FormActions from "@/shared/components/admin/FormActions"
 
 const debugError = (...args) => {}
 
@@ -96,34 +99,34 @@ export default function AddonsList() {
   const [editImagePreview, setEditImagePreview] = useState("")
   const [editImageFile, setEditImageFile] = useState(null)
 
-  useEffect(() => {
-    const fetchAddons = async () => {
-      try {
-        setLoading(true)
-        const response = await adminAPI.getRestaurantAddons({
-          // only approved items should be visible in this list
-          approvalStatus: "approved",
-          search: searchQuery?.trim() ? searchQuery.trim() : undefined,
-          limit: 200,
-          page: 1,
-        })
-        const data = response?.data?.data?.addons || response?.data?.addons || []
-        const approvedOnly = Array.isArray(data)
-          ? data.filter((addon) => String(addon.approvalStatus || "").toLowerCase() === "approved")
-          : []
-        setAddons(approvedOnly)
-      } catch (error) {
-        debugError("Error fetching addons:", error)
-        toast.error("Failed to load restaurant add-ons")
-        setAddons([])
-      } finally {
-        setLoading(false)
-      }
+  const fetchAddons = useCallback(async () => {
+    try {
+      setLoading(true)
+      const response = await adminAPI.getRestaurantAddons({
+        // only approved items should be visible in this list
+        approvalStatus: "approved",
+        search: searchQuery?.trim() ? searchQuery.trim() : undefined,
+        limit: 200,
+        page: 1,
+      })
+      const data = response?.data?.data?.addons || response?.data?.addons || []
+      const approvedOnly = Array.isArray(data)
+        ? data.filter((addon) => String(addon.approvalStatus || "").toLowerCase() === "approved")
+        : []
+      setAddons(approvedOnly)
+    } catch (error) {
+      debugError("Error fetching addons:", error)
+      toast.error("Failed to load restaurant add-ons")
+      setAddons([])
+    } finally {
+      setLoading(false)
     }
+  }, [searchQuery])
 
+  useEffect(() => {
     const t = setTimeout(fetchAddons, 250)
     return () => clearTimeout(t)
-  }, [searchQuery])
+  }, [fetchAddons])
 
   const filteredAddons = useMemo(() => {
     const result = Array.isArray(addons) ? [...addons] : []
@@ -159,6 +162,25 @@ export default function AddonsList() {
     setEditImagePreview(img || "")
     setEditImageFile(null)
     setShowEditModal(true)
+  }
+
+  const handleToggleAvailability = async (id, currentStatus) => {
+    if (!canEdit) {
+      toast.error("Permission denied")
+      return
+    }
+    try {
+      await adminAPI.updateRestaurantAddon(String(id), { isAvailable: !currentStatus })
+      setAddons((prev) =>
+        (prev || []).map((a) =>
+          String(a.id || a._id) === String(id) ? { ...a, isAvailable: !currentStatus } : a
+        )
+      )
+      toast.success("Add-on availability updated")
+    } catch (error) {
+      debugError("Error updating availability:", error)
+      toast.error(error?.response?.data?.message || "Failed to update availability")
+    }
   }
 
   const handleSaveEdit = async () => {
@@ -265,15 +287,18 @@ export default function AddonsList() {
         </div>
 
         <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div className="relative w-full sm:w-96">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Search add-ons or restaurant..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10 pr-4 py-2.5 w-full text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-slate-400"
-            />
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <div className="relative w-full sm:w-96">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search add-ons or restaurant..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10 pr-4 py-2.5 w-full text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-slate-400"
+              />
+            </div>
+            <RefreshButton onClick={fetchAddons} loading={loading} />
           </div>
           <div className="text-sm text-slate-600">
             Showing <span className="font-semibold">{countLabel}</span>
@@ -300,6 +325,9 @@ export default function AddonsList() {
                 </th>
                 <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
                   Price
+                </th>
+                <th className="px-6 py-4 text-center text-[10px] font-bold text-slate-700 uppercase tracking-wider">
+                  Status
                 </th>
                 <th className="px-6 py-4 text-center text-[10px] font-bold text-slate-700 uppercase tracking-wider">
                   Action
@@ -361,6 +389,19 @@ export default function AddonsList() {
                       <span className="text-sm font-medium text-slate-900">
                         ₹{Number(addon?.draft?.price ?? addon?.price ?? 0).toFixed(2)}
                       </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-center">
+                      <div className="flex items-center justify-center">
+                        <label className="relative inline-flex items-center cursor-pointer" title="Toggle active status">
+                          <input 
+                            type="checkbox" 
+                            className="sr-only peer" 
+                            checked={addon.isAvailable !== false} 
+                            onChange={() => handleToggleAvailability(addon.id || addon._id, addon.isAvailable !== false)} 
+                          />
+                          <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#FF6A00]"></div>
+                        </label>
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center">
                       <div className="flex items-center justify-center gap-2 flex-wrap">
@@ -467,9 +508,9 @@ export default function AddonsList() {
                   No image
                 </div>
               )}
-              <div className="flex-1">
-                <label className="block text-sm font-medium text-slate-700 mb-1">Change Image</label>
+              <FormField label="Change Image" htmlFor="addon-edit-image" className="flex-1" helperText="PNG, JPG, WEBP up to 5MB">
                 <input
+                  id="addon-edit-image"
                   type="file"
                   accept="image/*"
                   onChange={(e) => {
@@ -482,41 +523,40 @@ export default function AddonsList() {
                   className="text-sm"
                   disabled={!canEdit || submittingAction}
                 />
-                <p className="text-xs text-slate-500">PNG, JPG, WEBP up to 5MB</p>
-              </div>
+              </FormField>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Name</label>
+            <FormField label="Name" htmlFor="addon-edit-name">
               <input
+                id="addon-edit-name"
                 type="text"
                 value={editForm.name}
                 onChange={(e) => setEditForm((prev) => ({ ...prev, name: e.target.value }))}
-                className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+                className={formInputClass}
                 disabled={!canEdit}
               />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Price</label>
+            </FormField>
+            <FormField label="Price" htmlFor="addon-edit-price">
               <input
+                id="addon-edit-price"
                 type="number"
                 min="0"
                 step="0.01"
                 value={editForm.price}
                 onChange={(e) => setEditForm((prev) => ({ ...prev, price: e.target.value }))}
-                className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+                className={formInputClass}
                 disabled={!canEdit}
               />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Description</label>
+            </FormField>
+            <FormField label="Description" htmlFor="addon-edit-description">
               <textarea
+                id="addon-edit-description"
                 rows={3}
                 value={editForm.description}
                 onChange={(e) => setEditForm((prev) => ({ ...prev, description: e.target.value }))}
-                className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+                className={`${formInputClass} resize-none`}
                 disabled={!canEdit}
               />
-            </div>
+            </FormField>
             <div className="flex items-center gap-2">
               <Switch
                 checked={editForm.isAvailable}
@@ -525,23 +565,15 @@ export default function AddonsList() {
               />
               <span className="text-sm text-slate-700">Available</span>
             </div>
-          </div>
-          <div className="px-6 py-4 border-t border-slate-200 flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setShowEditModal(false)}
-              className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-md hover:bg-slate-50 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleSaveEdit}
-              disabled={submittingAction || !canEdit}
-              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {submittingAction ? "Saving..." : "Save"}
-            </button>
+            <FormActions
+              onCancel={() => setShowEditModal(false)}
+              onSubmit={handleSaveEdit}
+              submitType="button"
+              submitting={submittingAction}
+              submitDisabled={!canEdit}
+              submitLabel="Save"
+              sticky
+            />
           </div>
         </DialogContent>
       </Dialog>

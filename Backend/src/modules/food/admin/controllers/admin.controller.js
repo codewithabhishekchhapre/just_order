@@ -914,6 +914,16 @@ export async function createOrUpdateFeeSettings(req, res, next) {
 }
 
 // Public (user-facing, no admin auth) - powers the cart's delivery-speed selector.
+export async function getPublicDeliverySpeedOptions(req, res, next) {
+    try {
+        const data = await adminService.getPublicDeliverySpeedOptions();
+        res.status(200).json({ success: true, message: 'Delivery speed options fetched successfully', data });
+    } catch (error) {
+        next(error);
+    }
+}
+
+// Public (user-facing, no admin auth) - platform fee / GST fallback for the cart.
 export async function getPublicFeeSummary(req, res, next) {
     try {
         const data = await adminService.getPublicFeeSummary();
@@ -1554,9 +1564,21 @@ export async function getRestaurantCoupons(req, res, next) {
 export async function updateRestaurantCouponStatus(req, res, next) {
     try {
         const { id } = req.params;
-        const { status } = req.body;
-        const data = await adminService.updateRestaurantCouponStatus(id, status);
+        const { status, rejectionReason } = req.body;
+        const performer = await resolveActionPerformerSnapshot(req.user);
+        const data = await adminService.updateRestaurantCouponStatus(id, status, rejectionReason, performer);
         res.status(200).json({ success: true, message: `Restaurant coupon status updated to ${status} successfully`, data });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function revertRestaurantCouponRequest(req, res, next) {
+    try {
+        const { id } = req.params;
+        const performer = await resolveActionPerformerSnapshot(req.user);
+        const data = await adminService.revertRestaurantCouponRequest(id, performer);
+        res.status(200).json({ success: true, message: 'Coupon request reverted to pending successfully', data });
     } catch (error) {
         next(error);
     }

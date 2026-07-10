@@ -1,10 +1,12 @@
 import { useState, useMemo, useEffect } from "react"
 import { useSearchParams } from "react-router-dom"
-import { Search, Download, ChevronDown, ChevronLeft, ChevronRight, Calendar, Eye, FileDown, FileSpreadsheet, FileText, X, Mail, Phone, MapPin, Package, IndianRupee, Calendar as CalendarIcon, User, CheckCircle, XCircle } from "lucide-react"
+import { Search, Download, ChevronDown, Calendar, Eye, FileDown, FileSpreadsheet, FileText, X, Mail, Phone, MapPin, Package, IndianRupee, Calendar as CalendarIcon, User, CheckCircle, XCircle } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@food/components/ui/dropdown-menu"
 import { exportCustomersToCSV, exportCustomersToExcel, exportCustomersToPDF } from "@food/components/admin/customers/customersExportUtils"
 import { adminAPI } from "@food/api"
-import useCachedPaginatedQuery from "@food/hooks/useCachedPaginatedQuery"
+import useInfiniteList from "@food/hooks/useInfiniteList"
+import AdminTable from "@/shared/components/admin/AdminTable"
+import RefreshButton from "@/shared/components/ui/RefreshButton"
 import { toast } from "sonner"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@food/components/ui/dialog"
 const debugLog = (...args) => { }
@@ -44,24 +46,34 @@ export default function Customers() {
     chooseFirst: "",
   })
 
+  const [draftFilters, setDraftFilters] = useState({
+    orderDate: "",
+    joiningDate: "",
+    status: "",
+    sortBy: "",
+    chooseFirst: "",
+  })
+
   const customerQueryFilters = useMemo(() => ({
+    ...(filters.orderDate && { orderDate: filters.orderDate }),
     ...(filters.status && { status: filters.status }),
     ...(filters.joiningDate && { joiningDate: filters.joiningDate }),
     ...(filters.sortBy && { sortBy: filters.sortBy }),
     ...(filters.chooseFirst && { chooseFirst: filters.chooseFirst }),
-  }), [filters.status, filters.joiningDate, filters.sortBy, filters.chooseFirst])
+  }), [filters.orderDate, filters.status, filters.joiningDate, filters.sortBy, filters.chooseFirst])
 
   const {
     items: customers,
     setItems: setCustomers,
     total: totalCustomers,
-    page: currentPage,
-    setPage: setCurrentPage,
-    totalPages,
+    hasMore,
     loading,
+    loadingMore,
+    loadMore,
     search: cachedSearchQuery,
     setSearch: setCachedSearchQuery,
-  } = useCachedPaginatedQuery(
+    refresh: refreshCustomers,
+  } = useInfiniteList(
     async (params, config) => {
       const response = await adminAPI.getCustomers(params, config)
       const data = response?.data?.data || response?.data
@@ -85,28 +97,7 @@ export default function Customers() {
   const filteredCustomers = useMemo(() => {
     let result = [...customers]
 
-    // Filter by order date when that field is available in the API payload.
-
-    // Filter by joining date
-    if (filters.joiningDate) {
-      result = result.filter(customer => {
-        // Parse joining date from format "17 Oct 2021"
-        const customerDate = new Date(customer.joiningDate)
-        const filterDate = new Date(filters.joiningDate)
-        return customerDate.toDateString() === filterDate.toDateString()
-      })
-    }
-
-    // Filter by status
-    if (filters.status) {
-      if (filters.status === "active") {
-        result = result.filter(customer => customer.status === true)
-      } else if (filters.status === "inactive") {
-        result = result.filter(customer => customer.status === false)
-      }
-    }
-
-    // Sort by options
+    // Sort by options (for local sorting if backend didn't handle it fully)
     if (filters.sortBy) {
       if (filters.sortBy === "name-asc") {
         result.sort((a, b) => a.name.localeCompare(b.name))
@@ -119,13 +110,8 @@ export default function Customers() {
       }
     }
 
-    // Limit results if "Choose First" is set
-    if (filters.chooseFirst && parseInt(filters.chooseFirst) > 0) {
-      result = result.slice(0, parseInt(filters.chooseFirst))
-    }
-
     return result
-  }, [customers, searchQuery, filters])
+  }, [customers, filters])
 
   const getCustomerId = (customer) => customer?._id || customer?.id || customer?.sl || null
   const selectedCustomersCount = selectedCustomerIds.length
@@ -133,8 +119,8 @@ export default function Customers() {
     filteredCustomers.length > 0 &&
     filteredCustomers.every((customer) => selectedCustomerIds.includes(getCustomerId(customer)))
 
-  const handleFilterChange = (field, value) => {
-    setFilters(prev => ({ ...prev, [field]: value }))
+  const handleDraftFilterChange = (field, value) => {
+    setDraftFilters(prev => ({ ...prev, [field]: value }))
   }
 
   const formatDateTime = (value) => {
@@ -358,8 +344,8 @@ export default function Customers() {
               <div className="relative">
                 <input
                   type="date"
-                  value={filters.orderDate}
-                  onChange={(e) => handleFilterChange("orderDate", e.target.value)}
+                  value={draftFilters.orderDate}
+                  onChange={(e) => handleDraftFilterChange("orderDate", e.target.value)}
                   className="w-full px-4 py-2.5 border border-[#EDE8E0] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#FF6A00] focus:border-[#FF6A00] text-sm"
                 />
               </div>
@@ -372,8 +358,8 @@ export default function Customers() {
               <div className="relative">
                 <input
                   type="date"
-                  value={filters.joiningDate}
-                  onChange={(e) => handleFilterChange("joiningDate", e.target.value)}
+                  value={draftFilters.joiningDate}
+                  onChange={(e) => handleDraftFilterChange("joiningDate", e.target.value)}
                   className="w-full px-4 py-2.5 border border-[#EDE8E0] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#FF6A00] focus:border-[#FF6A00] text-sm"
                 />
               </div>
@@ -384,8 +370,8 @@ export default function Customers() {
                 Customer status
               </label>
               <select
-                value={filters.status}
-                onChange={(e) => handleFilterChange("status", e.target.value)}
+                value={draftFilters.status}
+                onChange={(e) => handleDraftFilterChange("status", e.target.value)}
                 className="w-full px-4 py-2.5 border border-[#EDE8E0] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#FF6A00] focus:border-[#FF6A00] text-sm"
               >
                 <option value="">Select Status</option>
@@ -399,8 +385,8 @@ export default function Customers() {
                 Sort By
               </label>
               <select
-                value={filters.sortBy}
-                onChange={(e) => handleFilterChange("sortBy", e.target.value)}
+                value={draftFilters.sortBy}
+                onChange={(e) => handleDraftFilterChange("sortBy", e.target.value)}
                 className="w-full px-4 py-2.5 border border-[#EDE8E0] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#FF6A00] focus:border-[#FF6A00] text-sm"
               >
                 <option value="">Select Customer Sorting Order</option>
@@ -417,8 +403,8 @@ export default function Customers() {
               </label>
               <input
                 type="number"
-                value={filters.chooseFirst}
-                onChange={(e) => handleFilterChange("chooseFirst", e.target.value)}
+                value={draftFilters.chooseFirst}
+                onChange={(e) => handleDraftFilterChange("chooseFirst", e.target.value)}
                 placeholder="Ex: 100"
                 className="w-full px-4 py-2.5 border border-[#EDE8E0] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#FF6A00] focus:border-[#FF6A00] text-sm"
               />
@@ -429,7 +415,7 @@ export default function Customers() {
             <div className="flex items-center gap-3">
               <button
                 onClick={() => {
-                  // Filters are applied automatically via useMemo
+                  setFilters(draftFilters)
                 }}
                 className="px-6 py-2.5 text-sm font-medium rounded-lg bg-[#FF6A00] text-white hover:bg-[#E85D04] transition-all"
               >
@@ -437,13 +423,15 @@ export default function Customers() {
               </button>
               <button
                 onClick={() => {
-                  setFilters({
+                  const empty = {
                     orderDate: "",
                     joiningDate: "",
                     status: "",
                     sortBy: "",
                     chooseFirst: "",
-                  })
+                  }
+                  setDraftFilters(empty)
+                  setFilters(empty)
                 }}
                 className="px-6 py-2.5 text-sm font-medium rounded-lg border border-[#EDE8E0] bg-white text-[#5C5247] hover:bg-[#FFF3EB] hover:text-[#FF6A00] transition-all"
               >
@@ -477,6 +465,8 @@ export default function Customers() {
                 />
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#9E8F7E]" />
               </div>
+
+              <RefreshButton onClick={refreshCustomers} loading={loading} />
 
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -531,195 +521,247 @@ export default function Customers() {
           </div>
 
           {/* Table */}
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1080px]">
-              <thead className="bg-[#FAF7F2] border-b border-[#EDE8E0]">
-                <tr>
-                  <th className="px-4 py-4 text-center text-[10px] font-bold text-[#5C5247] uppercase tracking-wider">
-                    <input
-                      type="checkbox"
-                      checked={allVisibleSelected}
-                      onChange={toggleSelectAllVisible}
-                      className="h-4 w-4 rounded border-[#EDE8E0] text-[#FF6A00] focus:ring-[#FF6A00]"
-                    />
-                  </th>
-                  <th className="px-6 py-4 text-left text-[10px] font-bold text-[#5C5247] uppercase tracking-wider">Sl</th>
-                  <th className="px-6 py-4 text-left text-[10px] font-bold text-[#5C5247] uppercase tracking-wider">Name</th>
-                  <th className="px-6 py-4 text-left text-[10px] font-bold text-[#5C5247] uppercase tracking-wider">Contact Information</th>
-                  <th className="px-6 py-4 text-left text-[10px] font-bold text-[#5C5247] uppercase tracking-wider">Total Order</th>
-                  <th className="px-6 py-4 text-left text-[10px] font-bold text-[#5C5247] uppercase tracking-wider">Total Order Amount</th>
-                  <th className="px-6 py-4 text-left text-[10px] font-bold text-[#5C5247] uppercase tracking-wider">Joining Date</th>
-                  <th className="px-6 py-4 text-left text-[10px] font-bold text-[#5C5247] uppercase tracking-wider">COD Access</th>
-                  <th className="px-6 py-4 text-left text-[10px] font-bold text-[#5C5247] uppercase tracking-wider">Active/Inactive</th>
-                  <th className="px-6 py-4 text-center text-[10px] font-bold text-[#5C5247] uppercase tracking-wider">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-[#EDE8E0]/70">
-                {loading ? (
-                  <tr>
-                    <td colSpan={10} className="px-6 py-8 text-center">
-                      <div className="text-sm text-[#9E8F7E]">Loading customers...</div>
-                    </td>
-                  </tr>
-                ) : filteredCustomers.length === 0 ? (
-                  <tr>
-                    <td colSpan={10} className="px-6 py-8 text-center">
-                      <div className="text-sm text-[#9E8F7E]">No customers found</div>
-                    </td>
-                  </tr>
-                ) : (
-                  filteredCustomers.map((customer, index) => (
-                    <tr key={getCustomerId(customer) || index} className="hover:bg-[#FAF7F2]/55 transition-colors">
-                      <td className="px-4 py-4 text-center">
-                        <input
-                          type="checkbox"
-                          checked={selectedCustomerIds.includes(getCustomerId(customer))}
-                          onChange={() => toggleCustomerSelection(getCustomerId(customer))}
-                          className="h-4 w-4 rounded border-[#EDE8E0] text-[#FF6A00] focus:ring-[#FF6A00]"
+          <AdminTable
+            loading={loading}
+            skeletonRows={6}
+            data={filteredCustomers}
+            getRowId={(customer, index) => getCustomerId(customer) || index}
+            columns={[
+              {
+                key: "select",
+                header: (
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={toggleSelectAllVisible}
+                    className="h-4 w-4 rounded border-[#EDE8E0] text-[#FF6A00] focus:ring-[#FF6A00]"
+                  />
+                ),
+                align: "center",
+                width: "4%",
+                cell: (customer) => (
+                  <input
+                    type="checkbox"
+                    checked={selectedCustomerIds.includes(getCustomerId(customer))}
+                    onChange={() => toggleCustomerSelection(getCustomerId(customer))}
+                    className="h-4 w-4 rounded border-[#EDE8E0] text-[#FF6A00] focus:ring-[#FF6A00]"
+                  />
+                ),
+              },
+              {
+                key: "sl",
+                header: "Sl",
+                width: "5%",
+                cell: (customer, index) => (
+                  <span className="text-sm font-medium text-[#5C5247]">{index + 1}</span>
+                ),
+              },
+              {
+                key: "name",
+                header: "Name",
+                cell: (customer) => (
+                  <div className="flex items-center gap-3">
+                    <div
+                      className="w-10 h-10 rounded-full bg-[#FAF7F2] text-[#5C5247] flex items-center justify-center shrink-0 overflow-hidden cursor-pointer hover:opacity-80 transition-all border border-[#EDE8E0]"
+                      onClick={() => handleViewDetails(customer._id || customer.id || customer.sl)}
+                    >
+                      {customer.profileImage ? (
+                        <img
+                          src={customer.profileImage}
+                          alt={customer.name}
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            e.currentTarget.style.display = "none"
+                          }}
                         />
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="text-sm font-medium text-[#5C5247]">{(currentPage - 1) * 20 + index + 1}</span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-3">
-                          <div
-                            className="w-10 h-10 rounded-full bg-[#FAF7F2] text-[#5C5247] flex items-center justify-center shrink-0 overflow-hidden cursor-pointer hover:opacity-80 transition-all border border-[#EDE8E0]"
-                            onClick={() => handleViewDetails(customer._id || customer.id || customer.sl)}
-                          >
-                            {customer.profileImage ? (
-                              <img
-                                src={customer.profileImage}
-                                alt={customer.name}
-                                className="w-full h-full object-cover"
-                                onError={(e) => {
-                                  e.currentTarget.style.display = "none"
-                                }}
-                              />
-                            ) : (
-                              <span className="text-xs font-semibold">{getInitials(customer.name)}</span>
-                            )}
-                          </div>
-                          <span
-                            className="text-sm font-medium text-[#1A1A1A] cursor-pointer hover:text-[#FF6A00] transition-colors"
-                            onClick={() => handleViewDetails(customer._id || customer.id || customer.sl)}
-                          >
-                            {customer.name}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex flex-col">
-                          <span className="text-sm text-[#5C5247]">{customer.email}</span>
-                          <span className="text-xs text-[#9E8F7E]">{customer.phone}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="text-sm text-[#5C5247]">{customer.totalOrder || 0}</span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="text-sm font-medium text-[#1A1A1A]">{"\u20B9"} {(customer.totalOrderAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="text-sm text-[#5C5247]">{formatDateTime(customer.joiningDate)}</span>
-                      </td>
-                      {/* <td className="px-6 py-4 whitespace-nowrap">
-                        <button
-                          onClick={() => handleToggleCodAccess(getCustomerId(customer))}
-                          disabled={codUpdatingId === getCustomerId(customer)}
-                          
-                          className={`relative inline-flex shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-[#FF6A00] focus:ring-offset-2 disabled:opacity-60 ${customer.isCodAllowed !== false ? "bg-emerald-600" : "bg-slate-300"}`}
-                        >
-                          <span
-                            style={{ width: "20px", height: "20px", transform: customer.isCodAllowed !== false ? "translateX(16px)" : "translateX(0px)" }}
-                            className={`pointer-events-none inline-block transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out`}
-                          />
-                        </button>
-                      </td> */}
-                      {/* <td className="px-6 py-4 whitespace-nowrap">
-                        <button
-                          onClick={() => handleToggleStatus(getCustomerId(customer))}
-                          style={{ width: "44px", height: "24px", minWidth: "44px" }}
-                          className={`relative inline-flex shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-[#FF6A00] focus:ring-offset-2 ${customer.status ? "bg-[#FF6A00]" : "bg-slate-300"}`}
-                        >
-                          <span
-                            style={{ width: "20px", height: "20px", transform: customer.status ? "translateX(16px)" : "translateX(0px)" }}
-                            className={`pointer-events-none inline-block transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out`}
-                          />
-                        </button>
-                      </td> */}
-
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <button
-                          onClick={() => handleToggleCodAccess(getCustomerId(customer))}
-                          disabled={codUpdatingId === getCustomerId(customer)}
-                          className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 disabled:opacity-60 ${customer.isCodAllowed !== false ? "bg-emerald-600" : "bg-slate-300"
+                      ) : (
+                        <span className="text-xs font-semibold">{getInitials(customer.name)}</span>
+                      )}
+                    </div>
+                    <span
+                      className="text-sm font-medium text-[#1A1A1A] cursor-pointer hover:text-[#FF6A00] transition-colors"
+                      onClick={() => handleViewDetails(customer._id || customer.id || customer.sl)}
+                    >
+                      {customer.name}
+                    </span>
+                  </div>
+                ),
+              },
+              {
+                key: "contact",
+                header: "Contact Information",
+                cell: (customer) => (
+                  <div className="flex flex-col">
+                    <span className="text-sm text-[#5C5247]">{customer.email}</span>
+                    <span className="text-xs text-[#9E8F7E]">{customer.phone}</span>
+                  </div>
+                ),
+              },
+              {
+                key: "totalOrder",
+                header: "Total Order",
+                cell: (customer) => (
+                  <span className="text-sm text-[#5C5247]">{customer.totalOrder || 0}</span>
+                ),
+              },
+              {
+                key: "totalOrderAmount",
+                header: "Total Order Amount",
+                cell: (customer) => (
+                  <span className="text-sm font-medium text-[#1A1A1A]">
+                    {"\u20B9"} {(customer.totalOrderAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                ),
+              },
+              {
+                key: "joiningDate",
+                header: "Joining Date",
+                cell: (customer) => (
+                  <span className="text-sm text-[#5C5247]">{formatDateTime(customer.joiningDate)}</span>
+                ),
+              },
+              {
+                key: "codAccess",
+                header: "COD Access",
+                cell: (customer) => (
+                  <button
+                    onClick={() => handleToggleCodAccess(getCustomerId(customer))}
+                    disabled={codUpdatingId === getCustomerId(customer)}
+                    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 disabled:opacity-60 ${customer.isCodAllowed !== false ? "bg-emerald-600" : "bg-slate-300"
+                      }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${customer.isCodAllowed !== false ? "translate-x-6" : "translate-x-1"
+                        }`}
+                    />
+                  </button>
+                ),
+              },
+              {
+                key: "status",
+                header: "Active/Inactive",
+                cell: (customer) => (
+                  <button
+                    onClick={() => handleToggleStatus(getCustomerId(customer))}
+                    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 ${customer.status ? "bg-red-500" : "bg-slate-300"
+                      }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${customer.status ? "translate-x-6" : "translate-x-1"
+                        }`}
+                    />
+                  </button>
+                ),
+              },
+              {
+                key: "actions",
+                header: "Actions",
+                align: "center",
+                cell: (customer) => (
+                  <button
+                    onClick={() => handleViewDetails(customer._id || customer.id || customer.sl)}
+                    className="p-1.5 rounded text-[#FF6A00] hover:bg-[#FFF3EB] transition-colors"
+                  >
+                    <Eye className="w-4 h-4" />
+                  </button>
+                ),
+              },
+            ]}
+            emptyState={{
+              title: "No customers found",
+              description: "Try a different search or filter combination.",
+            }}
+            infiniteScroll={{ onLoadMore: loadMore, hasMore, loadingMore, total: totalCustomers }}
+            renderMobileCard={(customer) => (
+              <div className="rounded-xl border border-[#EDE8E0] bg-white p-3 shadow-sm">
+                <div className="flex items-start gap-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedCustomerIds.includes(getCustomerId(customer))}
+                    onChange={() => toggleCustomerSelection(getCustomerId(customer))}
+                    className="mt-1 h-4 w-4 shrink-0 rounded border-[#EDE8E0] text-[#FF6A00] focus:ring-[#FF6A00]"
+                  />
+                  <div
+                    className="w-11 h-11 shrink-0 rounded-full bg-[#FAF7F2] text-[#5C5247] flex items-center justify-center overflow-hidden cursor-pointer border border-[#EDE8E0]"
+                    onClick={() => handleViewDetails(customer._id || customer.id || customer.sl)}
+                  >
+                    {customer.profileImage ? (
+                      <img
+                        src={customer.profileImage}
+                        alt={customer.name}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          e.currentTarget.style.display = "none"
+                        }}
+                      />
+                    ) : (
+                      <span className="text-xs font-semibold">{getInitials(customer.name)}</span>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p
+                      className="truncate text-sm font-semibold text-[#1A1A1A] cursor-pointer hover:text-[#FF6A00]"
+                      onClick={() => handleViewDetails(customer._id || customer.id || customer.sl)}
+                    >
+                      {customer.name}
+                    </p>
+                    <p className="mt-0.5 truncate text-xs text-[#5C5247]">{customer.email}</p>
+                    <p className="truncate text-xs text-[#9E8F7E]">{customer.phone}</p>
+                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[#5C5247]">
+                      <span>Orders: {customer.totalOrder || 0}</span>
+                      <span className="text-[#EDE8E0]">\u2022</span>
+                      <span>
+                        {"\u20B9"} {(customer.totalOrderAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-[11px] text-[#9E8F7E]">Joined: {formatDateTime(customer.joiningDate)}</p>
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[#EDE8E0] pt-2">
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-[#9E8F7E]">COD</span>
+                      <button
+                        onClick={() => handleToggleCodAccess(getCustomerId(customer))}
+                        disabled={codUpdatingId === getCustomerId(customer)}
+                        className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors disabled:opacity-60 ${customer.isCodAllowed !== false ? "bg-emerald-600" : "bg-slate-300"
+                          }`}
+                      >
+                        <span
+                          className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${customer.isCodAllowed !== false ? "translate-x-4" : "translate-x-1"
                             }`}
-                        >
-                          <span
-                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${customer.isCodAllowed !== false ? "translate-x-6" : "translate-x-1"
-                              }`}
-                          />
-                        </button>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <button
-                          onClick={() => handleToggleStatus(getCustomerId(customer))}
-                          className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 ${customer.status ? "bg-red-500" : "bg-slate-300"
+                        />
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-[#9E8F7E]">Active</span>
+                      <button
+                        onClick={() => handleToggleStatus(getCustomerId(customer))}
+                        className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${customer.status ? "bg-red-500" : "bg-slate-300"
+                          }`}
+                      >
+                        <span
+                          className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${customer.status ? "translate-x-4" : "translate-x-1"
                             }`}
-                        >
-                          <span
-                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${customer.status ? "translate-x-6" : "translate-x-1"
-                              }`}
-                          />
-                        </button>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-center">
-                        <button
-                          onClick={() => handleViewDetails(customer._id || customer.id || customer.sl)}
-                          className="p-1.5 rounded text-[#FF6A00] hover:bg-[#FFF3EB] transition-colors"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-          {!loading && totalCustomers > 0 && (
-            <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-t border-[#EDE8E0] pt-4">
-              <p className="text-sm text-[#5C5247]">
-                Showing <span className="font-semibold text-[#1A1A1A]">{(currentPage - 1) * 20 + 1}</span>
-                {" - "}
-                <span className="font-semibold text-[#1A1A1A]">{Math.min(currentPage * 20, totalCustomers)}</span>
-                {" "}of <span className="font-semibold text-[#1A1A1A]">{totalCustomers}</span> customers
-              </p>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
-                  disabled={currentPage === 1}
-                  className="inline-flex items-center gap-1 rounded-lg border border-[#EDE8E0] px-3 py-2 text-sm font-semibold text-[#5C5247] disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#FFF3EB]"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                  Prev
-                </button>
-                <span className="rounded-lg bg-[#FAF7F2] px-3 py-2 text-sm font-semibold text-[#1A1A1A]">
-                  {currentPage} / {totalPages}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
-                  disabled={currentPage >= totalPages}
-                  className="inline-flex items-center gap-1 rounded-lg border border-[#EDE8E0] px-3 py-2 text-sm font-semibold text-[#5C5247] disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#FFF3EB]"
-                >
-                  Next
-                  <ChevronRight className="h-4 w-4" />
-                </button>
+                        />
+                      </button>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleViewDetails(customer._id || customer.id || customer.sl)}
+                    className="rounded-lg p-1.5 text-[#FF6A00] hover:bg-[#FFF3EB]"
+                  >
+                    <Eye className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
+          />
+          {!loading && totalCustomers > 0 && (
+            <p className="mt-3 text-sm text-[#5C5247]">
+              Loaded <span className="font-semibold text-[#1A1A1A]">{filteredCustomers.length}</span>
+              {" "}of <span className="font-semibold text-[#1A1A1A]">{totalCustomers}</span> customers
+            </p>
           )}
         </div>
       </div>

@@ -1,4 +1,4 @@
-import { useMemo } from "react"
+import { useMemo, useState, useCallback } from "react"
 import { emptyOrders } from "@food/utils/adminFallbackData"
 import OrdersTopbar from "@food/components/admin/orders/OrdersTopbar"
 import OrdersTable from "@food/components/admin/orders/OrdersTable"
@@ -7,9 +7,21 @@ import ViewOrderDialog from "@food/components/admin/orders/ViewOrderDialog"
 import SettingsDialog from "@food/components/admin/orders/SettingsDialog"
 import { useOrdersManagement } from "@food/components/admin/orders/useOrdersManagement"
 
-const pendingOrders = emptyOrders.filter((order) => order.orderStatus === "Pending")
+const getPendingOrders = () => emptyOrders.filter((order) => order.orderStatus === "Pending")
 
 export default function PendingOrders() {
+  const [pendingOrders, setPendingOrders] = useState(getPendingOrders)
+  const [refreshing, setRefreshing] = useState(false)
+
+  const refreshOrders = useCallback(async () => {
+    setRefreshing(true)
+    try {
+      setPendingOrders(getPendingOrders())
+    } finally {
+      setRefreshing(false)
+    }
+  }, [])
+
   const {
     searchQuery,
     setSearchQuery,
@@ -47,6 +59,8 @@ export default function PendingOrders() {
         activeFiltersCount={activeFiltersCount}
         onExport={handleExport}
         onSettingsClick={() => setIsSettingsOpen(true)}
+        onRefresh={refreshOrders}
+        refreshing={refreshing}
       />
       <FilterPanel
         isOpen={isFilterOpen}

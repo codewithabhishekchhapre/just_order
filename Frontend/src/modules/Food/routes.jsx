@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate, useLocation } from "react-router-dom"
 import { useEffect, Suspense, lazy } from "react"
 import ProtectedRoute from "@food/components/ProtectedRoute"
+import ModuleAccessGuard from "@/modules/common/components/ModuleAccessGuard"
 import AuthRedirect from "@food/components/AuthRedirect"
 import Loader from "@food/components/Loader"
 import PushSoundEnableButton from "@food/components/PushSoundEnableButton"
@@ -88,7 +89,9 @@ export default function App() {
           <Route
             path="user/*"
             element={
-              <UserRouter />
+              <ModuleAccessGuard moduleKey="food">
+                <UserRouter />
+              </ModuleAccessGuard>
             }
           />
 

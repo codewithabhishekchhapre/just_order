@@ -3,6 +3,7 @@ import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation
 import { Loader2, Send, TicketX, MessageSquarePlus } from "lucide-react"
 import { restaurantAPI } from "@food/api"
 import { toast } from "sonner"
+import RestaurantPageShell from "@food/components/restaurant/RestaurantPageShell"
 
 const CATEGORY_OPTIONS = [
   { value: "orders", label: "Orders" },
@@ -89,13 +90,13 @@ export default function RestaurantSupport() {
   const setField = (key) => (e) => setForm(prev => ({ ...prev, [key]: e.target.value }))
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a]">
-      {/* Header */}
-      <div className="bg-white dark:bg-[#111] border-b border-gray-100 dark:border-gray-800 px-4 py-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-base font-bold text-gray-900 dark:text-white">Support</h1>
-          <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Raise and track your support requests</p>
-        </div>
+    <RestaurantPageShell
+      title="Support"
+      subtitle="Raise and track your support requests"
+      onBack={goBack}
+      maxWidth="2xl"
+      contentClassName="space-y-4"
+      actions={(
         <button
           onClick={() => setShowForm(v => !v)}
           className="flex items-center gap-1.5 px-3.5 py-2 bg-[#FF6A00] text-white text-xs font-bold rounded-xl"
@@ -103,9 +104,8 @@ export default function RestaurantSupport() {
           <MessageSquarePlus className="w-3.5 h-3.5" strokeWidth={2.5} />
           New Ticket
         </button>
-      </div>
-
-      <div className="max-w-2xl mx-auto px-4 py-4 space-y-4">
+      )}
+    >
         {/* Stats */}
         <div className="grid grid-cols-4 gap-2">
           {[
@@ -205,7 +205,6 @@ export default function RestaurantSupport() {
             </div>
           )}
         </div>
-      </div>
-    </div>
+    </RestaurantPageShell>
   )
 }

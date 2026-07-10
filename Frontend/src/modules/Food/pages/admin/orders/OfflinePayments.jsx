@@ -1,3 +1,4 @@
+import { useState, useCallback } from "react"
 import { emptyOrders } from "@food/utils/adminFallbackData"
 import OrdersTopbar from "@food/components/admin/orders/OrdersTopbar"
 import OrdersTable from "@food/components/admin/orders/OrdersTable"
@@ -6,9 +7,22 @@ import ViewOrderDialog from "@food/components/admin/orders/ViewOrderDialog"
 import SettingsDialog from "@food/components/admin/orders/SettingsDialog"
 import { useOrdersManagement } from "@food/components/admin/orders/useOrdersManagement"
 
-const offlinePaymentsOrders = emptyOrders.filter((order) => order.orderStatus === "Offline Payments")
+const getOfflinePaymentsOrders = () =>
+  emptyOrders.filter((order) => order.orderStatus === "Offline Payments")
 
 export default function OfflinePayments() {
+  const [offlinePaymentsOrders, setOfflinePaymentsOrders] = useState(getOfflinePaymentsOrders)
+  const [refreshing, setRefreshing] = useState(false)
+
+  const refreshOrders = useCallback(async () => {
+    setRefreshing(true)
+    try {
+      setOfflinePaymentsOrders(getOfflinePaymentsOrders())
+    } finally {
+      setRefreshing(false)
+    }
+  }, [])
+
   const {
     searchQuery,
     setSearchQuery,
@@ -53,6 +67,8 @@ export default function OfflinePayments() {
         activeFiltersCount={activeFiltersCount}
         onExport={handleExport}
         onSettingsClick={() => setIsSettingsOpen(true)}
+        onRefresh={refreshOrders}
+        refreshing={refreshing}
       />
       <FilterPanel
         isOpen={isFilterOpen}

@@ -9,6 +9,7 @@ import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns"
 import { Modal, ModalFooter } from "@food/components/restaurant/Modal"
 import { restaurantAPI } from "@food/api"
 import { useCompanyName } from "@food/hooks/useCompanyName"
+import RestaurantPageShell from "@food/components/restaurant/RestaurantPageShell"
 
 const debugLog = (...args) => {}
 const debugError = (...args) => {}
@@ -490,39 +491,36 @@ export default function OutletOperations() {
 
   const activeTabData = TABS.find(t => t.id === activeTab)
 
+  const tabBar = (
+    <div className="flex gap-1 overflow-x-auto scrollbar-none -mb-px">
+      {TABS.map(({ id, label, icon: Icon }) => {
+        const active = activeTab === id
+        return (
+          <button
+            key={id}
+            onClick={() => switchTab(id)}
+            className={`flex items-center gap-1.5 px-4 py-3.5 text-xs font-bold whitespace-nowrap border-b-2 transition-all flex-shrink-0 ${
+              active
+                ? "border-[#FF6A00] text-[#FF6A00]"
+                : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+            }`}
+          >
+            <Icon className="w-3.5 h-3.5 flex-shrink-0" strokeWidth={active ? 2.5 : 2} />
+            {label}
+          </button>
+        )
+      })}
+    </div>
+  )
+
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a]">
-      {/* Page header */}
-      <div className="bg-white dark:bg-[#111] border-b border-gray-100 dark:border-gray-800 px-4 py-4 sticky top-0 z-50">
-        <h1 className="text-base font-bold text-gray-900 dark:text-white">Outlet Operations</h1>
-        <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Manage timings, rush hour & delivery</p>
-      </div>
-
-      {/* Tab switcher */}
-      <div className="bg-white dark:bg-[#111] border-b border-gray-100 dark:border-gray-800 sticky top-[61px] z-40 px-4">
-        <div className="flex gap-1 overflow-x-auto scrollbar-none -mb-px">
-          {TABS.map(({ id, label, icon: Icon }) => {
-            const active = activeTab === id
-            return (
-              <button
-                key={id}
-                onClick={() => switchTab(id)}
-                className={`flex items-center gap-1.5 px-4 py-3.5 text-xs font-bold whitespace-nowrap border-b-2 transition-all flex-shrink-0 ${
-                  active
-                    ? "border-[#FF6A00] text-[#FF6A00]"
-                    : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
-                }`}
-              >
-                <Icon className="w-3.5 h-3.5 flex-shrink-0" strokeWidth={active ? 2.5 : 2} />
-                {label}
-              </button>
-            )
-          })}
-        </div>
-      </div>
-
-      {/* Tab content */}
-      <div className="max-w-lg mx-auto px-4">
+    <RestaurantPageShell
+      title="Outlet Operations"
+      subtitle="Manage timings, rush hour & delivery"
+      maxWidth="lg"
+      tabs={tabBar}
+      contentClassName="py-4"
+    >
         <AnimatePresence mode="wait">
           <motion.div
             key={activeTab}
@@ -536,7 +534,6 @@ export default function OutletOperations() {
             {activeTab === "delivery" && <DeliverySettingsTab />}
           </motion.div>
         </AnimatePresence>
-      </div>
-    </div>
+    </RestaurantPageShell>
   )
 }

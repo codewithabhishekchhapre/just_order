@@ -41,6 +41,38 @@ export default function DeliverySpeedSettings() {
     fetchOptions()
   }, [])
 
+  const persistOptions = async (nextOptions, { successMessage } = {}) => {
+    try {
+      setSaving(true)
+      const response = await adminAPI.createOrUpdateFeeSettings({
+        deliverySpeedOptions: nextOptions,
+        isActive: true,
+      })
+
+      if (!response?.data?.success) {
+        throw new Error(response?.data?.message || "Failed to save delivery speed options")
+      }
+
+      const saved = response?.data?.data?.feeSettings?.deliverySpeedOptions
+      if (Array.isArray(saved)) {
+        setOptions(saved)
+      } else {
+        setOptions(nextOptions)
+      }
+
+      if (successMessage) {
+        toast.success(successMessage)
+      }
+
+      return true
+    } catch (error) {
+      toast.error(error?.response?.data?.message || error?.message || "Failed to save delivery speed options")
+      return false
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const validateDraft = () => {
     const code = String(draft.code || "").trim().toLowerCase()
     const label = String(draft.label || "").trim()
@@ -89,15 +121,19 @@ export default function DeliverySpeedSettings() {
   const applyDefaultExclusivity = (list, index) =>
     list.map((option, i) => ({ ...option, isDefault: i === index ? option.isDefault : false }))
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     const next = validateDraft()
     if (!next) return
-    setOptions((prev) => {
-      const merged = [...prev, next]
-      return next.isDefault ? applyDefaultExclusivity(merged, merged.length - 1) : merged
-    })
-    setDraft(EMPTY_DRAFT)
-    toast.success("Delivery speed option added")
+
+    let merged = [...options, next]
+    if (next.isDefault) {
+      merged = applyDefaultExclusivity(merged, merged.length - 1)
+    }
+
+    const saved = await persistOptions(merged, { successMessage: "Delivery speed option saved" })
+    if (saved) {
+      setDraft(EMPTY_DRAFT)
+    }
   }
 
   const handleEdit = (index) => {
@@ -116,16 +152,18 @@ export default function DeliverySpeedSettings() {
     })
   }
 
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     const next = validateDraft()
     if (!next) return
-    setOptions((prev) => {
-      const merged = prev.map((option, index) => (index === editingIndex ? next : option))
-      return next.isDefault ? applyDefaultExclusivity(merged, editingIndex) : merged
-    })
-    setEditingIndex(null)
-    setDraft(EMPTY_DRAFT)
-    toast.success("Delivery speed option updated")
+
+    const merged = options.map((option, index) => (index === editingIndex ? next : option))
+    const normalized = next.isDefault ? applyDefaultExclusivity(merged, editingIndex) : merged
+
+    const saved = await persistOptions(normalized, { successMessage: "Delivery speed option updated" })
+    if (saved) {
+      setEditingIndex(null)
+      setDraft(EMPTY_DRAFT)
+    }
   }
 
   const handleCancelEdit = () => {
@@ -133,28 +171,16 @@ export default function DeliverySpeedSettings() {
     setDraft(EMPTY_DRAFT)
   }
 
-  const handleDelete = (index) => {
-    setOptions((prev) => prev.filter((_, i) => i !== index))
-    if (editingIndex === index) handleCancelEdit()
-    toast.success("Delivery speed option removed")
+  const handleDelete = async (index) => {
+    const nextOptions = options.filter((_, i) => i !== index)
+    const saved = await persistOptions(nextOptions, { successMessage: "Delivery speed option removed" })
+    if (saved && editingIndex === index) {
+      handleCancelEdit()
+    }
   }
 
   const handleSave = async () => {
-    try {
-      setSaving(true)
-      const response = await adminAPI.createOrUpdateFeeSettings({ deliverySpeedOptions: options })
-      if (response.data.success) {
-        toast.success("Delivery speed options saved successfully")
-        const saved = response?.data?.data?.feeSettings?.deliverySpeedOptions
-        if (Array.isArray(saved)) setOptions(saved)
-      } else {
-        toast.error(response.data.message || "Failed to save delivery speed options")
-      }
-    } catch (error) {
-      toast.error(error.response?.data?.message || "Failed to save delivery speed options")
-    } finally {
-      setSaving(false)
-    }
+    await persistOptions(options, { successMessage: "Delivery speed options saved successfully" })
   }
 
   return (
@@ -167,8 +193,8 @@ export default function DeliverySpeedSettings() {
           <h1 className="text-2xl font-bold text-slate-900">Delivery Speed Options</h1>
         </div>
         <p className="text-sm text-slate-600">
-          Configure the delivery speed tiers (Eco, Standard, Express, ...) shown to users on the cart page. Each
-          tier's extra fee is added on top of the regular distance-based delivery fee.
+          Configure the delivery speed tiers shown to users on the cart page. Changes are saved to the database
+          automatically when you add, edit, or delete an option.
         </p>
       </div>
 
@@ -178,7 +204,7 @@ export default function DeliverySpeedSettings() {
             <div>
               <h2 className="text-xl font-bold text-slate-900">Speed Tiers</h2>
               <p className="text-sm text-slate-500 mt-1">
-                Mark one option as default - it's pre-selected for users when they open the cart.
+                Mark one option as default - it is pre-selected for users when they open the cart.
               </p>
             </div>
             <Button
@@ -239,10 +265,10 @@ export default function DeliverySpeedSettings() {
                           </td>
                           <td className="px-4 py-3 text-center border-b border-slate-100">
                             <div className="flex items-center justify-center gap-2">
-                              <button onClick={() => handleEdit(index)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors" title="Edit">
+                              <button onClick={() => handleEdit(index)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors" title="Edit" disabled={saving}>
                                 <Edit className="w-4 h-4" />
                               </button>
-                              <button onClick={() => handleDelete(index)} className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors" title="Delete">
+                              <button onClick={() => handleDelete(index)} className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors" title="Delete" disabled={saving}>
                                 <Trash2 className="w-4 h-4" />
                               </button>
                             </div>
@@ -270,6 +296,7 @@ export default function DeliverySpeedSettings() {
                       onChange={(e) => setDraft((prev) => ({ ...prev, code: e.target.value }))}
                       className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none"
                       placeholder="eco"
+                      disabled={saving}
                     />
                   </div>
                   <div>
@@ -280,6 +307,7 @@ export default function DeliverySpeedSettings() {
                       onChange={(e) => setDraft((prev) => ({ ...prev, label: e.target.value }))}
                       className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none"
                       placeholder="Eco"
+                      disabled={saving}
                     />
                   </div>
                   <div>
@@ -292,6 +320,7 @@ export default function DeliverySpeedSettings() {
                       onChange={(e) => setDraft((prev) => ({ ...prev, extraFee: e.target.value }))}
                       className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none"
                       placeholder="0"
+                      disabled={saving}
                     />
                   </div>
                   <div>
@@ -303,6 +332,7 @@ export default function DeliverySpeedSettings() {
                       onChange={(e) => setDraft((prev) => ({ ...prev, etaMinutesMin: e.target.value }))}
                       className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none"
                       placeholder="30"
+                      disabled={saving}
                     />
                   </div>
                   <div>
@@ -314,6 +344,7 @@ export default function DeliverySpeedSettings() {
                       onChange={(e) => setDraft((prev) => ({ ...prev, etaMinutesMax: e.target.value }))}
                       className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none"
                       placeholder="40"
+                      disabled={saving}
                     />
                   </div>
                   <div className="md:col-span-3">
@@ -324,6 +355,7 @@ export default function DeliverySpeedSettings() {
                       onChange={(e) => setDraft((prev) => ({ ...prev, description: e.target.value }))}
                       className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none"
                       placeholder="Regular delivery speed"
+                      disabled={saving}
                     />
                   </div>
                 </div>
@@ -334,6 +366,7 @@ export default function DeliverySpeedSettings() {
                       checked={draft.isDefault}
                       onChange={(e) => setDraft((prev) => ({ ...prev, isDefault: e.target.checked }))}
                       className="rounded border-slate-300 text-orange-600 focus:ring-orange-500 w-3.5 h-3.5"
+                      disabled={saving}
                     />
                     Pre-selected by default
                   </label>
@@ -343,13 +376,14 @@ export default function DeliverySpeedSettings() {
                       checked={draft.isActive}
                       onChange={(e) => setDraft((prev) => ({ ...prev, isActive: e.target.checked }))}
                       className="rounded border-slate-300 text-orange-600 focus:ring-orange-500 w-3.5 h-3.5"
+                      disabled={saving}
                     />
                     Active (visible to users)
                   </label>
                 </div>
                 <div className="flex justify-end gap-3 mt-4">
                   {editingIndex !== null && (
-                    <Button onClick={handleCancelEdit} variant="outline" className="border-slate-300 text-slate-700">
+                    <Button onClick={handleCancelEdit} variant="outline" className="border-slate-300 text-slate-700" disabled={saving}>
                       <X className="w-4 h-4 mr-2" />
                       Cancel
                     </Button>
@@ -357,6 +391,7 @@ export default function DeliverySpeedSettings() {
                   <Button
                     onClick={editingIndex === null ? handleAdd : handleSaveEdit}
                     className="bg-orange-600 hover:bg-orange-700 text-white"
+                    disabled={saving}
                   >
                     {editingIndex === null ? (
                       <>

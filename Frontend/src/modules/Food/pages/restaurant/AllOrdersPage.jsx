@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from "framer-motion"
 import { useNavigate } from "react-router-dom"
 import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation"
 import {
-  ArrowLeft,
   Search,
   Filter,
   ChevronDown,
@@ -17,6 +16,7 @@ import {
 import { DateRangeCalendar } from "@food/components/ui/date-range-calendar"
 import { restaurantAPI } from "@food/api"
 import { useRestaurantNotifications } from "@food/hooks/useRestaurantNotifications"
+import RestaurantPageShell from "@food/components/restaurant/RestaurantPageShell"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -497,28 +497,15 @@ export default function AllOrdersPage() {
   }, [currentPage, totalPages])
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a]">
-      {/* Header */}
-      <div className="bg-white dark:bg-[#111] border-b border-gray-100 dark:border-gray-800 px-4 py-4 sticky top-0 z-50">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={goBack}
-            className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
-            aria-label="Go back"
-          >
-            <ArrowLeft className="w-6 h-6 text-gray-900 dark:text-white" />
-          </button>
-          <div className="flex-1">
-            <p className="text-xs text-gray-400 dark:text-gray-500">Order history for</p>
-            <h1 className="text-base font-bold text-gray-900 dark:text-white">
-              {restaurantData?.name || 'Restaurant'}
-            </h1>
-          </div>
-        </div>
-      </div>
-
+    <RestaurantPageShell
+      title={restaurantData?.name || "Restaurant"}
+      subtitle="Order history"
+      onBack={goBack}
+      maxWidth="6xl"
+      contentClassName="py-0 space-y-0"
+    >
       {/* Search and Filter Section */}
-      <div className="px-4 py-4 space-y-3">
+      <div className="py-4 space-y-3">
         {/* Search Bar */}
         <div className="flex items-center gap-2">
           <div className="flex-1 relative">
@@ -567,7 +554,7 @@ export default function AllOrdersPage() {
 
       {/* Active Filters Summary */}
       {hasActiveFilters() && (
-        <div className="px-4 pb-2">
+        <div className="pb-2">
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -587,7 +574,7 @@ export default function AllOrdersPage() {
       )}
 
       {/* Orders List */}
-      <div className="px-4 pb-24 space-y-3">
+      <div className="pb-4 space-y-3">
         {loading && (
           <div className="flex flex-col items-center justify-center py-16 gap-3 bg-white dark:bg-[#111] rounded-2xl border border-gray-100 dark:border-gray-800">
             <div className="w-7 h-7 border-2 border-[#FF6A00]/30 border-t-[#FF6A00] rounded-full animate-spin"></div>
@@ -1028,7 +1015,7 @@ export default function AllOrdersPage() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 50 }}
             transition={{ duration: 0.3 }}
-            className="fixed bottom-24 left-1/2 -translate-x-1/2 z-60 bg-gray-900 text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-2"
+            className="fixed bottom-4 left-1/2 -translate-x-1/2 z-60 bg-gray-900 text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-2"
           >
             <svg className="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -1037,6 +1024,6 @@ export default function AllOrdersPage() {
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+    </RestaurantPageShell>
   )
 }

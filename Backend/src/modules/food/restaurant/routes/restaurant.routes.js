@@ -37,7 +37,7 @@ import {
     updateCategoryController,
     deleteCategoryController
 } from '../controllers/restaurantCategory.controller.js';
-import { getMenuController, updateMenuController, getPublicRestaurantMenuController } from '../controllers/restaurantMenu.controller.js';
+import { getMenuController, updateMenuController, getPublicRestaurantMenuController, getMenuItemsController } from '../controllers/restaurantMenu.controller.js';
 import { getPublicRestaurantAddonsController } from '../controllers/publicAddons.controller.js';
 import * as feedbackExperienceController from '../../admin/controllers/feedbackExperience.controller.js';
 import {
@@ -185,6 +185,7 @@ router.delete('/categories/:id', authMiddleware, requireRestaurant, deleteCatego
 
 // Menu (restaurant dashboard) - only fields needed by UI
 router.get('/menu', authMiddleware, requireRestaurant, getMenuController);
+router.get('/menu/items', authMiddleware, requireRestaurant, getMenuItemsController);
 router.patch('/menu', authMiddleware, requireRestaurant, async (req, res, next) => {
     await invalidateCache('restaurant_menu:*');
     next();

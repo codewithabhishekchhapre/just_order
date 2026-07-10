@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, Fragment } from "react"
+import { useState, useEffect, useRef, useMemo, useCallback } from "react"
 import { createPortal } from "react-dom"
 import { Link, useNavigate } from "react-router-dom"
 import { Plus, Minus, ArrowLeft, ChevronRight, Clock, MapPin, Phone, FileText, Utensils, Tag, Percent, Share2, ChevronUp, ChevronDown, X, Check, Settings, CreditCard, Wallet, Building2, Sparkles, Banknote, Zap, CheckCircle2, MessageCircle, Send, Mail, Copy } from "lucide-react"
@@ -24,6 +24,11 @@ import { toast } from "sonner"
 import { getCompanyNameAsync } from "@common/utils/businessSettings"
 import { useCompanyName } from "@food/hooks/useCompanyName"
 import { getRestaurantAvailabilityStatus } from "@food/utils/restaurantAvailability"
+import {
+  normalizeDeliverySpeedOptions,
+  pickDefaultDeliverySpeedCode,
+  extractDeliverySpeedOptionsFromResponse,
+} from "@food/utils/deliverySpeedOptions"
 import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 import zoopSound from "@food/assets/audio/zomato_sms.mp3"
 const debugLog = (...args) => { }
@@ -156,7 +161,6 @@ export default function Cart() {
   const { openLocationSelector } = useLocationSelector()
   const { location: currentLocation, loading: currentLocationLoading } = useUserLocation() // Get live location address
 
-  const [showCoupons, setShowCoupons] = useState(false)
   const [appliedCoupon, setAppliedCoupon] = useState(null)
   const [couponCode, setCouponCode] = useState("")
   const [manualCouponCode, setManualCouponCode] = useState("")
@@ -264,9 +268,21 @@ export default function Cart() {
     gstRate: 5,
   })
 
-  // Delivery speed tiers (Eco/Standard/Express) - admin-configurable, fetched publicly.
+  // Delivery speed tiers - loaded from admin Delivery Speed Options (public API).
   const [deliverySpeedOptions, setDeliverySpeedOptions] = useState([])
+  const [loadingDeliverySpeedOptions, setLoadingDeliverySpeedOptions] = useState(true)
   const [selectedDeliveryFleet, setSelectedDeliveryFleet] = useState(null)
+
+  const applyDeliverySpeedOptions = useCallback((rawOptions) => {
+    const options = normalizeDeliverySpeedOptions(rawOptions)
+    if (options.length === 0) return
+
+    setDeliverySpeedOptions(options)
+    setSelectedDeliveryFleet((prev) => {
+      if (prev && options.some((option) => option.code === prev)) return prev
+      return pickDefaultDeliverySpeedCode(options)
+    })
+  }, [])
 
 
   const availableTimeSlots = useMemo(() => {
@@ -935,7 +951,14 @@ export default function Cart() {
         })
 
         if (response?.data?.success && response?.data?.data?.pricing) {
-          setPricing(response.data.data.pricing)
+          const nextPricing = response.data.data.pricing
+          setPricing(nextPricing)
+
+          if (Array.isArray(nextPricing.deliverySpeedOptions) && nextPricing.deliverySpeedOptions.length > 0) {
+            applyDeliverySpeedOptions(extractDeliverySpeedOptionsFromResponse({
+              data: { success: true, data: { options: nextPricing.deliverySpeedOptions } },
+            }))
+          }
 
           // Update applied coupon if backend returns one
           if (response.data.data.pricing.appliedCoupon && !appliedCoupon) {
@@ -958,7 +981,7 @@ export default function Cart() {
     }
 
     calculatePricing()
-  }, [cart, defaultAddress, appliedCoupon, couponCode, restaurantId, selectedDeliveryFleet])
+  }, [cart, defaultAddress, appliedCoupon, couponCode, restaurantId, selectedDeliveryFleet, applyDeliverySpeedOptions])
 
   // Fetch wallet balance
   useEffect(() => {
@@ -997,7 +1020,53 @@ export default function Cart() {
     fetchOrderCount()
   }, [])
 
-  // Fetch fee settings + delivery speed options on mount (public endpoint - no admin auth needed)
+  // Fetch delivery speed options from admin settings (public API).
+  useEffect(() => {
+    const fetchDeliverySpeedOptions = async () => {
+      try {
+        setLoadingDeliverySpeedOptions(true)
+
+        const endpoints = [
+          () => orderAPI.getPublicDeliverySpeedOptions(),
+          () => orderAPI.getPublicFeeSummary(),
+        ]
+
+        for (const loadOptions of endpoints) {
+          try {
+            const response = await loadOptions()
+            if (!response?.data?.success) continue
+
+            const options = extractDeliverySpeedOptionsFromResponse(response)
+            if (options.length > 0) {
+              applyDeliverySpeedOptions(options)
+              return
+            }
+          } catch (innerError) {
+            debugError("Delivery speed options fetch attempt failed:", innerError)
+          }
+        }
+      } catch (error) {
+        debugError("Error fetching delivery speed options:", error)
+      } finally {
+        setLoadingDeliverySpeedOptions(false)
+      }
+    }
+
+    const handleFocus = () => {
+      fetchDeliverySpeedOptions()
+    }
+
+    fetchDeliverySpeedOptions()
+    window.addEventListener("focus", handleFocus)
+    const intervalId = setInterval(fetchDeliverySpeedOptions, 30000)
+
+    return () => {
+      window.removeEventListener("focus", handleFocus)
+      clearInterval(intervalId)
+    }
+  }, [applyDeliverySpeedOptions])
+
+  // Fetch platform fee / GST fallback for cart totals.
   useEffect(() => {
     const fetchFeeSettings = async () => {
       try {
@@ -1010,31 +1079,12 @@ export default function Cart() {
           platformFee: data.platformFee ?? prev.platformFee,
           gstRate: data.gstRate ?? prev.gstRate,
         }))
-
-        const options = Array.isArray(data.deliverySpeedOptions) ? data.deliverySpeedOptions : []
-        setDeliverySpeedOptions(options)
-        setSelectedDeliveryFleet((prev) => {
-          if (prev && options.some((option) => option.code === prev)) return prev
-          return options.find((option) => option.isDefault)?.code || options[0]?.code || "standard"
-        })
       } catch (error) {
         debugError('Error fetching fee settings:', error)
-        // Keep default values on error
       }
     }
 
-    const handleFocus = () => {
-      fetchFeeSettings()
-    }
-
     fetchFeeSettings()
-    window.addEventListener("focus", handleFocus)
-    const intervalId = setInterval(fetchFeeSettings, 30000)
-
-    return () => {
-      window.removeEventListener("focus", handleFocus)
-      clearInterval(intervalId)
-    }
   }, [])
 
   // Use backend pricing if available, otherwise fallback to database fee settings
@@ -1354,7 +1404,6 @@ export default function Cart() {
         setAppliedCoupon(coupon)
         setCouponCode(coupon.code)
         setManualCouponCode(coupon.code)
-        setShowCoupons(false)
       } catch (error) {
         debugError("Error recalculating pricing:", error)
         toast.error("Failed to apply coupon")
@@ -1416,7 +1465,6 @@ export default function Cart() {
           customerGroup: "all",
         },
       )
-      setShowCoupons(false)
       toast.success("Coupon applied")
     } catch (error) {
       debugError("Error applying coupon code:", error)
@@ -2160,7 +2208,7 @@ export default function Cart() {
       </div>
 
       {/* Scrollable Content Area */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden pb-36 md:pb-40 lg:pb-10">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden pb-44 md:pb-48 lg:pb-12">
         {/* Savings Banner */}
         {otherPlatformSavings > 0 && (
           <div className="flex-shrink-0 bg-[#fff7ed] px-4 py-2.5 dark:bg-[#2b1408] sm:px-6">
@@ -2298,7 +2346,9 @@ export default function Cart() {
                   </button>
                 </div>
 
-                {deliverySpeedOptions.length > 0 && (
+                {loadingDeliverySpeedOptions ? (
+                  <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">Loading delivery speed options...</p>
+                ) : deliverySpeedOptions.length > 0 ? (
                   <div className="mt-3 flex gap-2 overflow-x-auto pb-0.5">
                     {deliverySpeedOptions.map((option) => {
                       const isSelected = option.code === selectedDeliveryFleet
@@ -2316,12 +2366,16 @@ export default function Cart() {
                           </span>
                           <span className="text-[10px] text-gray-500 dark:text-gray-400">
                             {option.etaMinutesMin}-{option.etaMinutesMax}m ·{" "}
-                            {option.extraFee > 0 ? `+${RUPEE_SYMBOL}${option.extraFee}` : "Free"}
+                            {Number(option.extraFee || 0) > 0 ? `+${RUPEE_SYMBOL}${Number(option.extraFee).toFixed(0)}` : "Free"}
                           </span>
                         </button>
                       )
                     })}
                   </div>
+                ) : (
+                  <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+                    Delivery speed options are not configured yet.
+                  </p>
                 )}
 
                 {isScheduled && (
@@ -2494,10 +2548,10 @@ export default function Cart() {
               )}
 
               {/* Coupon Section */}
-              <div className="flex flex-col overflow-hidden rounded-[22px] border border-black/5 bg-white shadow-[0_8px_24px_rgba(15,23,42,0.04)] dark:border-white/10 dark:bg-[#151515]">
+              <div className="rounded-[22px] border border-black/5 bg-white shadow-[0_8px_24px_rgba(15,23,42,0.04)] dark:border-white/10 dark:bg-[#151515]">
                 {deliveryFee === 0 && (
                   <div className="px-4 py-3 md:px-6 md:py-4 border-b border-dashed border-gray-200 dark:border-gray-800 flex items-center gap-3 bg-[#f4fcf7] dark:bg-green-900/10">
-                    <CheckCircle2 className="h-5 w-5 text-green-600 fill-green-600/20" />
+                    <CheckCircle2 className="h-5 w-5 text-green-600 fill-green-600/20 shrink-0" />
                     <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">
                       You saved {RUPEE_SYMBOL}{Number((pricing?.totalDeliveryFee ?? deliveryFee ?? feeSettings.baseDeliveryFee) || 0).toFixed(2)} on delivery
                     </span>
@@ -2506,94 +2560,121 @@ export default function Cart() {
 
                 {/* Applied Coupon View */}
                 {appliedCoupon ? (
-                  <div className="px-4 py-3 md:px-6 md:py-4 flex items-center justify-between">
-                    <div className="flex items-start gap-3">
-                      <Percent className="h-5 w-5 text-[#FF6A00] mt-0.5" />
-                      <div>
-                        <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">'{appliedCoupon.code}' applied</p>
-                        <p className="text-xs text-[#FF6A00] font-medium mt-0.5">You saved {RUPEE_SYMBOL}{discount}</p>
+                  <div className="px-4 py-4 md:px-6 md:py-5 flex items-center justify-between gap-3">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <Percent className="h-5 w-5 text-[#FF6A00] mt-0.5 shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 break-words">
+                          <span className="rounded bg-[#fff3eb] px-2 py-0.5 text-xs font-bold tracking-wide text-[#FF6A00] dark:bg-[#FF6A00]/10">
+                            {appliedCoupon.code}
+                          </span>
+                          <span className="ml-2">applied</span>
+                        </p>
+                        <p className="text-xs text-[#FF6A00] font-medium mt-1">
+                          You saved {RUPEE_SYMBOL}{Number(discount || 0).toFixed(2)}
+                        </p>
                       </div>
                     </div>
-                    <button onClick={handleRemoveCoupon} className="text-[#FF6A00] text-xs font-semibold px-2 hover:underline">REMOVE</button>
+                    <button
+                      onClick={handleRemoveCoupon}
+                      className="shrink-0 text-[#FF6A00] text-xs font-semibold px-2 hover:underline"
+                    >
+                      REMOVE
+                    </button>
                   </div>
                 ) : (
-                  /* Available / Input View */
-                  <div className="px-4 py-3 md:px-6 md:py-4 flex flex-col gap-3">
-                    {/* Input for manual code */}
-                    <div className="flex flex-col sm:flex-row gap-2 mb-2">
+                  <div className="px-4 py-4 md:px-6 md:py-5 flex flex-col gap-4">
+                    <div className="flex items-center gap-2">
+                      <Percent className="h-5 w-5 text-[#FF6A00] shrink-0" />
+                      <p className="text-sm font-bold text-gray-900 dark:text-gray-100">Apply Coupon</p>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row gap-2">
                       <input
                         type="text"
                         value={manualCouponCode}
                         onChange={(e) => setManualCouponCode(e.target.value.toUpperCase())}
                         placeholder="Enter coupon code"
-                        className="flex-1 h-10 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#0a0a0a] px-3 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:border-[#FF6A00]"
+                        className="flex-1 h-11 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#0a0a0a] px-3 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:border-[#FF6A00]"
                       />
                       <button
-                        className="bg-white dark:bg-[#1a1a1a] border border-[#FF6A00] text-[#FF6A00] rounded-xl px-5 h-10 text-xs font-semibold uppercase hover:bg-red-50 dark:hover:bg-red-900/10 active:scale-[0.98] transition-all"
+                        className="h-11 rounded-xl border border-[#FF6A00] bg-[#FF6A00] px-5 text-xs font-bold uppercase tracking-wide text-white hover:bg-[#e85d04] active:scale-[0.98] transition-all sm:min-w-[110px]"
                         onClick={handleApplyCouponCode}
                       >
-                        APPLY
+                        Apply
                       </button>
                     </div>
 
                     {loadingCoupons ? (
                       <p className="text-sm text-gray-500">Loading offers...</p>
                     ) : availableCoupons.length > 0 ? (
-                      <div className="space-y-3 mt-1">
-                        <div className="flex items-center justify-between">
-                          <p className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Available Coupons</p>
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
+                            Available Coupons
+                          </p>
                           {availableCoupons.length > 2 && (
                             <button
                               onClick={() => setShowAllCoupons((prev) => !prev)}
-                              className="text-xs font-semibold text-[#FF6A00] hover:underline"
+                              className="text-xs font-semibold text-[#FF6A00] hover:underline shrink-0"
                             >
                               {showAllCoupons ? "Show less" : `View all ${availableCoupons.length} offers`}
                             </button>
                           )}
                         </div>
-                        <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
+
+                        <div className="space-y-3">
                           {(showAllCoupons ? availableCoupons : availableCoupons.slice(0, 2)).map((coupon) => {
-                            const canApply = subtotal >= coupon.minOrder && !(coupon.customerGroup === "new" && userOrderCount > 0);
+                            const canApply = subtotal >= coupon.minOrder && !(coupon.customerGroup === "new" && userOrderCount > 0)
                             return (
-                              <div key={coupon.code} className="flex items-start justify-between p-3 rounded-2xl border border-slate-100 dark:border-gray-800 bg-slate-50/50 dark:bg-slate-900/30">
-                                <div className="flex items-start gap-3 flex-1">
-                                  <Percent className="h-5 w-5 text-gray-700 dark:text-gray-300 mt-0.5 opacity-80" />
-                                  <div className="flex-1">
-                                    <p className="text-sm font-bold text-gray-800 dark:text-gray-200 leading-tight mb-1">
-                                      <span className="bg-slate-200/60 dark:bg-slate-800 px-2 py-0.5 rounded text-xs tracking-wider border border-slate-300/40 mr-2">
+                              <div
+                                key={coupon.code}
+                                className="rounded-2xl border border-slate-200 dark:border-gray-800 bg-slate-50/80 dark:bg-slate-900/30 p-3 sm:p-4"
+                              >
+                                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex flex-wrap items-center gap-2 mb-2">
+                                      <span className="inline-flex rounded-lg bg-white dark:bg-[#111] px-2.5 py-1 text-xs font-bold tracking-wider text-[#FF6A00] border border-[#FF6A00]/20">
                                         {coupon.code}
                                       </span>
-                                      {coupon.discountDisplay || `Save ${RUPEE_SYMBOL}${coupon.discount}`}
-                                    </p>
+                                      <span className="text-sm font-bold text-gray-900 dark:text-gray-100">
+                                        {coupon.discountDisplay || `Save ${RUPEE_SYMBOL}${coupon.discount}`}
+                                      </span>
+                                    </div>
+
                                     {coupon.customerGroup === "new" ? (
-                                      <p className="text-[11px] text-[#FF6A00] mb-1 font-medium">First-time users only</p>
+                                      <p className="text-[11px] text-[#FF6A00] font-medium">First-time users only</p>
                                     ) : subtotal < coupon.minOrder ? (
-                                      <p className="text-xs text-blue-600 font-semibold mb-1">
+                                      <p className="text-xs text-blue-600 font-semibold">
                                         Add items worth {RUPEE_SYMBOL}{(coupon.minOrder - subtotal).toFixed(0)} more to unlock
                                       </p>
                                     ) : (
-                                      <p className="text-xs text-gray-500 mt-1 leading-relaxed">{coupon.description}</p>
+                                      <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed break-words">
+                                        {coupon.description}
+                                      </p>
                                     )}
                                   </div>
-                                </div>
-                                <button
-                                  className={`border rounded-xl px-4 py-2 text-xs font-bold uppercase tracking-wider shadow-sm transition-all duration-200 ${canApply
-                                    ? "border-[#FF6A00] text-[#FF6A00] hover:bg-red-50"
-                                    : "border-gray-300 text-gray-400 cursor-not-allowed bg-gray-50/50"
+
+                                  <button
+                                    className={`h-10 shrink-0 rounded-xl px-4 text-xs font-bold uppercase tracking-wider transition-all duration-200 w-full sm:w-auto ${
+                                      canApply
+                                        ? "border border-[#FF6A00] text-[#FF6A00] hover:bg-[#fff3eb] dark:hover:bg-[#FF6A00]/10"
+                                        : "border border-gray-300 text-gray-400 cursor-not-allowed bg-gray-50/50 dark:bg-white/5"
                                     }`}
-                                  onClick={() => handleApplyCoupon(coupon)}
-                                  disabled={!canApply}
-                                >
-                                  APPLY
-                                </button>
+                                    onClick={() => handleApplyCoupon(coupon)}
+                                    disabled={!canApply}
+                                  >
+                                    Apply
+                                  </button>
+                                </div>
                               </div>
-                            );
+                            )
                           })}
                         </div>
                       </div>
                     ) : (
-                      <div className="flex items-center gap-3 py-2">
-                        <Percent className="h-5 w-5 text-gray-400" />
+                      <div className="flex items-center gap-3 py-1">
+                        <Percent className="h-5 w-5 text-gray-400 shrink-0" />
                         <p className="text-sm text-gray-500">No offers available for this restaurant currently</p>
                       </div>
                     )}

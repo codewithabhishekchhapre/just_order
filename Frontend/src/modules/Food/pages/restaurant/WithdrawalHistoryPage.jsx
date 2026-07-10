@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react"
-import { useNavigate } from "react-router-dom"
+import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation"
 import { ArrowDownToLine, Loader2, CheckCircle2, Clock, XCircle } from "lucide-react"
 import { restaurantAPI } from "@food/api"
+import RestaurantPageShell from "@food/components/restaurant/RestaurantPageShell"
 
 const debugError = (...args) => {}
 
@@ -22,7 +23,7 @@ const STATUS_CFG = {
 }
 
 export default function WithdrawalHistoryPage() {
-  const navigate = useNavigate()
+  const goBack = useRestaurantBackNavigation()
   const [tab, setTab] = useState("pending")
   const [requests, setRequests] = useState([])
   const [loading, setLoading] = useState(false)
@@ -61,44 +62,43 @@ export default function WithdrawalHistoryPage() {
     </div>
   )
 
+  const tabButtons = (
+    <div className="flex gap-4">
+      {[
+        { id: "pending",   label: "Pending", count: pending.length },
+        { id: "completed", label: "Completed", count: completed.length },
+      ].map(t => (
+        <button
+          key={t.id}
+          onClick={() => setTab(t.id)}
+          className={`relative pb-3 text-sm font-semibold transition-colors flex items-center gap-2 ${
+            tab === t.id
+              ? "text-[#FF6A00]"
+              : "text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+          }`}
+        >
+          {t.label}
+          {t.count > 0 && (
+            <span className={`text-[10px] font-bold min-w-[18px] h-[18px] flex items-center justify-center rounded-full px-1 ${
+              tab === t.id ? "bg-[#FF6A00] text-white" : "bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400"
+            }`}>{t.count}</span>
+          )}
+          {tab === t.id && (
+            <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#FF6A00] rounded-t-full" />
+          )}
+        </button>
+      ))}
+    </div>
+  )
+
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a]">
-      {/* Header */}
-      <div className="bg-white dark:bg-[#111] border-b border-gray-100 dark:border-gray-800 px-4 py-4">
-        <h1 className="text-base font-bold text-gray-900 dark:text-white">Withdrawal History</h1>
-        <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Track your withdrawal requests</p>
-      </div>
-
-      {/* Tabs */}
-      <div className="bg-white dark:bg-[#111] border-b border-gray-100 dark:border-gray-800 px-4 pt-3 pb-0 flex gap-4">
-        {[
-          { id: "pending",   label: "Pending", count: pending.length },
-          { id: "completed", label: "Completed", count: completed.length },
-        ].map(t => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            className={`relative pb-3 text-sm font-semibold transition-colors flex items-center gap-2 ${
-              tab === t.id
-                ? "text-[#FF6A00]"
-                : "text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
-            }`}
-          >
-            {t.label}
-            {t.count > 0 && (
-              <span className={`text-[10px] font-bold min-w-[18px] h-[18px] flex items-center justify-center rounded-full px-1 ${
-                tab === t.id ? "bg-[#FF6A00] text-white" : "bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400"
-              }`}>{t.count}</span>
-            )}
-            {tab === t.id && (
-              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#FF6A00] rounded-t-full" />
-            )}
-          </button>
-        ))}
-      </div>
-
-      {/* Content */}
-      <div className="max-w-2xl mx-auto px-4 py-4">
+    <RestaurantPageShell
+      title="Withdrawal History"
+      subtitle="Track your withdrawal requests"
+      onBack={goBack}
+      maxWidth="2xl"
+      tabs={tabButtons}
+    >
         {loading ? (
           <div className="flex items-center justify-center py-16">
             <Loader2 className="w-7 h-7 text-gray-300 animate-spin" />
@@ -132,7 +132,6 @@ export default function WithdrawalHistoryPage() {
             })}
           </div>
         )}
-      </div>
-    </div>
+    </RestaurantPageShell>
   )
 }

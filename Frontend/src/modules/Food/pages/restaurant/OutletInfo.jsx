@@ -4,7 +4,6 @@ import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation
 import { motion, AnimatePresence } from "framer-motion"
 import Lenis from "lenis"
 import {
-  ArrowLeft,
   Edit,
   Pencil,
   Plus,
@@ -28,6 +27,7 @@ import { Button } from "@food/components/ui/button"
 import { Input } from "@food/components/ui/input"
 import { restaurantAPI } from "@food/api"
 import { toast } from "sonner"
+import RestaurantPageShell from "@food/components/restaurant/RestaurantPageShell"
 import { ImageSourcePicker } from "@food/components/ImageSourcePicker"
 import { isFlutterBridgeAvailable, convertBase64ToFile } from "@food/utils/imageUploadUtils"
 
@@ -426,25 +426,17 @@ export default function OutletInfo() {
 
   return (
     <>
-      <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] overflow-x-hidden">
-        {/* Header */}
-        <div className="bg-white dark:bg-[#111] border-b border-gray-100 dark:border-gray-800 px-4 py-4 sticky top-0 z-50">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3 flex-1">
-              <button onClick={goBack} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-colors">
-                <ArrowLeft className="w-5 h-5 text-gray-900 dark:text-white" />
-              </button>
-              <h1 className="text-base font-bold text-gray-900 dark:text-white">Outlet info</h1>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-500 dark:text-gray-400 font-normal">
-                Restaurant id: {loading ? "Loading..." : (restaurantMongoId && restaurantMongoId.length >= 5 ? restaurantMongoId.slice(-5) : (restaurantId || "N/A"))}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Main Image Section */}
+      <RestaurantPageShell
+        title="Outlet info"
+        onBack={goBack}
+        flush
+        maxWidth="full"
+        actions={(
+          <span className="text-xs text-gray-500 dark:text-gray-400 font-normal">
+            Restaurant id: {loading ? "Loading..." : (restaurantMongoId && restaurantMongoId.length >= 5 ? restaurantMongoId.slice(-5) : (restaurantId || "N/A"))}
+          </span>
+        )}
+      >
         <div className="relative w-full h-[200px] overflow-visible">
           <img src={mainImage} alt="Restaurant banner" className="w-full h-full object-cover" />
           
@@ -549,7 +541,7 @@ export default function OutletInfo() {
         </div>
 
         {/* Info Sections */}
-        <div className="px-4 pb-20 space-y-8">
+        <div className="px-4 pb-4 space-y-8">
           {/* Basic Information */}
           <section className="space-y-4">
             <div className="flex items-center gap-2 ml-1">
@@ -716,7 +708,7 @@ export default function OutletInfo() {
             </div>
           </section>
         </div>
-      </div>
+      </RestaurantPageShell>
 
       <Dialog open={showEditNameDialog} onOpenChange={setShowEditNameDialog}>
         <DialogContent className="sm:max-w-md p-0 overflow-hidden rounded-xl w-[90%]">

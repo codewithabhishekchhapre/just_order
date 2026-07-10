@@ -22,6 +22,8 @@ import {
   ShoppingBag,
   Truck,
 } from "lucide-react";
+import { useEnabledModules } from "@/modules/common/hooks/useEnabledModules";
+import { getVisibleHomeTabs } from "@/modules/common/utils/enabledModules";
 import { cn } from "@/lib/utils";
 import { Switch } from "@food/components/ui/switch";
 import {
@@ -153,6 +155,22 @@ export default function HomeHeader({
   bannerComponent,
 }) {
   const navigate = useNavigate();
+  const { modules: enabledModules } = useEnabledModules();
+  const visibleTabs = useMemo(
+    () =>
+      tabs.filter((tab) => {
+        const moduleKey =
+          tab.id === "quick" ? "quickCommerce" : tab.id === "porter" ? "porter" : "food";
+        return enabledModules[moduleKey] !== false;
+      }),
+    [enabledModules],
+  );
+  const tabGridClass =
+    visibleTabs.length <= 1
+      ? "grid-cols-1"
+      : visibleTabs.length === 2
+        ? "grid-cols-2"
+        : "grid-cols-3";
   const [isListening, setIsListening] = useState(false);
   const routerLocation = useRouterLocation();
   const videoRef = useRef(null);
@@ -404,15 +422,17 @@ export default function HomeHeader({
       </header>
 
       {/* 2. Category Switcher Row */}
+      {visibleTabs.length > 1 && (
       <div
         className={cn(
-          "mx-3 my-2 grid grid-cols-3 gap-1 rounded-2xl border p-1 transition-all duration-300 sm:mx-4",
+          "mx-3 my-2 grid gap-1 rounded-2xl border p-1 transition-all duration-300 sm:mx-4",
+          tabGridClass,
           isLightChrome
             ? "bg-gray-100/70 border-gray-200/40"
             : "bg-black/15 border-white/5"
         )}
       >
-        {tabs.map((tab) => {
+        {visibleTabs.map((tab) => {
           const isActive = activeTab === tab.id;
           const Icon = tab.icon;
           const handleTabIntent = () => {
@@ -451,6 +471,7 @@ export default function HomeHeader({
           );
         })}
       </div>
+      )}
 
       {/* 3. Sticky Search Bar Section */}
       {isFood && (

@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { motion, AnimatePresence } from "framer-motion"
 import Lenis from "lenis"
-import { ArrowLeft, Clock, Edit2, Trash2, ChevronDown, AlertTriangle, X } from "lucide-react"
+import { Clock, Edit2, Trash2, ChevronDown, AlertTriangle, X } from "lucide-react"
 import { Button } from "@food/components/ui/button"
 import { Checkbox } from "@food/components/ui/checkbox"
 import {
@@ -26,6 +26,8 @@ import {
   PopoverTrigger,
 } from "@food/components/ui/popover"
 import { useCompanyName } from "@food/hooks/useCompanyName"
+import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation"
+import RestaurantPageShell from "@food/components/restaurant/RestaurantPageShell"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -577,35 +579,22 @@ export default function DaySlots() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] overflow-x-hidden flex flex-col">
-      {/* Header */}
-      <div className="bg-white dark:bg-[#111] border-b border-gray-100 dark:border-gray-800 px-4 py-4 sticky top-0 z-50">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => navigate("/restaurant/outlet-timings")}
-            className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-colors"
-            aria-label="Go back"
-          >
-            <ArrowLeft className="w-5 h-5 text-gray-900 dark:text-white" />
-          </button>
-          <div className="flex-1">
-            <h1 className="text-base font-bold text-gray-900 dark:text-white">{dayName}</h1>
-            <p className="text-xs text-gray-400 dark:text-gray-500">{companyName} delivery</p>
-          </div>
-        </div>
-      </div>
-        
-        <div className="bg-gray-50 p-2">
-          <p className="text-sm text-gray-700">
+    <RestaurantPageShell
+      title={dayName}
+      subtitle={`${companyName} delivery`}
+      onBack={() => navigate("/restaurant/outlet-timings")}
+      maxWidth="lg"
+      flush
+      contentClassName="flex flex-col"
+    >
+        <div className="bg-gray-50 dark:bg-gray-900/40 px-4 sm:px-6 lg:px-8 py-2">
+          <p className="text-sm text-gray-700 dark:text-gray-300">
             Add or modify your restaurant timings here. You can create maximum up to 3 time slots in a day.
           </p>
         </div>
 
       {/* Main Content - Scrollable */}
-      <div className="flex-1 overflow-y-auto">  
-        {/* Instructional Text */}
-
-        {/* Time Slots */}
+      <div className="flex-1 overflow-y-auto">
         <div className="space-y-6 divide-gray-400">
           {dayData.slots.map((slot, index) => {
             const duration = calculateSlotDuration(slot.start, slot.end, slot.startPeriod, slot.endPeriod)
@@ -833,7 +822,7 @@ export default function DaySlots() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </RestaurantPageShell>
   )
 }
 

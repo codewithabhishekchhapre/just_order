@@ -1048,8 +1048,14 @@ export const adminAPI = {
     apiClient.patch(`/food/admin/customer-role-requests/${id}/status`, { status }, { contextModule: "admin" }),
   getRestaurantCoupons: () =>
     apiClient.get("/food/admin/restaurant-coupons", { contextModule: "admin" }),
-  updateRestaurantCouponStatus: (id, status) =>
-    apiClient.patch(`/food/admin/restaurant-coupons/${id}/status`, { status }, { contextModule: "admin" }),
+  updateRestaurantCouponStatus: (id, status, rejectionReason) =>
+    apiClient.patch(
+      `/food/admin/restaurant-coupons/${id}/status`,
+      { status, ...(rejectionReason ? { rejectionReason } : {}) },
+      { contextModule: "admin" }
+    ),
+  revertRestaurantCoupon: (id) =>
+    apiClient.patch(`/food/admin/restaurant-coupons/${id}/revert`, {}, { contextModule: "admin" }),
   getDeletedAccounts: () =>
     apiClient.get("/food/admin/deleted-accounts", { contextModule: "admin" }),
   reactivateAccount: (id, role) =>
@@ -1261,7 +1267,7 @@ export const restaurantAPI = {
       contextModule: "restaurant",
     }),
   // For MenuCategoriesPage compatibility
-  getAllCategories: (params = {}) =>
+  getAllCategories: (params = {}, config = {}) =>
     apiClient.get("/food/restaurant/categories", {
       params: {
         includeInactive: true,
@@ -1270,6 +1276,7 @@ export const restaurantAPI = {
         ...params,
       },
       contextModule: "restaurant",
+      ...config,
     }),
   createCategory: (body) =>
     apiClient.post("/food/restaurant/categories", body ?? {}, {
@@ -1288,6 +1295,13 @@ export const restaurantAPI = {
     apiClient.get("/food/restaurant/menu", {
       params,
       contextModule: "restaurant",
+    }),
+  /** Paginated flat menu items list (for infinite-scroll list pages) */
+  getMenuItems: (params = {}, config = {}) =>
+    apiClient.get("/food/restaurant/menu/items", {
+      params,
+      contextModule: "restaurant",
+      ...config,
     }),
   /** Orders (restaurant dashboard) */
   getOrders: (params = {}) =>
@@ -2491,9 +2505,14 @@ export const orderAPI = {
     apiClient.post("/food/orders/calculate", payload ?? {}, {
       contextModule: "user",
     }),
-  /** Public fee summary (platform fee / GST fallback + delivery speed options) for the cart. */
+  /** Public fee summary (platform fee / GST fallback) for the cart. */
   getPublicFeeSummary: () =>
-    apiClient.get("/food/admin/fee-settings/public", { contextModule: "user" }),
+    apiClient.get("/food/fee-settings/public", { contextModule: "user" }),
+  /** Delivery speed tiers configured in admin Delivery Speed Options. */
+  getPublicDeliverySpeedOptions: () =>
+    apiClient.get("/food/delivery-speed-options/public", {
+      contextModule: "user",
+    }),
   createOrder: (payload) =>
     apiClient.post("/food/orders", payload ?? {}, { contextModule: "user" }),
   verifyPayment: (body) =>

@@ -37,14 +37,37 @@ export const DEFAULT_DELIVERY_SPEED_OPTIONS = [
     },
 ];
 
+export function getStoredDeliverySpeedOptions(feeDoc) {
+    const configured = Array.isArray(feeDoc?.deliverySpeedOptions) ? feeDoc.deliverySpeedOptions : [];
+    return configured
+        .filter((option) => option?.isActive !== false)
+        .sort((a, b) => Number(a.sortOrder || 0) - Number(b.sortOrder || 0));
+}
+
 // Returns the admin-configured options if any exist, otherwise the built-in
 // defaults above - so the feature works out of the box before an admin
 // visits the Delivery Speed Options page.
 export function resolveDeliverySpeedOptions(feeDoc) {
-    const configured = Array.isArray(feeDoc?.deliverySpeedOptions) ? feeDoc.deliverySpeedOptions : [];
-    const active = configured.filter((option) => option?.isActive !== false);
-    const source = active.length > 0 ? active : DEFAULT_DELIVERY_SPEED_OPTIONS;
+    const stored = getStoredDeliverySpeedOptions(feeDoc);
+    const source = stored.length > 0 ? stored : DEFAULT_DELIVERY_SPEED_OPTIONS;
     return [...source].sort((a, b) => Number(a.sortOrder || 0) - Number(b.sortOrder || 0));
+}
+
+export function hasConfiguredDeliverySpeedOptions(feeDoc) {
+    const configured = Array.isArray(feeDoc?.deliverySpeedOptions) ? feeDoc.deliverySpeedOptions : [];
+    return configured.some((option) => option?.isActive !== false);
+}
+
+export function formatPublicDeliverySpeedOption(option = {}) {
+    return {
+        code: option.code,
+        label: option.label,
+        description: option.description || '',
+        etaMinutesMin: option.etaMinutesMin,
+        etaMinutesMax: option.etaMinutesMax,
+        extraFee: Number(option.extraFee || 0),
+        isDefault: Boolean(option.isDefault),
+    };
 }
 
 export function pickDeliverySpeedOption(options, code) {

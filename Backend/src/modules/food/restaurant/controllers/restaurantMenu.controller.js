@@ -2,7 +2,8 @@ import { sendResponse } from '../../../../utils/response.js';
 import {
     getRestaurantMenu,
     updateRestaurantMenu,
-    getPublicApprovedRestaurantMenu
+    getPublicApprovedRestaurantMenu,
+    listRestaurantMenuItems
 } from '../services/restaurantMenu.service.js';
 
 export const getMenuController = async (req, res, next) => {
@@ -10,6 +11,16 @@ export const getMenuController = async (req, res, next) => {
         const restaurantId = req.user?.userId;
         const menu = await getRestaurantMenu(restaurantId);
         return sendResponse(res, 200, 'Menu fetched successfully', { menu });
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const getMenuItemsController = async (req, res, next) => {
+    try {
+        const restaurantId = req.user?.userId;
+        const result = await listRestaurantMenuItems(restaurantId, req.query || {});
+        return sendResponse(res, 200, 'Menu items fetched successfully', result);
     } catch (error) {
         next(error);
     }

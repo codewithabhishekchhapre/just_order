@@ -7,22 +7,34 @@ export const exportRestaurantsToExcel = (restaurants, filename = "restaurants") 
     "Owner Name",
     "Owner Phone",
     "Zone",
-    "Cuisine",
+    "Address",
     "Status",
     "Rating"
   ]
   
-  const rows = restaurants.map((restaurant, index) => [
-    index + 1,
-    restaurant.originalData?.restaurantId || restaurant.originalData?._id || restaurant._id || restaurant.id || "N/A",
-    restaurant.name || "N/A",
-    restaurant.ownerName || "N/A",
-    restaurant.ownerPhone || "N/A",
-    restaurant.zone || "N/A",
-    restaurant.cuisine || "N/A",
-    restaurant.status ? "Active" : "Inactive",
-    restaurant.rating || 0
-  ])
+  const rows = restaurants.map((restaurant, index) => {
+    const r = restaurant.originalData || restaurant;
+    const address = [
+      r.location?.addressLine1 || r.addressLine1, 
+      r.location?.addressLine2 || r.addressLine2, 
+      r.location?.area || r.area, 
+      r.location?.city || r.city, 
+      r.location?.state || r.state, 
+      r.location?.pincode || r.pincode
+    ].filter(Boolean).join(", ") || "N/A";
+    
+    return [
+      index + 1,
+      r.restaurantId || r._id || restaurant._id || restaurant.id || "N/A",
+      restaurant.name || "N/A",
+      restaurant.ownerName || "N/A",
+      restaurant.ownerPhone || "N/A",
+      restaurant.zone || "N/A",
+      address,
+      restaurant.status ? "Active" : "Inactive",
+      restaurant.rating || 0
+    ];
+  })
   
   const csvContent = [
     headers.join("\t"),
@@ -48,22 +60,34 @@ export const exportRestaurantsToPDF = (restaurants, filename = "restaurants") =>
     "Owner Name",
     "Owner Phone",
     "Zone",
-    "Cuisine",
+    "Address",
     "Status",
     "Rating"
   ]
   
-  const rows = restaurants.map((restaurant, index) => [
-    index + 1,
-    restaurant.originalData?.restaurantId || restaurant.originalData?._id || restaurant._id || restaurant.id || "N/A",
-    restaurant.name || "N/A",
-    restaurant.ownerName || "N/A",
-    restaurant.ownerPhone || "N/A",
-    restaurant.zone || "N/A",
-    restaurant.cuisine || "N/A",
-    restaurant.status ? "Active" : "Inactive",
-    restaurant.rating || 0
-  ])
+  const rows = restaurants.map((restaurant, index) => {
+    const r = restaurant.originalData || restaurant;
+    const address = [
+      r.location?.addressLine1 || r.addressLine1, 
+      r.location?.addressLine2 || r.addressLine2, 
+      r.location?.area || r.area, 
+      r.location?.city || r.city, 
+      r.location?.state || r.state, 
+      r.location?.pincode || r.pincode
+    ].filter(Boolean).join(", ") || "N/A";
+    
+    return [
+      index + 1,
+      r.restaurantId || r._id || restaurant._id || restaurant.id || "N/A",
+      restaurant.name || "N/A",
+      restaurant.ownerName || "N/A",
+      restaurant.ownerPhone || "N/A",
+      restaurant.zone || "N/A",
+      address,
+      restaurant.status ? "Active" : "Inactive",
+      restaurant.rating || 0
+    ];
+  })
   
   const printWindow = window.open("", "_blank")
   const htmlContent = `

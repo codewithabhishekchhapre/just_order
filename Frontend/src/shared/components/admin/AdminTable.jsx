@@ -2,6 +2,7 @@ import { Inbox } from "lucide-react";
 import { Skeleton } from "@food/components/ui/skeleton";
 import EmptyState from "@/shared/components/EmptyState";
 import Pagination from "@/shared/components/ui/Pagination";
+import InfiniteScrollSentinel from "@/shared/components/ui/InfiniteScrollSentinel";
 import { cn } from "@food/utils/utils";
 
 /**
@@ -19,6 +20,14 @@ import { cn } from "@food/utils/utils";
  * }]
  *
  * pagination: { page, totalPages, total, pageSize, onPageChange, onPageSizeChange }
+ *
+ * infiniteScroll: { onLoadMore, hasMore, loadingMore } — when provided instead
+ * of `pagination`, renders an InfiniteScrollSentinel footer that auto-loads
+ * the next page as the user scrolls near the bottom.
+ *
+ * renderMobileCard: (row, index) => ReactNode — when provided, the table is
+ * hidden below the `md` breakpoint and this renders a card list instead, so
+ * consumers get a real responsive layout instead of a squished/scrolling table.
  */
 const alignClass = (align) =>
   align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left";
@@ -33,16 +42,52 @@ export default function AdminTable({
   emptyState,
   stickyHeader = true,
   pagination,
+  infiniteScroll,
+  renderMobileCard,
   toolbar,
   className,
 }) {
   const colCount = columns.length || 1;
+  const showEmpty = !loading && data.length === 0;
 
   return (
     <div className={cn("space-y-3", className)}>
       {toolbar}
 
-      <div className="just-order-card overflow-hidden">
+      {renderMobileCard && (
+        <div className="just-order-card space-y-2.5 p-3 md:hidden">
+          {loading ? (
+            Array.from({ length: Math.min(skeletonRows, 4) }).map((_, r) => (
+              <div key={`msk-${r}`} className="space-y-2 rounded-xl border border-border p-3">
+                <Skeleton className="h-4 w-3/4 rounded-full" />
+                <Skeleton className="h-3 w-1/2 rounded-full" />
+              </div>
+            ))
+          ) : showEmpty ? (
+            <EmptyState
+              icon={emptyState?.icon || <Inbox className="h-10 w-10" />}
+              title={emptyState?.title || "Nothing here yet"}
+              description={emptyState?.description || "Records will appear here once available."}
+              action={emptyState?.action}
+            />
+          ) : (
+            data.map((row, rIdx) => (
+              <div key={getRowId ? getRowId(row, rIdx) : rIdx}>{renderMobileCard(row, rIdx)}</div>
+            ))
+          )}
+          {infiniteScroll && !loading && data.length > 0 && (
+            <InfiniteScrollSentinel
+              onIntersect={infiniteScroll.onLoadMore}
+              hasMore={infiniteScroll.hasMore}
+              loading={infiniteScroll.loadingMore}
+              total={infiniteScroll.total}
+              loadedCount={data.length}
+            />
+          )}
+        </div>
+      )}
+
+      <div className={cn("just-order-card overflow-hidden", renderMobileCard && "hidden md:block")}>
         <div className="just-order-scroll w-full overflow-x-auto">
           <table className="w-full border-collapse text-sm">
             <thead
@@ -129,6 +174,18 @@ export default function AdminTable({
         {pagination && (
           <div className="border-t border-border px-4 py-3">
             <Pagination {...pagination} loading={loading} />
+          </div>
+        )}
+
+        {infiniteScroll && !loading && data.length > 0 && (
+          <div className="border-t border-border px-4">
+            <InfiniteScrollSentinel
+              onIntersect={infiniteScroll.onLoadMore}
+              hasMore={infiniteScroll.hasMore}
+              loading={infiniteScroll.loadingMore}
+              total={infiniteScroll.total}
+              loadedCount={data.length}
+            />
           </div>
         )}
       </div>

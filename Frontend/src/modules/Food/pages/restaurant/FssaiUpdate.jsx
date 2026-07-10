@@ -1,12 +1,13 @@
 import { useState, useRef, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation"
-import { ArrowLeft, Upload, Loader2, X } from "lucide-react"
+import { Upload, Loader2, X } from "lucide-react"
 import { ImageSourcePicker } from "@food/components/ImageSourcePicker"
 import { isFlutterBridgeAvailable } from "@food/utils/imageUploadUtils"
 import { toast } from "sonner"
 import { restaurantAPI } from "@food/api"
 import { clearModuleAuth } from "@food/utils/auth"
+import RestaurantPageShell from "@food/components/restaurant/RestaurantPageShell"
 
 export default function FssaiUpdate() {
   const navigate = useNavigate()
@@ -140,28 +141,23 @@ export default function FssaiUpdate() {
 
   if (fetching) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] flex flex-col items-center justify-center">
-        <Loader2 className="w-8 h-8 text-[#FF6A00] animate-spin mb-2" />
-        <p className="text-sm text-gray-500">Loading current details...</p>
-      </div>
+      <RestaurantPageShell hideHeader maxWidth="lg">
+        <div className="flex flex-col items-center justify-center py-20">
+          <Loader2 className="w-8 h-8 text-[#FF6A00] animate-spin mb-2" />
+          <p className="text-sm text-gray-500">Loading current details...</p>
+        </div>
+      </RestaurantPageShell>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] flex flex-col">
-      {/* Header */}
-      <div className="px-4 pt-4 pb-3 flex items-center gap-3 border-b border-gray-100 dark:border-gray-800 bg-white dark:bg-[#111]">
-        <button
-          onClick={() => navigate("/food/restaurant/fssai")}
-          className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-colors"
-          aria-label="Back"
-        >
-          <ArrowLeft className="w-5 h-5 text-gray-900 dark:text-white" />
-        </button>
-        <h1 className="text-base font-bold text-gray-900 dark:text-white">Update FSSAI</h1>
-      </div>
-
-      <form onSubmit={handleSubmit} id="fssai-form" className="flex-1 px-4 pt-4 pb-28 space-y-4">
+    <RestaurantPageShell
+      title="Update FSSAI"
+      onBack={() => navigate("/food/restaurant/fssai")}
+      maxWidth="lg"
+      contentClassName="flex flex-col"
+    >
+      <form onSubmit={handleSubmit} id="fssai-form" className="space-y-4">
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">
             FSSAI registration number
@@ -236,8 +232,7 @@ export default function FssaiUpdate() {
         </div>
       </form>
 
-      {/* Bottom button */}
-      <div className="px-4 pb-6 pt-2 border-t border-gray-100 dark:border-gray-800 bg-white dark:bg-[#111]">
+      <div className="pt-4 mt-4 border-t border-gray-100 dark:border-gray-800">
         <button
           type="submit"
           form="fssai-form"
@@ -262,6 +257,6 @@ export default function FssaiUpdate() {
         fileNamePrefix="fssai-license"
         galleryInputRef={fileInputRef}
       />
-    </div>
+    </RestaurantPageShell>
   )
 }

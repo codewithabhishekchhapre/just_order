@@ -75,40 +75,40 @@ export default function DeletedAccounts() {
   }
 
   return (
-    <div className="p-4 lg:p-6 bg-slate-50 min-h-screen font-['Outfit']">
-      <div className="w-full mx-auto max-w-7xl">
+    <div className="min-h-[calc(100vh-5rem)] bg-neutral-200 overflow-x-hidden w-full" style={{ maxWidth: '100vw', boxSizing: 'border-box' }}>
+      <div className="px-4 sm:px-6 lg:px-8 py-4 sm:py-6 w-full overflow-hidden" style={{ maxWidth: '100%', boxSizing: 'border-box' }}>
         {/* Page Title */}
         <div className="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
-            <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tight">Deleted Accounts Management</h1>
-            <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1">Review soft-deleted profiles and reactivate them</p>
+            <h1 className="text-2xl font-bold text-[#334257] mb-2">Deleted Accounts Management</h1>
+            <p className="text-sm text-[#8a94aa]">Review soft-deleted profiles and reactivate them</p>
           </div>
           <button
             onClick={fetchDeletedAccounts}
-            className="px-5 py-2.5 bg-white border border-slate-200 text-slate-700 text-xs font-black uppercase tracking-wider rounded-xl shadow-xs hover:bg-slate-50 transition-all flex items-center gap-2"
+            className="px-4 py-2 bg-white border border-[#e3e6ef] text-[#334257] text-sm font-medium rounded-lg hover:bg-gray-50 flex items-center gap-2 transition-colors"
           >
-            <RotateCcw size={14} /> Refresh List
+            <RotateCcw size={16} /> Refresh List
           </button>
         </div>
 
         {/* Warning Information */}
-        <div className="bg-red-50 border border-red-200/50 rounded-2xl p-4 mb-6 flex items-start gap-3.5">
-          <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center flex-shrink-0 text-red-600">
-            <ShieldAlert size={20} />
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6 flex items-start gap-3">
+          <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0 text-red-600 mt-0.5">
+            <ShieldAlert size={18} />
           </div>
           <div>
-            <h4 className="text-sm font-black text-red-800 uppercase tracking-wider mb-1">Administrative Restorations</h4>
-            <p className="text-xs text-red-700/80 font-medium leading-relaxed">
+            <h4 className="text-sm font-bold text-red-800 mb-1">Administrative Restorations</h4>
+            <p className="text-xs sm:text-sm text-red-700">
               Below is the consolidated history of deleted profiles from the system. Reactivating a profile will restore their access permission immediately, re-register their login credentials, and preserve all past transactions, ledger items, and order listings.
             </p>
           </div>
         </div>
 
         {/* Controls & Filters */}
-        <div className="bg-white rounded-2xl shadow-xs border border-slate-200 p-4 mb-6 flex flex-col md:flex-row gap-4">
+        <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] p-4 mb-6 flex flex-col md:flex-row gap-4">
           {/* Search Box */}
-          <div className="relative flex-1 group">
-            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-slate-900 transition-colors">
+          <div className="relative flex-1">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
               <Search size={18} />
             </span>
             <input
@@ -116,20 +116,20 @@ export default function DeletedAccounts() {
               placeholder="Search by name, phone, email, details..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:bg-white focus:border-slate-300 transition-all"
+              className="w-full pl-10 pr-4 h-10 bg-white border border-[#e3e6ef] rounded-md text-sm text-[#4a5671] focus:outline-none focus:ring-1 focus:ring-[#006fbd]"
             />
           </div>
 
           {/* Role Filter */}
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {["all", "User", "Seller", "Restaurant", "Delivery Boy"].map((roleOption) => (
               <button
                 key={roleOption}
                 onClick={() => setRoleFilter(roleOption)}
-                className={`px-4 py-2.5 rounded-xl border text-xs font-black uppercase tracking-wider transition-all whitespace-nowrap ${
+                className={`px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium transition-colors ${
                   roleFilter === roleOption
-                    ? "bg-slate-900 text-white border-slate-900 shadow-md"
-                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                    ? "bg-[#006fbd] text-white border border-[#006fbd]"
+                    : "bg-white text-[#4a5671] border border-[#e3e6ef] hover:bg-gray-50"
                 }`}
               >
                 {roleOption === "all" ? "All Roles" : roleOption}
@@ -139,19 +139,19 @@ export default function DeletedAccounts() {
         </div>
 
         {/* Accounts Table Card */}
-        <div className="bg-white rounded-2xl shadow-xs border border-slate-200 overflow-hidden">
+        <div className="bg-white rounded-lg shadow-sm border border-[#e3e6ef] overflow-hidden">
           {loading ? (
-            <div className="flex flex-col items-center justify-center py-20 gap-3">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-900"></div>
-              <span className="text-xs font-black text-slate-500 uppercase tracking-widest">Fetching records...</span>
+            <div className="flex flex-col items-center justify-center py-16 gap-3">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#006fbd]"></div>
+              <span className="text-sm text-[#8a94aa]">Fetching records...</span>
             </div>
           ) : filteredAccounts.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-center px-4">
-              <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mb-4 text-slate-400 border border-slate-100">
-                <Trash2 size={28} />
+            <div className="flex flex-col items-center justify-center py-16 text-center px-4">
+              <div className="w-16 h-16 rounded-full bg-gray-50 flex items-center justify-center mb-4 text-gray-400 border border-gray-100">
+                <Trash2 size={24} />
               </div>
-              <h3 className="text-base font-black text-slate-900 uppercase tracking-wide">No Deleted Accounts Found</h3>
-              <p className="text-xs text-slate-400 font-medium max-w-xs mt-2 leading-relaxed">
+              <h3 className="text-base font-semibold text-[#334257] mb-1">No Deleted Accounts Found</h3>
+              <p className="text-sm text-[#8a94aa] max-w-md">
                 {searchQuery || roleFilter !== "all" 
                   ? "No accounts match your current query or selected role filters." 
                   : "All accounts in the ecosystem are active. No deleted history registered."}
@@ -159,58 +159,58 @@ export default function DeletedAccounts() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
+              <table className="w-full text-left border-collapse min-w-[800px]">
                 <thead>
-                  <tr className="bg-slate-50 border-b border-slate-150">
-                    <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Profile</th>
-                    <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Role Type</th>
-                    <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Contact details</th>
-                    <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Details / Metadata</th>
-                    <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Deletion Date</th>
-                    <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Actions</th>
+                  <tr className="bg-gray-50 border-b border-[#e3e6ef]">
+                    <th className="px-4 sm:px-6 py-3 text-xs font-semibold text-[#8a94aa] uppercase">Profile</th>
+                    <th className="px-4 sm:px-6 py-3 text-xs font-semibold text-[#8a94aa] uppercase">Role Type</th>
+                    <th className="px-4 sm:px-6 py-3 text-xs font-semibold text-[#8a94aa] uppercase">Contact details</th>
+                    <th className="px-4 sm:px-6 py-3 text-xs font-semibold text-[#8a94aa] uppercase">Details / Metadata</th>
+                    <th className="px-4 sm:px-6 py-3 text-xs font-semibold text-[#8a94aa] uppercase">Deletion Date</th>
+                    <th className="px-4 sm:px-6 py-3 text-xs font-semibold text-[#8a94aa] uppercase text-right">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-[#e3e6ef]">
                   {filteredAccounts.map((account) => (
-                    <tr key={account.id} className="hover:bg-slate-50/50 transition-colors">
+                    <tr key={account.id} className="hover:bg-gray-50 transition-colors">
                       {/* Profile info */}
-                      <td className="px-6 py-4">
+                      <td className="px-4 sm:px-6 py-4">
                         <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-900 font-black text-sm border border-slate-200">
+                          <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-sm shrink-0">
                             {account.name.charAt(0).toUpperCase()}
                           </div>
                           <div>
-                            <p className="text-sm font-black text-slate-900">{account.name}</p>
-                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">ID: {account.id.slice(-8)}</p>
+                            <p className="text-sm font-semibold text-[#334257]">{account.name}</p>
+                            <p className="text-xs text-[#8a94aa] mt-0.5">ID: {account.id.slice(-8)}</p>
                           </div>
                         </div>
                       </td>
 
                       {/* Role type */}
-                      <td className="px-6 py-4">
-                        <span className={`px-3 py-1 rounded-full border text-[10px] font-black uppercase tracking-wider inline-block ${getRoleBadgeStyle(account.role)}`}>
+                      <td className="px-4 sm:px-6 py-4">
+                        <span className={`px-2.5 py-1 rounded-full text-xs font-medium inline-block ${getRoleBadgeStyle(account.role)}`}>
                           {account.role}
                         </span>
                       </td>
 
                       {/* Contact */}
-                      <td className="px-6 py-4">
-                        <div className="space-y-0.5">
-                          <p className="text-xs font-bold text-slate-700">{account.phone}</p>
-                          <p className="text-xs text-slate-400 font-medium">{account.email}</p>
+                      <td className="px-4 sm:px-6 py-4">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium text-[#334257]">{account.phone}</p>
+                          <p className="text-xs text-[#8a94aa]">{account.email}</p>
                         </div>
                       </td>
 
                       {/* Details */}
-                      <td className="px-6 py-4">
-                        <span className="text-xs font-bold text-slate-600 bg-slate-100/60 px-2.5 py-1 rounded-lg">
+                      <td className="px-4 sm:px-6 py-4">
+                        <span className="text-xs text-[#334257] bg-gray-100 px-2 py-1 rounded">
                           {account.detail}
                         </span>
                       </td>
 
                       {/* Deletion date */}
-                      <td className="px-6 py-4">
-                        <span className="text-xs font-bold text-slate-500">
+                      <td className="px-4 sm:px-6 py-4">
+                        <span className="text-sm text-[#4a5671]">
                           {new Date(account.deletedAt).toLocaleString("en-IN", {
                             day: "2-digit",
                             month: "short",
@@ -222,13 +222,13 @@ export default function DeletedAccounts() {
                       </td>
 
                       {/* Actions */}
-                      <td className="px-6 py-4 text-right">
+                      <td className="px-4 sm:px-6 py-4 text-right">
                         <button
                           onClick={() => handleReactivate(account)}
                           disabled={actionLoading === account.id}
-                          className="px-4 py-2 bg-slate-900 hover:bg-slate-950 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-xs hover:shadow-md active:scale-95 disabled:opacity-50 inline-flex items-center gap-1.5"
+                          className="px-3 py-1.5 bg-[#006fbd] hover:bg-blue-700 text-white text-xs font-medium rounded-md transition-colors disabled:opacity-50 inline-flex items-center gap-1.5"
                         >
-                          <RotateCcw size={12} className={actionLoading === account.id ? "animate-spin" : ""} />
+                          <RotateCcw size={14} className={actionLoading === account.id ? "animate-spin" : ""} />
                           {actionLoading === account.id ? "Activating..." : "Reactivate"}
                         </button>
                       </td>

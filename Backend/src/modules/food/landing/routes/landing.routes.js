@@ -55,6 +55,7 @@ import {
 } from '../controllers/top10GourmetAdmin.controller.js';
 import { getPublicPageController } from '../../admin/controllers/pageContent.controller.js';
 import { getPublicReferralSettingsController } from '../controllers/publicReferralSettings.controller.js';
+import { getPublicDeliverySpeedOptions } from '../../admin/controllers/admin.controller.js';
 import { cacheResponse } from '../../../../middleware/cache.js';
 
 const router = express.Router();
@@ -134,6 +135,8 @@ router.get('/landing/settings/public', cacheResponse(600, 'landing_settings_publ
 router.get('/zones/detect', detectZonePublicController);
 router.get('/zones/nearby', listZonesNearbyPublicController);
 router.get('/zones/public', cacheResponse(600, 'zones_public'), listZonesPublicController);
+router.get('/delivery-speed-options/public', getPublicDeliverySpeedOptions);
+router.get('/public/delivery-speed-options', getPublicDeliverySpeedOptions);
 router.get('/public/env', getPublicEnvController);
 // Admin landing settings (old paths used by admin UI)
 router.get('/hero-banners/landing/settings', getAdminLandingSettingsController);

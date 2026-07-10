@@ -32,8 +32,7 @@ import {
   Utensils,
 } from "lucide-react";
 import { toast } from "sonner";
-import BottomNavOrders from "@food/components/restaurant/BottomNavOrders";
-import RestaurantNavbar from "@food/components/restaurant/RestaurantNavbar";
+import RestaurantPageShell from "@food/components/restaurant/RestaurantPageShell";
 import notificationSound from "@food/assets/audio/alert.mp3";
 import { restaurantAPI, diningAPI } from "@food/api";
 import { useRestaurantNotifications } from "@food/hooks/useRestaurantNotifications";
@@ -2002,14 +2001,9 @@ export default function OrdersMain() {
   const popupPrimaryItem = popupVisibleItems[0] || null;
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] flex flex-col">
-      {/* Restaurant Navbar - Sticky at top */}
-      <div className="sticky top-0 z-50 bg-white dark:bg-[#111]">
-        <RestaurantNavbar showNotifications={true} />
-      </div>
-
-      {/* Top Filter Bar - Sticky below navbar */}
-      <div className="sticky top-[50px] z-40 pb-2 bg-gray-50 dark:bg-[#0a0a0a]">
+    <RestaurantPageShell title="Live Orders" flush maxWidth="full" contentClassName="flex flex-col">
+      {/* Top Filter Bar */}
+      <div className="sticky top-0 z-40 pb-2 bg-gray-50 dark:bg-[#0a0a0a] px-3 sm:px-4">
         <div
           ref={filterBarRef}
           className="flex gap-2 overflow-x-auto scrollbar-hide bg-transparent rounded-full px-3 py-2 mt-2"
@@ -2837,10 +2831,7 @@ export default function OrdersMain() {
           </motion.div>
         )}
       </AnimatePresence>
-
-      {/* Bottom Navigation - Sticky */}
-      <BottomNavOrders />
-    </div>
+    </RestaurantPageShell>
   );
 }
 

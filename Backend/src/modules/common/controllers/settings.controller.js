@@ -1,6 +1,14 @@
 import { GlobalSettings } from '../models/settings.model.js';
 import { sendResponse } from '../../../utils/response.js';
 import { uploadImageBufferDetailed } from '../../../services/cloudinary.service.js';
+import { ValidationError } from '../../../core/auth/errors.js';
+import {
+    assertAtLeastOneModuleEnabled,
+    cleanModulesForResponse,
+    getAllowedModuleKeys,
+    mergeModuleSettings,
+    sanitizeIncomingModules,
+} from '../utils/moduleSettings.js';
 
 export async function getGlobalSettings(req, res, next) {
     try {
@@ -15,19 +23,8 @@ export async function getGlobalSettings(req, res, next) {
 
         // Cleanup any extra modules that might be in the DB (taxi, hotel, etc.)
         const rawSettings = settings.toObject();
-        // Dynamically get allowed modules from the schema (single source of truth)
-        const allowedModules = Object.keys(GlobalSettings.schema.paths)
-            .filter(p => p.startsWith('modules.'))
-            .map(p => p.replace('modules.', ''));
-        const cleanedModules = {};
-        
-        allowedModules.forEach(mod => {
-            // Ensure we always return a boolean for these keys
-            cleanedModules[mod] = (rawSettings.modules && rawSettings.modules[mod] !== undefined) 
-                ? !!rawSettings.modules[mod] 
-                : true;
-        });
-        rawSettings.modules = cleanedModules;
+        const allowedModules = getAllowedModuleKeys(GlobalSettings);
+        rawSettings.modules = cleanModulesForResponse(rawSettings.modules, allowedModules);
 
         return sendResponse(res, 200, 'Global settings fetched successfully', rawSettings);
     } catch (error) {
@@ -126,27 +123,34 @@ export async function updateGlobalSettings(req, res, next) {
         }
 
         if (themeColor !== undefined) {
-            settings.themeColor = themeColor;
+            const normalizedThemeColor = String(themeColor || '').trim();
+            if (normalizedThemeColor && !/^#[0-9a-fA-F]{6}$/.test(normalizedThemeColor)) {
+                return res.status(400).json({ success: false, message: 'Theme color must be a valid hex value (e.g. #FF6A00)' });
+            }
+            settings.themeColor = normalizedThemeColor || '#0a0a0a';
         }
 
-        // Strictly define modules and ensure persistence
-        const incomingModules = modules || data.modules || {};
-        const currentModules = settings.modules || {};
-        
-        // Dynamically rebuild the modules object using the schema keys (single source of truth)
-        const allowedModules = Object.keys(GlobalSettings.schema.paths)
-            .filter(p => p.startsWith('modules.'))
-            .map(p => p.replace('modules.', ''));
-            
-        settings.modules = {};
-        allowedModules.forEach(mod => {
-            settings.modules[mod] = incomingModules[mod] !== undefined 
-                ? !!incomingModules[mod] 
-                : (currentModules[mod] !== undefined ? !!currentModules[mod] : true);
-        });
-        
-        // Use markModified to ensure the modules object is fully replaced in DB
-        settings.markModified('modules');
+        const hasModuleUpdate = modules !== undefined || data.modules !== undefined;
+        if (hasModuleUpdate) {
+            const allowedModules = getAllowedModuleKeys(GlobalSettings);
+            const incomingModules = sanitizeIncomingModules(modules ?? data.modules, allowedModules);
+            settings.modules = mergeModuleSettings({
+                allowedKeys: allowedModules,
+                currentModules: settings.modules || {},
+                incomingModules,
+            });
+
+            try {
+                assertAtLeastOneModuleEnabled(settings.modules, allowedModules);
+            } catch (validationError) {
+                return res.status(400).json({
+                    success: false,
+                    message: validationError.message || 'Invalid module configuration',
+                });
+            }
+
+            settings.markModified('modules');
+        }
 
         // Handle file uploads
         if (req.files) {
@@ -180,7 +184,14 @@ export async function updateGlobalSettings(req, res, next) {
         }
 
         await settings.save();
-        return sendResponse(res, 200, 'Global settings updated successfully', settings);
+
+        const responsePayload = settings.toObject();
+        responsePayload.modules = cleanModulesForResponse(
+            responsePayload.modules,
+            getAllowedModuleKeys(GlobalSettings),
+        );
+
+        return sendResponse(res, 200, 'Global settings updated successfully', responsePayload);
     } catch (error) {
         next(error);
     }

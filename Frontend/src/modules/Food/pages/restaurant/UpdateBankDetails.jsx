@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { useNavigate } from "react-router-dom"
 import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation"
-import { ArrowLeft, AlertCircle, Upload, Loader2 } from "lucide-react"
+import { AlertCircle, Upload, Loader2 } from "lucide-react"
+import RestaurantPageShell from "@food/components/restaurant/RestaurantPageShell"
 import { restaurantAPI, uploadAPI } from "@food/api"
 import { ImageSourcePicker } from "@food/components/ImageSourcePicker"
 import { isFlutterBridgeAvailable } from "@food/utils/imageUploadUtils"
@@ -20,7 +20,6 @@ const EMPTY_FORM = {
 }
 
 export default function UpdateBankDetails() {
-  const navigate = useNavigate()
   const goBack = useRestaurantBackNavigation()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -180,15 +179,11 @@ export default function UpdateBankDetails() {
     }`
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] flex flex-col">
-      <div className="px-4 pt-4 pb-3 flex items-center gap-3 border-b border-gray-100 dark:border-gray-800 bg-white dark:bg-[#111]">
-        <button onClick={goBack} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-colors" aria-label="Back">
-          <ArrowLeft className="w-5 h-5 text-gray-900 dark:text-white" />
-        </button>
-        <h1 className="text-base font-bold text-gray-900 dark:text-white">Bank & UPI Details</h1>
-      </div>
-
-      <div className="flex-1 px-4 pt-4 pb-6">
+    <RestaurantPageShell
+      title="Bank & UPI Details"
+      onBack={goBack}
+      maxWidth="lg"
+    >
         {loading ? (
           <div className="py-12 flex items-center justify-center gap-2 text-gray-600">
             <Loader2 className="w-4 h-4 animate-spin" />
@@ -337,7 +332,6 @@ export default function UpdateBankDetails() {
             </button>
           </form>
         )}
-      </div>
       
       <ImageSourcePicker
         isOpen={isQrPickerOpen}
@@ -348,6 +342,6 @@ export default function UpdateBankDetails() {
         fileNamePrefix="upi-qr"
         galleryInputRef={qrInputRef}
       />
-    </div>
+    </RestaurantPageShell>
   )
 }

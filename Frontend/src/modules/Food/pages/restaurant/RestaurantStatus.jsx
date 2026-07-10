@@ -13,6 +13,7 @@ import {
   DialogFooter, DialogHeader, DialogTitle,
 } from "@food/components/ui/dialog"
 import { Button } from "@food/components/ui/button"
+import RestaurantPageShell from "@food/components/restaurant/RestaurantPageShell"
 
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -200,14 +201,13 @@ export default function RestaurantStatus() {
   const timeLabel = currentDateTime.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true })
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a]">
-      {/* Page title */}
-      <div className="bg-white dark:bg-[#111] border-b border-gray-100 dark:border-gray-800 px-4 py-4">
-        <h1 className="text-base font-bold text-gray-900 dark:text-white">Restaurant Status</h1>
-        <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{dateLabel} · {timeLabel} · {dayLabel}</p>
-      </div>
-
-      <div className="max-w-lg mx-auto px-4 py-5 space-y-4">
+    <RestaurantPageShell
+      title="Restaurant Status"
+      subtitle={`${dateLabel} · ${timeLabel} · ${dayLabel}`}
+      onBack={goBack}
+      maxWidth="lg"
+      contentClassName="space-y-4"
+    >
 
         {/* Main toggle card */}
         <div className={`rounded-2xl border p-5 transition-colors ${
@@ -346,7 +346,6 @@ export default function RestaurantStatus() {
             <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">Outlet Info</span>
           </button>
         </div>
-      </div>
 
       {/* ── Dialogs ── */}
       <Dialog open={showOutletClosedDialog} onOpenChange={setShowOutletClosedDialog}>
@@ -428,6 +427,6 @@ export default function RestaurantStatus() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </RestaurantPageShell>
   )
 }

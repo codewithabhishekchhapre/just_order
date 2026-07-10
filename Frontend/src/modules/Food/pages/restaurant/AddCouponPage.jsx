@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react"
 import { motion } from "framer-motion"
 import { useNavigate } from "react-router-dom"
 import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation"
-import Lenis from "lenis"
+
 import { 
   ArrowLeft,
   Calendar,
@@ -15,6 +15,10 @@ import { Card, CardContent } from "@food/components/ui/card"
 import { Button } from "@food/components/ui/button"
 import { Input } from "@food/components/ui/input"
 import BottomNavbar from "@food/components/restaurant/BottomNavbar"
+import { restaurantAPI } from "@food/api"
+import { toast } from "sonner"
+import { Loader2 } from "lucide-react"
+
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -51,25 +55,85 @@ export default function AddCouponPage(props) {
   const startDateRef = useRef(null)
   const endDateRef = useRef(null)
 
-  // Lenis smooth scrolling
+  const [couponData, setCouponData] = useState(null)
+  const [isFetching, setIsFetching] = useState(isEditMode && !!couponId)
+  const [isSaving, setIsSaving] = useState(false)
+
+  // If edit mode, fetch the coupon data
   useEffect(() => {
-    const lenis = new Lenis({
-      duration: 1.2,
-      easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
-      smoothWheel: true,
-    })
+    if (!isEditMode || !couponId) return
+    let isMounted = true
+    const fetchCoupon = async () => {
+      try {
+        const res = await restaurantAPI.getCoupons()
+        if (!isMounted) return
+        const list = res.data?.data || []
+        const coupon = list.find(c => String(c._id) === String(couponId) || String(c.id) === String(couponId))
+        setCouponData(coupon)
+      } catch (err) {
+        console.error(err)
+      } finally {
+        if (isMounted) setIsFetching(false)
+      }
+    }
+    fetchCoupon()
+    return () => { isMounted = false }
+  }, [isEditMode, couponId])
 
-    function raf(time) {
-      lenis.raf(time)
-      requestAnimationFrame(raf)
+  // Populate form when data arrives
+  useEffect(() => {
+    if (isEditMode && couponData) {
+      setFormData({
+        title: couponData.couponName || "",
+        couponCode: couponData.couponCode || "",
+        limitForSameUser: couponData.usageLimit || "",
+        minPurchase: couponData.minOrderAmount || "",
+        discount: couponData.discountValue || "",
+        discountType: couponData.discountType === "percentage" ? "%" : "$",
+        maxDiscount: couponData.maxDiscount || "",
+        startDate: couponData.startDate ? new Date(couponData.startDate).toISOString().split('T')[0] : "",
+        endDate: (couponData.endDate || couponData.expiryDate) ? new Date(couponData.endDate || couponData.expiryDate).toISOString().split('T')[0] : ""
+      })
+    }
+  }, [isEditMode, couponData])
+
+  const handleSubmit = async () => {
+    if (!formData.title) return toast.error("Title is required")
+    if (!formData.couponCode) return toast.error("Coupon Code is required")
+    if (!formData.discount) return toast.error("Discount is required")
+    if (!formData.startDate) return toast.error("Start Date is required")
+    if (!formData.endDate) return toast.error("End Date is required")
+
+    const payload = {
+      couponName: formData.title,
+      couponCode: formData.couponCode,
+      discountType: formData.discountType === "%" ? "percentage" : "fixed",
+      discountValue: Number(formData.discount),
+      maxDiscount: Number(formData.maxDiscount) || 0,
+      minOrderAmount: Number(formData.minPurchase) || 0,
+      startDate: formData.startDate,
+      endDate: formData.endDate,
+      usageLimit: Number(formData.limitForSameUser) || null,
+      description: ""
     }
 
-    requestAnimationFrame(raf)
-
-    return () => {
-      lenis.destroy()
+    setIsSaving(true)
+    try {
+      if (isEditMode) {
+        await restaurantAPI.updateCoupon(couponId, payload)
+      } else {
+        await restaurantAPI.createCoupon(payload)
+      }
+      toast.success(isEditMode ? "Coupon updated successfully" : "Coupon created successfully")
+      navigate("/food/restaurant/coupon")
+    } catch (error) {
+      toast.error(error?.response?.data?.message || `Failed to ${isEditMode ? 'update' : 'create'} coupon`)
+    } finally {
+      setIsSaving(false)
     }
-  }, [])
+  }
+
+
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -125,7 +189,7 @@ export default function AddCouponPage(props) {
   }
 
   return (
-    <div className="min-h-screen bg-[#f6e9dc] overflow-x-hidden pb-24 md:pb-6">
+    <div className="h-screen bg-[#f6e9dc] overflow-x-hidden overflow-y-auto pb-32 md:pb-6">
       {/* Header */}
       <div className="bg-white border-b border-gray-200 px-4 py-3 sticky top-0 z-50 flex items-center gap-3">
         <button 
@@ -139,6 +203,11 @@ export default function AddCouponPage(props) {
         </h1>
       </div>
 
+      {isFetching ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="w-8 h-8 text-[#ff8100] animate-spin" />
+        </div>
+      ) : (
       {/* Main Content */}
       <div className="px-4 py-4 space-y-4">
         {/* Coupon Details Section */}
@@ -273,116 +342,6 @@ export default function AddCouponPage(props) {
           </Card>
         </motion.div>
 
-        {/* Additional Discount Section */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, delay: 0.1 }}
-        >
-          <Card className="bg-white shadow-sm border border-gray-100">
-            <CardContent className="p-4 space-y-4">
-              {/* Limit for same user 2 */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Limit for same user
-                </label>
-                <div className="flex gap-2">
-                  <Input
-                    type="number"
-                    value={formData.limitForSameUser2}
-                    onChange={(e) => handleInputChange("limitForSameUser2", e.target.value)}
-                    placeholder="Limit for same user"
-                    className="flex-1"
-                  />
-                  <div className="flex flex-col">
-                    <button
-                      onClick={incrementLimit}
-                      className="p-1 bg-[#ff8100] hover:bg-[#e67300] rounded-t transition-colors"
-                    >
-                      <ChevronUp className="w-3 h-3 text-white" />
-                    </button>
-                    <button
-                      onClick={decrementLimit}
-                      className="p-1 bg-[#ff8100] hover:bg-[#e67300] rounded-b transition-colors"
-                    >
-                      <ChevronDownIcon className="w-3 h-3 text-white" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Min purchase 2 */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Min purchase
-                </label>
-                <Input
-                  type="number"
-                  value={formData.minPurchase2}
-                  onChange={(e) => handleInputChange("minPurchase2", e.target.value)}
-                  placeholder="Min purchase"
-                  className="w-full"
-                />
-              </div>
-
-              {/* Discount 2 */}
-              <div className="relative" ref={discountRef2}>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Discount <span className="text-red-500">*</span>
-                </label>
-                <div className="flex gap-2">
-                  <Input
-                    type="number"
-                    value={formData.discount2}
-                    onChange={(e) => handleInputChange("discount2", e.target.value)}
-                    placeholder="Discount *"
-                    className="flex-1"
-                  />
-                  <button
-                    onClick={() => setShowDiscountDropdown2(!showDiscountDropdown2)}
-                    className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors flex items-center gap-1"
-                  >
-                    <span className="text-sm font-medium text-gray-700">{formData.discountType2}</span>
-                    <ChevronDown className="w-4 h-4 text-gray-600" />
-                  </button>
-                </div>
-                {showDiscountDropdown2 && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="absolute right-0 top-full mt-2 bg-white border border-gray-200 rounded-lg shadow-lg z-50 min-w-[100px]"
-                  >
-                    {discountTypes.map((type) => (
-                      <button
-                        key={type}
-                        onClick={() => {
-                          handleInputChange("discountType2", type)
-                          setShowDiscountDropdown2(false)
-                        }}
-                        className="w-full text-left px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors first:rounded-t-lg last:rounded-b-lg"
-                      >
-                        {type}
-                      </button>
-                    ))}
-                  </motion.div>
-                )}
-              </div>
-
-              {/* Max Discount 2 */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Max Discount
-                </label>
-                <Input
-                  type="number"
-                  value={formData.maxDiscount2}
-                  onChange={(e) => handleInputChange("maxDiscount2", e.target.value)}
-                  placeholder="Max Discount"
-                  className="w-full"
-                />
-              </div>
-            </CardContent>
-          </Card>
         </motion.div>
 
         {/* Date Range Section */}
@@ -482,20 +441,16 @@ export default function AddCouponPage(props) {
       {/* Add Button */}
       <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-4 py-4 z-50 md:relative md:border-t-0 md:px-4 md:py-4 md:mt-6">
         <Button
-          onClick={() => {
-            if (isEditMode) {
-              debugLog("Update coupon:", { id: couponId, ...formData })
-            } else {
-              debugLog("Add coupon:", formData)
-            }
-            // Navigate to coupon list after save
-            navigate("/restaurant/coupon")
-          }}
-          className="w-full bg-[#ff8100] hover:bg-[#e67300] text-white font-semibold py-3 rounded-lg"
+          onClick={handleSubmit}
+          disabled={isSaving}
+          className="w-full bg-[#ff8100] hover:bg-[#e67300] text-white font-semibold py-3 rounded-lg flex items-center justify-center gap-2"
         >
+          {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
           {isEditMode ? "Update" : "Add"}
         </Button>
       </div>
+
+      )}
 
       {/* Bottom Navigation Bar */}
       <BottomNavbar />

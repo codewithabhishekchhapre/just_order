@@ -3,6 +3,13 @@ import { motion } from "framer-motion"
 import { useLocation, useNavigate } from "react-router-dom"
 import { UtensilsCrossed, ShoppingBasket, ShieldCheck, User } from "lucide-react"
 import { cn } from "@food/utils/utils"
+import {
+  loadBusinessSettings,
+  getCompanyName,
+  getAppLogo,
+  setAppType,
+} from "@common/utils/businessSettings"
+import { normalizeEnabledModules } from "@common/utils/enabledModules"
 
 const SERVICES = [
   {
@@ -64,18 +71,14 @@ export default function SuperAppPortal() {
   React.useEffect(() => {
     const loadSettings = async () => {
       try {
-        const { getCachedSettings, loadBusinessSettings, getCompanyName, getAppLogo, setAppType } = await import("@common/utils/businessSettings")
-        setAppType('user')
-        let settings = getCachedSettings()
-        if (!settings) {
-          settings = await loadBusinessSettings()
-        }
+        setAppType("user")
+        const settings = await loadBusinessSettings()
         if (settings) {
           if (settings.modules) {
-            setEnabledModules(settings.modules)
+            setEnabledModules(normalizeEnabledModules(settings.modules))
           }
           setCompanyName(getCompanyName())
-          setLogoUrl(getAppLogo('user'))
+          setLogoUrl(getAppLogo("user"))
         }
       } catch (err) {
         console.error("Failed to load settings in Portal:", err)
@@ -83,26 +86,22 @@ export default function SuperAppPortal() {
     }
     loadSettings()
 
-    // Listen for business settings updates
     const handleSettingsUpdate = (e) => {
-      const settings = e.detail;
-      if (settings) {
-        if (settings.modules) setEnabledModules(settings.modules);
-        // We can't easily call getCompanyName/getAppLogo here without importing them again
-        // or having them in scope. Since they are imported inside the async loadSettings,
-        // it's better to just re-trigger loadSettings or have the utilities available.
+      const settings = e.detail
+      if (settings?.modules) {
+        setEnabledModules(normalizeEnabledModules(settings.modules))
       }
-    };
-    window.addEventListener('businessSettingsUpdated', handleSettingsUpdate);
-    return () => window.removeEventListener('businessSettingsUpdated', handleSettingsUpdate);
+    }
+    window.addEventListener("businessSettingsUpdated", handleSettingsUpdate)
+    return () => window.removeEventListener("businessSettingsUpdated", handleSettingsUpdate)
   }, [])
 
   const filteredServices = useMemo(() => {
-    return SERVICES.filter(service => {
-      const moduleKey = service.id === 'grocery' ? 'quickCommerce' : service.id
-      return enabledModules[moduleKey] !== false
-    })
-  }, [enabledModules])
+    return SERVICES.filter((service) => {
+      const moduleKey = service.id === "grocery" ? "quickCommerce" : service.id;
+      return enabledModules[moduleKey] !== false;
+    });
+  }, [enabledModules]);
 
   const handleServiceClick = (service) => {
 

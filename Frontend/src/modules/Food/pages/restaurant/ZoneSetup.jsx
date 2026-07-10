@@ -3,7 +3,8 @@ import { useNavigate } from "react-router-dom"
 import { MapPin, Search, Save, Loader2, ArrowLeft, AlertTriangle, X } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import { toast } from "react-hot-toast"
-import RestaurantNavbar from "@food/components/restaurant/RestaurantNavbar"
+import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation"
+import RestaurantPageShell, { RESTAURANT_CARD_CLASS } from "@food/components/restaurant/RestaurantPageShell"
 import { restaurantAPI, zoneAPI } from "@food/api"
 import { getGoogleMapsApiKey } from "@food/utils/googleMapsApiKey"
 import { loadGoogleMaps as loadGoogleMapsSdk } from "@core/services/googleMapsLoader"
@@ -54,6 +55,7 @@ const getSavedLocationCoords = (location) => {
 
 export default function ZoneSetup() {
   const navigate = useNavigate()
+  const goBack = useRestaurantBackNavigation()
   const mapRef = useRef(null)
   const mapInstanceRef = useRef(null)
   const markerRef = useRef(null)
@@ -586,31 +588,15 @@ export default function ZoneSetup() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a]">
-      <RestaurantNavbar />
-      <div className="p-4 md:p-6 max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6">
-          <div className="flex items-center gap-3 mb-4 md:mb-0">
-            <button
-              onClick={() => navigate("/food/restaurant")}
-              className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-colors"
-              aria-label="Go back"
-            >
-              <ArrowLeft className="w-5 h-5 text-gray-700 dark:text-gray-300" />
-            </button>
-            <div className="w-10 h-10 rounded-xl bg-[#FF6A00] flex items-center justify-center">
-              <MapPin className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <h1 className="text-lg font-bold text-gray-900 dark:text-white">Zone Setup</h1>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Set your restaurant location on the map</p>
-            </div>
-          </div>
-        </div>
-
+    <RestaurantPageShell
+      title="Zone Setup"
+      subtitle="Set your restaurant location on the map"
+      onBack={goBack}
+      maxWidth="7xl"
+      contentClassName="space-y-4"
+    >
         {/* Search Bar */}
-        <div className="bg-white dark:bg-[#111] rounded-2xl border border-gray-100 dark:border-gray-800 p-4 mb-4">
+        <div className={`${RESTAURANT_CARD_CLASS} p-4`}>
           <div className="flex items-center gap-3">
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
@@ -677,7 +663,6 @@ export default function ZoneSetup() {
             </div>
           )}
         </div>
-      </div>
 
       {/* Loading Overlay */}
       {saving && (
@@ -689,6 +674,6 @@ export default function ZoneSetup() {
           </div>
         </div>
       )}
-    </div>
+    </RestaurantPageShell>
   )
 }

@@ -1,6 +1,11 @@
 import { useState, useRef } from "react"
-import { Upload, Heart, Star, Calendar, CheckCircle2, X } from "lucide-react"
+import { Upload, Heart, Star, Calendar, CheckCircle2, X, Megaphone } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@food/components/ui/dialog"
+import { cn } from "@food/utils/utils"
+import FormPageShell from "@/shared/components/admin/FormPageShell"
+import FormSection from "@/shared/components/admin/FormSection"
+import FormField, { formInputClass } from "@/shared/components/admin/FormField"
+import FormActions from "@/shared/components/admin/FormActions"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -36,7 +41,7 @@ export default function NewAdvertisement() {
     { key: "en", label: "English(EN)" },
     { key: "bn", label: "Bengali - বাংলা(BN)" },
     { key: "ar", label: "Arabic - العربية (AR)" },
-    { key: "es", label: "Spanish - espa�ol(ES)" },
+    { key: "es", label: "Spanish - espa�ol(ES)" },
   ]
 
   const handleInputChange = (field, value) => {
@@ -192,370 +197,311 @@ export default function NewAdvertisement() {
   }
 
   return (
-    <div className="p-4 lg:p-6 bg-slate-50 min-h-screen">
-      <div className="max-w-7xl mx-auto">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Main Form Section */}
-          <div className="lg:col-span-2">
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-              <h1 className="text-2xl font-bold text-slate-900 mb-6">Create Advertisement</h1>
+    <FormPageShell title="Create Advertisement" icon={<Megaphone className="h-5 w-5" />} iconClassName="bg-red-500">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Main Form Section */}
+        <div className="lg:col-span-2">
+          <FormSection bodyClassName="grid-cols-1 gap-0">
+            {/* Language Tabs */}
+            <div className="flex items-center gap-2 border-b border-slate-200 mb-6">
+              {languageTabs.map((tab) => (
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveLanguage(tab.key)}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                    activeLanguage === tab.key
+                      ? "border-blue-600 text-blue-600"
+                      : "border-transparent text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
 
-              {/* Language Tabs */}
-              <div className="flex items-center gap-2 border-b border-slate-200 mb-6">
-                {languageTabs.map((tab) => (
-                  <button
-                    key={tab.key}
-                    onClick={() => setActiveLanguage(tab.key)}
-                    className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-                      activeLanguage === tab.key
-                        ? "border-blue-600 text-blue-600"
-                        : "border-transparent text-slate-600 hover:text-slate-900"
-                    }`}
+            <form onSubmit={handleSubmit}>
+              <div className="space-y-6">
+                <FormField
+                  label={`Advertisement Title (${activeLanguage === "default" ? "Default" : languageTabs.find(t => t.key === activeLanguage)?.label})`}
+                  required
+                  error={formErrors.title}
+                >
+                  <input
+                    type="text"
+                    value={formData.title}
+                    onChange={(e) => handleInputChange("title", e.target.value)}
+                    placeholder="Exclusive Offer"
+                    className={cn(formInputClass, formErrors.title && "border-rose-500")}
+                  />
+                </FormField>
+
+                <FormField
+                  label={`Short Description (${activeLanguage === "default" ? "Default" : languageTabs.find(t => t.key === activeLanguage)?.label})`}
+                >
+                  <input
+                    type="text"
+                    value={formData.shortDescription}
+                    onChange={(e) => handleInputChange("shortDescription", e.target.value)}
+                    placeholder="Get Discount"
+                    className={formInputClass}
+                  />
+                </FormField>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <FormField label="Select Restaurant" required error={formErrors.restaurant}>
+                    <select
+                      value={formData.restaurant}
+                      onChange={(e) => handleInputChange("restaurant", e.target.value)}
+                      className={cn(formInputClass, formErrors.restaurant && "border-rose-500")}
+                    >
+                      <option value="">Select Restaurant</option>
+                      <option value="cafe-monarch">Caf� Monarch</option>
+                      <option value="hungry-puppets">Hungry Puppets</option>
+                    </select>
+                  </FormField>
+
+                  <FormField label="Select Priority">
+                    <select
+                      value={formData.priority}
+                      onChange={(e) => handleInputChange("priority", e.target.value)}
+                      className={formInputClass}
+                    >
+                      <option value="Priority">Priority</option>
+                      <option value="High">High</option>
+                      <option value="Normal">Normal</option>
+                      <option value="Low">Low</option>
+                    </select>
+                  </FormField>
+                </div>
+
+                <FormField label="Advertisement Type">
+                  <select
+                    value={formData.advertisementType}
+                    onChange={(e) => handleInputChange("advertisementType", e.target.value)}
+                    className={formInputClass}
                   >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
+                    <option value="Restaurant Promotion">Restaurant Promotion</option>
+                    <option value="Video promotion">Video promotion</option>
+                  </select>
+                </FormField>
 
-              <form onSubmit={handleSubmit}>
-                <div className="space-y-6">
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-2">
-                      Advertisement Title ({activeLanguage === "default" ? "Default" : languageTabs.find(t => t.key === activeLanguage)?.label}) <span className="text-red-500">*</span>
-                    </label>
+                <FormField label="Validity" required error={formErrors.validity}>
+                  <div className="relative">
                     <input
-                      type="text"
-                      value={formData.title}
-                      onChange={(e) => handleInputChange("title", e.target.value)}
-                      placeholder="Exclusive Offer"
-                      className={`w-full px-4 py-2.5 border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm ${
-                        formErrors.title ? "border-red-500" : "border-slate-300"
-                      }`}
+                      type="date"
+                      value={formData.validity}
+                      onChange={(e) => handleInputChange("validity", e.target.value)}
+                      className={cn(formInputClass, "pr-10", formErrors.validity && "border-rose-500")}
                     />
-                    {formErrors.title && (
-                      <p className="text-xs text-red-500 mt-1">{formErrors.title}</p>
-                    )}
+                    <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
                   </div>
+                </FormField>
 
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-2">
-                      Short Description ({activeLanguage === "default" ? "Default" : languageTabs.find(t => t.key === activeLanguage)?.label})
+                <FormField label="Show Review & Ratings">
+                  <div className="flex items-center gap-6">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.showReview}
+                        onChange={(e) => handleInputChange("showReview", e.target.checked)}
+                        className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500"
+                      />
+                      <span className="text-sm text-slate-700">Review</span>
                     </label>
-                    <input
-                      type="text"
-                      value={formData.shortDescription}
-                      onChange={(e) => handleInputChange("shortDescription", e.target.value)}
-                      placeholder="Get Discount"
-                      className="w-full px-4 py-2.5 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                    />
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.showRatings}
+                        onChange={(e) => handleInputChange("showRatings", e.target.checked)}
+                        className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500"
+                      />
+                      <span className="text-sm text-slate-700">Rating</span>
+                    </label>
                   </div>
+                </FormField>
 
+                {/* Upload Related Files */}
+                <FormField label="Upload Related Files">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-2">
-                        Select Restaurant <span className="text-red-500">*</span>
+                      <label className="block text-sm font-medium text-slate-600 mb-2">
+                        Profile Image (Ratio - 1:1)
                       </label>
-                      <select
-                        value={formData.restaurant}
-                        onChange={(e) => handleInputChange("restaurant", e.target.value)}
-                        className={`w-full px-4 py-2.5 border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm ${
-                          formErrors.restaurant ? "border-red-500" : "border-slate-300"
-                        }`}
-                      >
-                        <option value="">Select Restaurant</option>
-                        <option value="cafe-monarch">Caf� Monarch</option>
-                        <option value="hungry-puppets">Hungry Puppets</option>
-                      </select>
-                      {formErrors.restaurant && (
-                        <p className="text-xs text-red-500 mt-1">{formErrors.restaurant}</p>
+                      <input
+                        ref={profileInputRef}
+                        type="file"
+                        accept="image/png,image/jpeg,image/jpg,image/webp"
+                        onChange={(e) => {
+                          if (e.target.files && e.target.files[0]) {
+                            handleFileUpload("profileImage", e.target.files[0])
+                          }
+                        }}
+                        className="hidden"
+                      />
+                      {profilePreview ? (
+                        <div className="relative border-2 border-slate-300 rounded-lg overflow-hidden">
+                          <img
+                            src={profilePreview}
+                            alt="Profile preview"
+                            className="w-full h-48 object-cover"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveImage("profileImage")}
+                            className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div
+                          onClick={() => profileInputRef.current?.click()}
+                          className={`border-2 border-dashed rounded-lg p-6 text-center hover:border-blue-500 transition-colors cursor-pointer ${
+                            formErrors.profileImage ? "border-red-500" : "border-slate-300"
+                          }`}
+                        >
+                          <Upload className="w-8 h-8 text-slate-400 mx-auto mb-2" />
+                          <p className="text-sm font-medium text-blue-600 mb-1">Click to Upload Profile Image</p>
+                          <p className="text-xs text-slate-500">Supports: PNG, JPG, JPEG, WEBP Maximum 2 MB</p>
+                        </div>
+                      )}
+                      {formErrors.profileImage && (
+                        <p className="text-xs text-red-500 mt-1">{formErrors.profileImage}</p>
                       )}
                     </div>
 
                     <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-2">
-                        Select Priority
+                      <label className="block text-sm font-medium text-slate-600 mb-2">
+                        Upload Cover (Ratio - 2:1)
                       </label>
-                      <select
-                        value={formData.priority}
-                        onChange={(e) => handleInputChange("priority", e.target.value)}
-                        className="w-full px-4 py-2.5 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                      >
-                        <option value="Priority">Priority</option>
-                        <option value="High">High</option>
-                        <option value="Normal">Normal</option>
-                        <option value="Low">Low</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-2">
-                      Advertisement Type
-                    </label>
-                    <select
-                      value={formData.advertisementType}
-                      onChange={(e) => handleInputChange("advertisementType", e.target.value)}
-                      className="w-full px-4 py-2.5 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                    >
-                      <option value="Restaurant Promotion">Restaurant Promotion</option>
-                      <option value="Video promotion">Video promotion</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-2">
-                      Validity <span className="text-red-500">*</span>
-                    </label>
-                    <div className="relative">
                       <input
-                        type="date"
-                        value={formData.validity}
-                        onChange={(e) => handleInputChange("validity", e.target.value)}
-                        className={`w-full px-4 py-2.5 pr-10 border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm ${
-                          formErrors.validity ? "border-red-500" : "border-slate-300"
-                        }`}
-                      />
-                      <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-                    </div>
-                    {formErrors.validity && (
-                      <p className="text-xs text-red-500 mt-1">{formErrors.validity}</p>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-3">
-                      Show Review & Ratings
-                    </label>
-                    <div className="flex items-center gap-6">
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={formData.showReview}
-                          onChange={(e) => handleInputChange("showReview", e.target.checked)}
-                          className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500"
-                        />
-                        <span className="text-sm text-slate-700">Review</span>
-                      </label>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={formData.showRatings}
-                          onChange={(e) => handleInputChange("showRatings", e.target.checked)}
-                          className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500"
-                        />
-                        <span className="text-sm text-slate-700">Rating</span>
-                      </label>
-                    </div>
-                  </div>
-
-                  {/* Upload Related Files */}
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-4">
-                      Upload Related Files
-                    </label>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div>
-                        <label className="block text-sm font-medium text-slate-600 mb-2">
-                          Profile Image (Ratio - 1:1)
-                        </label>
-                        <input
-                          ref={profileInputRef}
-                          type="file"
-                          accept="image/png,image/jpeg,image/jpg,image/webp"
-                          onChange={(e) => {
-                            if (e.target.files && e.target.files[0]) {
-                              handleFileUpload("profileImage", e.target.files[0])
-                            }
-                          }}
-                          className="hidden"
-                        />
-                        {profilePreview ? (
-                          <div className="relative border-2 border-slate-300 rounded-lg overflow-hidden">
-                            <img
-                              src={profilePreview}
-                              alt="Profile preview"
-                              className="w-full h-48 object-cover"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveImage("profileImage")}
-                              className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
-                          </div>
-                        ) : (
-                          <div
-                            onClick={() => profileInputRef.current?.click()}
-                            className={`border-2 border-dashed rounded-lg p-6 text-center hover:border-blue-500 transition-colors cursor-pointer ${
-                              formErrors.profileImage ? "border-red-500" : "border-slate-300"
-                            }`}
-                          >
-                            <Upload className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-                            <p className="text-sm font-medium text-blue-600 mb-1">Click to Upload Profile Image</p>
-                            <p className="text-xs text-slate-500">Supports: PNG, JPG, JPEG, WEBP Maximum 2 MB</p>
-                          </div>
-                        )}
-                        {formErrors.profileImage && (
-                          <p className="text-xs text-red-500 mt-1">{formErrors.profileImage}</p>
-                        )}
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-slate-600 mb-2">
-                          Upload Cover (Ratio - 2:1)
-                        </label>
-                        <input
-                          ref={coverInputRef}
-                          type="file"
-                          accept="image/png,image/jpeg,image/jpg,image/webp"
-                          onChange={(e) => {
-                            if (e.target.files && e.target.files[0]) {
-                              handleFileUpload("coverImage", e.target.files[0])
-                            }
-                          }}
-                          className="hidden"
-                        />
-                        {coverPreview ? (
-                          <div className="relative border-2 border-slate-300 rounded-lg overflow-hidden">
-                            <img
-                              src={coverPreview}
-                              alt="Cover preview"
-                              className="w-full h-48 object-cover"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveImage("coverImage")}
-                              className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
-                          </div>
-                        ) : (
-                          <div
-                            onClick={() => coverInputRef.current?.click()}
-                            className={`border-2 border-dashed rounded-lg p-6 text-center hover:border-blue-500 transition-colors cursor-pointer ${
-                              formErrors.coverImage ? "border-red-500" : "border-slate-300"
-                            }`}
-                          >
-                            <Upload className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-                            <p className="text-sm font-medium text-blue-600 mb-1">Click to Upload Cover Image</p>
-                            <p className="text-xs text-slate-500">Supports: PNG, JPG, JPEG, WEBP Maximum 2 MB</p>
-                          </div>
-                        )}
-                        {formErrors.coverImage && (
-                          <p className="text-xs text-red-500 mt-1">{formErrors.coverImage}</p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-end gap-4">
-                    {formErrors.submit && (
-                      <p className="text-sm text-red-500 mr-auto">{formErrors.submit}</p>
-                    )}
-                    <button
-                      type="button"
-                      onClick={handleReset}
-                      disabled={isSubmitting}
-                      className="px-6 py-2.5 text-sm font-medium rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      Reset
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={isSubmitting}
-                      className="px-6 py-2.5 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                    >
-                      {isSubmitting ? (
-                        <>
-                          <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                          </svg>
-                          Submitting...
-                        </>
-                      ) : (
-                        "Submit"
-                      )}
-                    </button>
-                  </div>
-                </div>
-              </form>
-            </div>
-          </div>
-
-          {/* Advertisement Preview */}
-          <div className="lg:col-span-1">
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 sticky top-6">
-              <h2 className="text-lg font-semibold text-slate-900 mb-4">Advertisement Preview</h2>
-              <div className="border-2 border-slate-200 rounded-lg overflow-hidden">
-                <div className="relative bg-gradient-to-br from-slate-50 to-slate-100" style={{ aspectRatio: "2/1" }}>
-                  {/* Cover Image Area */}
-                  <div className="absolute inset-0">
-                    {coverPreview ? (
-                      <img
-                        src={coverPreview}
-                        alt="Cover"
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <img
-                        src={coverPlaceholder}
-                        alt="Cover"
-                        className="w-full h-full object-cover"
-                        onError={(e) => {
-                          e.target.style.display = "none"
+                        ref={coverInputRef}
+                        type="file"
+                        accept="image/png,image/jpeg,image/jpg,image/webp"
+                        onChange={(e) => {
+                          if (e.target.files && e.target.files[0]) {
+                            handleFileUpload("coverImage", e.target.files[0])
+                          }
                         }}
+                        className="hidden"
                       />
-                    )}
-                  </div>
-                  
-                  {/* Content Overlay */}
-                  <div className="absolute inset-0 p-4 flex flex-col justify-between">
-                    <div className="flex items-start justify-between">
-                      <div className="w-16 h-16 rounded-full bg-white border-2 border-white shadow-md overflow-hidden">
-                        {profilePreview ? (
+                      {coverPreview ? (
+                        <div className="relative border-2 border-slate-300 rounded-lg overflow-hidden">
                           <img
-                            src={profilePreview}
-                            alt="Profile"
-                            className="w-full h-full object-cover"
+                            src={coverPreview}
+                            alt="Cover preview"
+                            className="w-full h-48 object-cover"
                           />
-                        ) : (
-                          <img
-                            src={profilePlaceholder}
-                            alt="Profile"
-                            className="w-full h-full object-cover"
-                            onError={(e) => {
-                              e.target.style.display = "none"
-                            }}
-                          />
-                        )}
-                      </div>
-                      <button className="p-2 rounded-full bg-white/80 hover:bg-white transition-colors">
-                        <Heart className="w-4 h-4 text-red-500" />
-                      </button>
-                    </div>
-                    
-                    <div className="bg-white/90 backdrop-blur-sm rounded-lg p-3">
-                      <h3 className="text-sm font-semibold text-slate-900 mb-1">
-                        {formData.title || "Title"}
-                      </h3>
-                      <p className="text-xs text-slate-600 mb-2">
-                        {formData.shortDescription || "Description"}
-                      </p>
-                      {formData.showRatings && (
-                        <div className="flex items-center gap-1">
-                          <Star className="w-3 h-3 fill-yellow-400 text-yellow-400" />
-                          <span className="text-xs font-medium text-slate-900">4.7 (25+)</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveImage("coverImage")}
+                            className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div
+                          onClick={() => coverInputRef.current?.click()}
+                          className={`border-2 border-dashed rounded-lg p-6 text-center hover:border-blue-500 transition-colors cursor-pointer ${
+                            formErrors.coverImage ? "border-red-500" : "border-slate-300"
+                          }`}
+                        >
+                          <Upload className="w-8 h-8 text-slate-400 mx-auto mb-2" />
+                          <p className="text-sm font-medium text-blue-600 mb-1">Click to Upload Cover Image</p>
+                          <p className="text-xs text-slate-500">Supports: PNG, JPG, JPEG, WEBP Maximum 2 MB</p>
                         </div>
                       )}
+                      {formErrors.coverImage && (
+                        <p className="text-xs text-red-500 mt-1">{formErrors.coverImage}</p>
+                      )}
                     </div>
+                  </div>
+                </FormField>
+
+                {formErrors.submit && (
+                  <p className="text-sm text-red-500">{formErrors.submit}</p>
+                )}
+                <FormActions
+                  onCancel={handleReset}
+                  cancelLabel="Reset"
+                  submitLabel="Submit"
+                  submitting={isSubmitting}
+                />
+              </div>
+            </form>
+          </FormSection>
+        </div>
+
+        {/* Advertisement Preview */}
+        <div className="lg:col-span-1">
+          <FormSection title="Advertisement Preview" className="sticky top-6" bodyClassName="grid-cols-1">
+            <div className="border-2 border-slate-200 rounded-lg overflow-hidden">
+              <div className="relative bg-gradient-to-br from-slate-50 to-slate-100" style={{ aspectRatio: "2/1" }}>
+                {/* Cover Image Area */}
+                <div className="absolute inset-0">
+                  {coverPreview ? (
+                    <img
+                      src={coverPreview}
+                      alt="Cover"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <img
+                      src={coverPlaceholder}
+                      alt="Cover"
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        e.target.style.display = "none"
+                      }}
+                    />
+                  )}
+                </div>
+
+                {/* Content Overlay */}
+                <div className="absolute inset-0 p-4 flex flex-col justify-between">
+                  <div className="flex items-start justify-between">
+                    <div className="w-16 h-16 rounded-full bg-white border-2 border-white shadow-md overflow-hidden">
+                      {profilePreview ? (
+                        <img
+                          src={profilePreview}
+                          alt="Profile"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <img
+                          src={profilePlaceholder}
+                          alt="Profile"
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            e.target.style.display = "none"
+                          }}
+                        />
+                      )}
+                    </div>
+                    <button className="p-2 rounded-full bg-white/80 hover:bg-white transition-colors">
+                      <Heart className="w-4 h-4 text-red-500" />
+                    </button>
+                  </div>
+
+                  <div className="bg-white/90 backdrop-blur-sm rounded-lg p-3">
+                    <h3 className="text-sm font-semibold text-slate-900 mb-1">
+                      {formData.title || "Title"}
+                    </h3>
+                    <p className="text-xs text-slate-600 mb-2">
+                      {formData.shortDescription || "Description"}
+                    </p>
+                    {formData.showRatings && (
+                      <div className="flex items-center gap-1">
+                        <Star className="w-3 h-3 fill-yellow-400 text-yellow-400" />
+                        <span className="text-xs font-medium text-slate-900">4.7 (25+)</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
             </div>
-          </div>
+          </FormSection>
         </div>
       </div>
 
@@ -582,7 +528,7 @@ export default function NewAdvertisement() {
           </div>
         </DialogContent>
       </Dialog>
-    </div>
+    </FormPageShell>
   )
 }
 

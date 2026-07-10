@@ -77,6 +77,7 @@ import {
   getAppFavicon,
   updateBrowserFavicon
 } from "@common/utils/businessSettings"
+import { normalizeEnabledModules } from "@common/utils/enabledModules"
 import { adminAPI } from "@food/api"
 import { getCurrentUser } from "@food/utils/auth"
 import { useAuth } from "@core/context/AuthContext"
@@ -86,22 +87,8 @@ const debugLog = (...args) => { }
 const debugWarn = (...args) => { }
 const debugError = (...args) => { }
 
-// Default enable-state used before settings load (sensible fallbacks). The
-// backend `modules` object is the source of truth; any key it returns is
-// normalized to a boolean, so new modules (pharmacy, taxi, hotel, ...) start
-// working without touching this file.
-const DEFAULT_ENABLED_MODULES = { food: true, quickCommerce: true, porter: true }
-
-const normalizeEnabledModules = (modules) => {
-  const result = { ...DEFAULT_ENABLED_MODULES }
-  if (modules && typeof modules === "object") {
-    for (const [key, value] of Object.entries(modules)) {
-      // A module is enabled unless the backend explicitly disables it.
-      result[key] = typeof value === "boolean" ? value : value !== false
-    }
-  }
-  return result
-}
+// Default enable-state used before settings load.
+const DEFAULT_ENABLED_MODULES = { food: true, quickCommerce: true, porter: true };
 
 
 // Icon mapping
@@ -188,8 +175,8 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
     const l = label.toLowerCase()
     const p = path?.toLowerCase() || ""
 
-    if (l.includes("food approval")) return badges.foodApprovals
-    if (l === "foods") return badges.foods
+    if (l.includes("menu approval") || l.includes("food approval")) return badges.foodApprovals
+    if (l === "menus" || l === "foods") return badges.foods
     if (l === "restaurants" || l.includes("new joining request")) return badges.restaurants
     if (l.includes("restaurant complaints")) return badges.restaurantComplaints
     if (p.includes("orders/pending")) return badges.orders
@@ -204,6 +191,7 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
     return 0
   }
   const [logoUrl, setLogoUrl] = useState(() => getAppLogo('admin'))
+  const [faviconUrl, setFaviconUrl] = useState(() => getAppFavicon('admin'))
   const [companyName, setCompanyName] = useState(() => getCompanyName())
 
   // Load business settings logo
@@ -220,6 +208,7 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
           const adminFav = getAppFavicon('admin')
           if (adminFav) {
             updateBrowserFavicon(adminFav)
+            setFaviconUrl(adminFav)
           }
           if (cached.companyName) {
             setCompanyName(cached.companyName)
@@ -236,6 +225,7 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
           const adminFav = getAppFavicon('admin')
           if (adminFav) {
             updateBrowserFavicon(adminFav)
+            setFaviconUrl(adminFav)
           }
           if (settings.companyName) {
             setCompanyName(settings.companyName)
@@ -265,6 +255,7 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
         const adminFav = getAppFavicon('admin')
         if (adminFav) {
           updateBrowserFavicon(adminFav)
+          setFaviconUrl(adminFav)
         }
         if (settings.companyName) {
           setCompanyName(settings.companyName)
@@ -912,19 +903,19 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
           <div className="flex items-center justify-between mb-3">
             {!isCollapsed && (
               <div className="flex items-center gap-2 animate-[slideIn_0.3s_ease-out]">
-                <div className="w-24 h-12 rounded-lg flex items-center justify-center shadow-black/20">
+                <div className="w-48 h-16 rounded-lg flex items-center justify-start pl-2 shadow-black/20">
                   {logoUrl ? (
                     <img
                       src={logoUrl}
                       alt={companyName || "Company"}
-                      className="w-24 h-10 object-contain"
+                      className="w-44 h-14 object-contain"
                       loading="lazy"
                       onError={(e) => {
                         e.target.style.display = 'none'
                       }}
                     />
                   ) : (
-                    <span className="text-xs font-semibold text-[#1A1A1A] px-2 truncate">
+                    <span className="text-sm font-bold text-[#1A1A1A] px-2 truncate">
                       {companyName || "Appzeto"}
                     </span>
                   )}
@@ -933,10 +924,10 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
             )}
             {isCollapsed && (
               <div className="w-full flex items-center justify-center">
-                <div className="w-10 h-10 rounded-lg bg-neutral-100 flex items-center justify-center shadow-md shadow-neutral-200/50 ring-1 ring-neutral-200">
-                  {logoUrl ? (
+                <div className="w-12 h-12 rounded-lg bg-neutral-100 flex items-center justify-center shadow-md shadow-neutral-200/50 ring-1 ring-neutral-200">
+                  {faviconUrl ? (
                     <img
-                      src={logoUrl}
+                      src={faviconUrl}
                       alt={companyName || "Company"}
                       className="w-10 h-10 object-contain"
                       loading="lazy"
@@ -945,7 +936,7 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
                       }}
                     />
                   ) : (
-                    <span className="text-[10px] font-bold text-[#1A1A1A] uppercase">
+                    <span className="text-xs font-bold text-[#1A1A1A] uppercase">
                       {(companyName || "A")[0]}
                     </span>
                   )}

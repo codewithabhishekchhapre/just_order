@@ -8,6 +8,7 @@ import { useLocation as useLocationHook } from "@food/hooks/useLocation"
 import { useCart } from "@food/context/CartContext"
 import { useLocationSelector, useSearchOverlay } from "./UserLayout"
 import { useProfile } from "@food/context/ProfileContext"
+import { useEnabledModules } from "@/modules/common/hooks/useEnabledModules"
 import { FaLocationDot } from "react-icons/fa6"
 import { AnimatePresence, motion } from "framer-motion"
 import { useAuth } from "@core/context/AuthContext"
@@ -34,6 +35,9 @@ export default function DesktopNavbar({ showLogo = true }) {
     const { openLocationSelector } = useLocationSelector()
     const { setSearchValue } = useSearchOverlay()
     const { vegMode, setVegMode } = useProfile()
+    const { modules: enabledModules } = useEnabledModules()
+    const isFoodModuleEnabled = enabledModules.food !== false
+    const isQuickModuleEnabled = enabledModules.quickCommerce !== false
     const [heroSearch, setHeroSearch] = useState("")
     const [logoUrl, setLogoUrl] = useState(() => getAppLogo('user'))
     const [companyName, setCompanyName] = useState(() => getCompanyName())
@@ -327,8 +331,8 @@ export default function DesktopNavbar({ showLogo = true }) {
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="flex items-center justify-center h-12">
                         {/* Navigation Tabs - Centered with spacing */}
-                        <div className="flex items-center space-x-6 lg:space-x-12">
-                            {/* Delivery Tab */}
+                        <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-6 lg:space-x-12">
+                            {isFoodModuleEnabled && (
                             <Link
                                 to="/food/user"
                                 className={`flex items-center gap-2 px-4 py-2.5 rounded-full transition-all duration-300 relative group overflow-hidden ${isDelivery
@@ -339,8 +343,9 @@ export default function DesktopNavbar({ showLogo = true }) {
                                 <Bike className="h-4 w-4 shrink-0 transition-transform duration-300 group-hover:scale-110" />
                                 <span className="text-xs font-bold tracking-wider uppercase">Delivery</span>
                             </Link>
+                            )}
 
-                            {/* Quick Tab */}
+                            {isQuickModuleEnabled && (
                             <Link
                                 to="/quick"
                                 className={`flex items-center gap-2 px-4 py-2.5 rounded-full transition-all duration-300 relative group overflow-hidden ${isQuick
@@ -351,8 +356,9 @@ export default function DesktopNavbar({ showLogo = true }) {
                                 <Zap className="h-4 w-4 shrink-0 transition-transform duration-300 group-hover:scale-110" />
                                 <span className="text-xs font-bold tracking-wider uppercase">Quick</span>
                             </Link>
+                            )}
 
-                            {/* Under 250 Tab */}
+                            {isFoodModuleEnabled && (
                             <Link
                                 to="/food/user/under-250"
                                 className={`flex items-center gap-2 px-4 py-2.5 rounded-full transition-all duration-300 relative group overflow-hidden ${isUnder250
@@ -363,8 +369,9 @@ export default function DesktopNavbar({ showLogo = true }) {
                                 <Percent className="h-4 w-4 shrink-0 transition-transform duration-300 group-hover:scale-110" />
                                 <span className="text-xs font-bold tracking-wider uppercase">Under 250</span>
                             </Link>
+                            )}
 
-                            {/* Dining Tab */}
+                            {isFoodModuleEnabled && (
                             <Link
                                 to="/food/user/dining"
                                 className={`flex items-center gap-2 px-4 py-2.5 rounded-full transition-all duration-300 relative group overflow-hidden ${isDining
@@ -375,6 +382,7 @@ export default function DesktopNavbar({ showLogo = true }) {
                                 <Compass className="h-4 w-4 shrink-0 transition-transform duration-300 group-hover:scale-110" />
                                 <span className="text-xs font-bold tracking-wider uppercase">Dining</span>
                             </Link>
+                            )}
 
                             {/* Profile Tab */}
                             <Link

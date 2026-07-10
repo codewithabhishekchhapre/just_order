@@ -11,6 +11,9 @@ import RoleGuard from '@core/guards/RoleGuard'
 import { AuthPageGuard } from '@core/guards/RouteGuard'
 import { UserRole } from '@core/constants/roles'
 import SellerAuthPage from '../modules/seller/pages/Auth'
+import ModuleAccessGuard from '@/modules/common/components/ModuleAccessGuard'
+import { useEnabledModules } from '@/modules/common/hooks/useEnabledModules'
+import { getFirstEnabledModulePath } from '@/modules/common/utils/enabledModules'
 
 const NATIVE_LAST_ROUTE_KEY = 'native_last_route'
 
@@ -73,6 +76,18 @@ const SharedFoodHomeRoute = () => {
       </FoodUserLayout>
     </Suspense>
   )
+}
+
+const DefaultUserLanding = () => {
+  const location = useLocation()
+  const { modules, loading } = useEnabledModules()
+
+  if (loading) {
+    return <AppShellSkeleton />
+  }
+
+  const target = getFirstEnabledModulePath(modules) || '/food/user'
+  return <Navigate to={`${target}${location.search || ''}`} replace />
 }
 
 const RedirectToFood = () => {
@@ -149,8 +164,8 @@ const AppRoutes = () => {
 
   return (
     <Routes>
-        {/* Root now lands on the food user home page */}
-        <Route path="/" element={<Navigate to={`/food/user${location.search}`} replace />} />
+        {/* Root lands on the first enabled customer module */}
+        <Route path="/" element={<DefaultUserLanding />} />
 
         {/* Auth Module */}
         <Route
@@ -161,7 +176,7 @@ const AppRoutes = () => {
             </AuthPageGuard>
           }
         />
-        <Route path="/portal" element={<Navigate to={`/food/user${location.search}`} replace />} />
+        <Route path="/portal" element={<DefaultUserLanding />} />
         <Route path="/login" element={<Navigate to={`/user/auth/login${location.search}`} replace />} />
 
         {/* Food Module */}
@@ -174,13 +189,33 @@ const AppRoutes = () => {
           }
         >
           {/* Shared home entry so /food/user <-> /quick doesn't remount through different app trees */}
-          <Route path="/food/user" element={<SharedFoodHomeRoute />} />
+          <Route
+            path="/food/user"
+            element={
+              <ModuleAccessGuard moduleKey="food">
+                <SharedFoodHomeRoute />
+              </ModuleAccessGuard>
+            }
+          />
 
-          {/* Quick storefront landing keeps the shared food layout */}
-          <Route path="/quick" element={<SharedFoodHomeRoute />} />
+          <Route
+            path="/quick"
+            element={
+              <ModuleAccessGuard moduleKey="quickCommerce">
+                <SharedFoodHomeRoute />
+              </ModuleAccessGuard>
+            }
+          />
 
           {/* Porter landing keeps the shared food layout (embedded Porter home via tab) */}
-          <Route path="/porter" element={<SharedFoodHomeRoute />} />
+          <Route
+            path="/porter"
+            element={
+              <ModuleAccessGuard moduleKey="porter">
+                <SharedFoodHomeRoute />
+              </ModuleAccessGuard>
+            }
+          />
 
           {/* Global shared cart */}
           <Route
@@ -211,9 +246,11 @@ const AppRoutes = () => {
           <Route
             path="/quick/*"
             element={
-              <Suspense fallback={<PageLoader />}>
-                <QuickCommerceApp />
-              </Suspense>
+              <ModuleAccessGuard moduleKey="quickCommerce">
+                <Suspense fallback={<PageLoader />}>
+                  <QuickCommerceApp />
+                </Suspense>
+              </ModuleAccessGuard>
             }
           />
           <Route path="/quick-commerce/*" element={<RedirectLegacyQuickCommerce />} />
@@ -223,9 +260,11 @@ const AppRoutes = () => {
           <Route
             path="/porter/*"
             element={
-              <Suspense fallback={<PageLoader />}>
-                <PorterApp />
-              </Suspense>
+              <ModuleAccessGuard moduleKey="porter">
+                <Suspense fallback={<PageLoader />}>
+                  <PorterApp />
+                </Suspense>
+              </ModuleAccessGuard>
             }
           />
 

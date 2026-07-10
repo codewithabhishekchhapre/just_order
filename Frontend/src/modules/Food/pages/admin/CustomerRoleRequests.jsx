@@ -1,12 +1,13 @@
 import { useState, useMemo, useEffect } from "react";
-import { 
-  Search, Filter, Eye, Check, X, ArrowUpDown, Loader2, 
-  User, Phone, Mail, MapPin, Clock, Building2, Store, Truck, 
-  ShieldAlert, BadgeCheck, FileText, CheckCircle2, XCircle, RefreshCw
+import {
+  Search, Filter, Eye, Check, X, ArrowUpDown, Loader2,
+  User, Phone, Mail, MapPin, Clock, Building2, Store, Truck,
+  ShieldAlert, BadgeCheck, FileText, CheckCircle2, XCircle
 } from "lucide-react";
 import { adminAPI } from "@food/api";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@food/components/ui/dialog";
+import RefreshButton from "@/shared/components/ui/RefreshButton";
 
 export default function CustomerRoleRequests() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -471,14 +472,7 @@ export default function CustomerRoleRequests() {
               <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">Verify and approve seller, restaurant, and delivery partner requests</p>
             </div>
           </div>
-          <button 
-            onClick={fetchData}
-            disabled={loading}
-            className="self-start md:self-auto p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#1a1a1a] hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center gap-1.5 text-sm font-semibold transition-all disabled:opacity-50"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </button>
+          <RefreshButton onClick={fetchData} loading={loading} className="self-start md:self-auto" />
         </div>
 
         {/* Summary Metric Counters */}

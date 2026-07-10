@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react"
 import { useNavigate, useParams, useLocation } from "react-router-dom"
 import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation"
+import RestaurantPageShell from "@food/components/restaurant/RestaurantPageShell"
 import { motion, AnimatePresence } from "framer-motion"
 import {
   ArrowLeft,
@@ -687,6 +688,12 @@ export default function ItemDetailsPage() {
     setSelectedCategoryId(selectedCategory?.id || "")
     setCategory(selectedCategory?.name || "")
     setSubCategory(subCat)
+
+    const isOrphanedInactive = !itemData?.categoryId && itemData?.isAvailable === false
+    if (isOrphanedInactive && catId) {
+      setIsInStock(true)
+    }
+
     setIsCategoryPopupOpen(false)
   }
 
@@ -968,15 +975,21 @@ export default function ItemDetailsPage() {
 
   if (loadingItem) {
     return (
-      <div className="h-screen bg-white flex flex-col items-center justify-center">
+      <RestaurantPageShell hideHeader maxWidth="5xl" contentClassName="flex flex-col items-center justify-center min-h-[50vh]">
         <Loader2 className="w-10 h-10 animate-spin text-gray-950" />
         <p className="text-sm font-medium text-gray-500 mt-3 animate-pulse">Loading item details...</p>
-      </div>
+      </RestaurantPageShell>
     )
   }
 
   return (
-    <div className="h-screen bg-gray-50 dark:bg-[#0a0a0a] flex flex-col overflow-hidden">
+    <RestaurantPageShell
+      title="Item details"
+      onBack={goBack}
+      flush
+      maxWidth="5xl"
+      contentClassName="flex flex-col min-h-0 overflow-hidden"
+    >
       <style>{`
         [data-slot="switch"][data-state="checked"] {
           background-color: #16a34a !important;
@@ -992,19 +1005,6 @@ export default function ItemDetailsPage() {
           scrollbar-width: none;
         }
       `}</style>
-      {/* Header */}
-      <div className="sticky top-0 z-40 bg-white dark:bg-[#111] border-b border-gray-100 dark:border-gray-800 flex-shrink-0">
-        <div className="max-w-5xl mx-auto w-full px-4 lg:px-6 py-4 flex items-center gap-3">
-          <button
-            onClick={goBack}
-            className="p-1.5 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-          >
-            <ArrowLeft className="w-5 h-5 text-gray-700 dark:text-gray-300" />
-          </button>
-          <h1 className="text-base font-bold text-gray-900 dark:text-white">Item details</h1>
-        </div>
-      </div>
-
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto" style={{ paddingBottom: `${96 + keyboardInset}px` }}>
@@ -1742,7 +1742,7 @@ export default function ItemDetailsPage() {
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+    </RestaurantPageShell>
   )
 }
 

@@ -1,8 +1,13 @@
 import { useState, useMemo, useEffect, useCallback } from "react"
 import { useSearchParams } from "react-router-dom"
-import { Search, Trash2, Loader2, Eye, Pencil, Plus, Save, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react"
+import { Search, Trash2, Loader2, Eye, Pencil, Plus, ChevronDown } from "lucide-react"
 import { adminAPI, uploadAPI } from "@food/api"
-import useCachedPaginatedQuery from "@food/hooks/useCachedPaginatedQuery"
+import useInfiniteList from "@food/hooks/useInfiniteList"
+import AdminTable from "@/shared/components/admin/AdminTable"
+import RefreshButton from "@/shared/components/ui/RefreshButton"
+import FormSection from "@/shared/components/admin/FormSection"
+import FormField, { formInputClass } from "@/shared/components/admin/FormField"
+import FormActions from "@/shared/components/admin/FormActions"
 import { toast } from "sonner"
 import { useAuth } from "@core/context/AuthContext"
 import { getCurrentUser } from "@food/utils/auth"
@@ -106,7 +111,6 @@ export default function FoodsList() {
   const [categoryPopoverOpen, setCategoryPopoverOpen] = useState(false)
   const [selectedImageFile, setSelectedImageFile] = useState(null)
   const [imagePreviewUrl, setImagePreviewUrl] = useState("")
-  const [pageSize, setPageSize] = useState(20)
   const [imageVersion, setImageVersion] = useState(() => Date.now())
 
   const getItemCreatedMs = (item = {}) => {
@@ -183,15 +187,14 @@ export default function FoodsList() {
     items: foods,
     setItems: setFoods,
     total: totalFoods,
-    page: currentPage,
-    setPage: setCurrentPage,
-    pageSize: effectivePageSize,
-    totalPages,
+    hasMore,
     loading,
+    loadingMore,
+    loadMore,
     search: cachedSearchQuery,
     setSearch: setCachedSearchQuery,
     refresh: refreshFoods,
-  } = useCachedPaginatedQuery(
+  } = useInfiniteList(
     async (params, config) => {
       const foodsRes = await adminAPI.getFoods(params, config)
       const data = foodsRes?.data?.data || foodsRes?.data
@@ -231,7 +234,7 @@ export default function FoodsList() {
       }
     },
     {
-      pageSize,
+      pageSize: 20,
       filters: foodQueryFilters,
       cacheKey: "admin-foods",
     },
@@ -294,8 +297,6 @@ export default function FoodsList() {
   const filteredFoods = useMemo(() => {
     return [...foods].sort((a, b) => getItemCreatedMs(b) - getItemCreatedMs(a))
   }, [foods])
-
-  const paginatedFoods = filteredFoods
 
   const restaurantOptions = useMemo(() => {
     return restaurantsForFilter
@@ -534,6 +535,21 @@ export default function FoodsList() {
     setShowDetailModal(true)
   }
 
+  const handleToggleAvailability = async (id, currentStatus) => {
+    if (!canEdit) {
+      toast.error("Permission denied")
+      return
+    }
+    try {
+      await adminAPI.updateFood(id, { isAvailable: !currentStatus })
+      setFoods((prev) => prev.map((f) => (String(f.id || f._id) === String(id) ? { ...f, isAvailable: !currentStatus } : f)))
+      toast.success("Food availability updated")
+    } catch (error) {
+      debugError("Error updating availability:", error)
+      toast.error(error?.response?.data?.message || "Failed to update availability")
+    }
+  }
+
   return (
     <div className="p-4 lg:p-6 bg-slate-50 min-h-screen">
       {/* Header Section */}
@@ -591,185 +607,197 @@ export default function FoodsList() {
                 </option>
               ))}
             </select>
+            <RefreshButton onClick={fetchAllFoods} loading={loading} />
           </div>
         </div>
-      </div>
-
-      {/* Table */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-slate-50 border-b border-slate-200">
-              <tr>
-                <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
-                  SL
-                </th>
-                <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
-                  Image
-                </th>
-                <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
-                  Title
-                </th>
-                <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
-                  Restaurant
-                </th>
-                <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
-                  Category
-                </th>
-                <th className="px-6 py-4 text-center text-[10px] font-bold text-slate-700 uppercase tracking-wider">
-                  Action
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-slate-100">
-              {loading ? (
-                <tr>
-                  <td colSpan={6} className="px-6 py-20 text-center">
-                    <div className="flex flex-col items-center justify-center">
-                      <Loader2 className="w-8 h-8 animate-spin text-blue-600 mb-2" />
-                      <p className="text-sm text-slate-500">Loading foods...</p>
-                    </div>
-                  </td>
-                </tr>
-              ) : filteredFoods.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="px-6 py-20 text-center">
-                    <div className="flex flex-col items-center justify-center">
-                      <p className="text-lg font-semibold text-slate-700 mb-1">No Data Found</p>
-                      <p className="text-sm text-slate-500">No food items match your search or restaurant filter</p>
-                    </div>
-                  </td>
-                </tr>
-              ) : (
-                paginatedFoods.map((food, index) => (
-                  <tr
-                    key={food.id}
-                    className="hover:bg-slate-50 transition-colors"
-                  >
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm font-medium text-slate-700">{(currentPage - 1) * effectivePageSize + index + 1}</span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="w-10 h-10 rounded-full overflow-hidden bg-slate-100 flex items-center justify-center">
-                        <img
-                          src={withImageVersion(food.image)}
-                          alt={food.name}
-                          className="w-full h-full object-cover"
-                          key={`${food.id}-${imageVersion}`}
-                          loading="lazy"
-                          onError={(e) => {
-                            e.target.src = "https://via.placeholder.com/40"
-                          }}
-                        />
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex flex-col">
-                        <span className="text-sm font-medium text-slate-900">{food.name}</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex flex-col">
-                        <span className="text-sm font-medium text-slate-800">{food.restaurantName || "-"}</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex flex-col">
-                        <span className="text-sm font-medium text-slate-800">{food.categoryName || "-"}</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center">
-                      <div className="flex items-center justify-center gap-2">
-                        <button
-                          onClick={() => handleViewDetails(food)}
-                          className="p-1.5 rounded text-blue-600 hover:bg-blue-50 transition-colors"
-                          title="View"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                        {canEdit && (
-                          <button
-                            onClick={() => openEditFoodModal(food)}
-                            className="p-1.5 rounded text-amber-600 hover:bg-amber-50 transition-colors"
-                            title="Edit"
-                          >
-                            <Pencil className="w-4 h-4" />
-                          </button>
-                        )}
-                        {canDelete && (
-                          <button
-                            onClick={() => handleDelete(food.id)}
-                            disabled={deleting}
-                            className="p-1.5 rounded text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                            title="Delete"
-                          >
-                            {deleting ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : (
-                              <Trash2 className="w-4 h-4" />
-                            )}
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-
         {!loading && totalFoods > 0 && (
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50">
-            <div className="text-sm text-slate-600">
-              Showing{" "}
-              <span className="font-semibold text-slate-800">{(currentPage - 1) * effectivePageSize + 1}</span>
-              {" "}to{" "}
-              <span className="font-semibold text-slate-800">
-                {Math.min(currentPage * effectivePageSize, totalFoods)}
-              </span>
-              {" "}of{" "}
-              <span className="font-semibold text-slate-800">{totalFoods}</span>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <select
-                value={pageSize}
-                onChange={(e) => setPageSize(Number(e.target.value))}
-                className="px-2.5 py-1.5 text-sm rounded-md border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-slate-400"
-              >
-                <option value={10}>10 / page</option>
-                <option value={20}>20 / page</option>
-                <option value={50}>50 / page</option>
-              </select>
-
-              <button
-                type="button"
-                onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
-                disabled={currentPage === 1}
-                className="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <ChevronLeft className="w-4 h-4" />
-                Prev
-              </button>
-
-              <span className="px-3 py-1.5 text-sm font-medium text-slate-700">
-                {currentPage} / {totalPages}
-              </span>
-
-              <button
-                type="button"
-                onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
-                disabled={currentPage >= totalPages}
-                className="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Next
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
+          <div className="mt-4 border-t border-slate-200 pt-3">
+            <p className="text-sm text-slate-500">
+              Loaded <span className="font-semibold text-slate-800">{filteredFoods.length}</span>
+              {" "}of <span className="font-semibold text-slate-800">{totalFoods}</span> foods
+            </p>
           </div>
         )}
       </div>
+
+      {/* Table */}
+      <AdminTable
+        loading={loading}
+        skeletonRows={6}
+        data={filteredFoods}
+        getRowId={(food) => food.id}
+        columns={[
+          {
+            key: "sl",
+            header: "SL",
+            width: "6%",
+            cell: (food, index) => (
+              <span className="text-sm font-medium text-slate-700">{index + 1}</span>
+            ),
+          },
+          {
+            key: "image",
+            header: "Image",
+            width: "10%",
+            cell: (food) => (
+              <div className="w-10 h-10 rounded-full overflow-hidden bg-slate-100 flex items-center justify-center">
+                <img
+                  src={withImageVersion(food.image)}
+                  alt={food.name}
+                  className="w-full h-full object-cover"
+                  key={`${food.id}-${imageVersion}`}
+                  loading="lazy"
+                  onError={(e) => {
+                    e.target.src = "https://via.placeholder.com/40"
+                  }}
+                />
+              </div>
+            ),
+          },
+          {
+            key: "title",
+            header: "Title",
+            width: "22%",
+            cell: (food) => (
+              <div className="flex flex-col">
+                <span className="text-sm font-medium text-slate-900">{food.name}</span>
+              </div>
+            ),
+          },
+          {
+            key: "restaurant",
+            header: "Restaurant",
+            width: "20%",
+            cell: (food) => (
+              <div className="flex flex-col">
+                <span className="text-sm font-medium text-slate-800">{food.restaurantName || "-"}</span>
+              </div>
+            ),
+          },
+          {
+            key: "category",
+            header: "Category",
+            width: "16%",
+            cell: (food) => (
+              <div className="flex flex-col">
+                <span className="text-sm font-medium text-slate-800">{food.categoryName || "-"}</span>
+              </div>
+            ),
+          },
+          {
+            key: "status",
+            header: "Status",
+            align: "center",
+            width: "12%",
+            cell: (food) => (
+              <div className="flex items-center justify-center">
+                <label className="relative inline-flex items-center cursor-pointer" title="Toggle active status">
+                  <input
+                    type="checkbox"
+                    className="sr-only peer"
+                    checked={food.isAvailable !== false}
+                    onChange={() => handleToggleAvailability(food.id, food.isAvailable !== false)}
+                  />
+                  <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#FF6A00]"></div>
+                </label>
+              </div>
+            ),
+          },
+          {
+            key: "actions",
+            header: "Action",
+            align: "center",
+            width: "14%",
+            cell: (food) => (
+              <div className="flex items-center justify-center gap-2">
+                <button
+                  onClick={() => handleViewDetails(food)}
+                  className="p-1.5 rounded text-blue-600 hover:bg-blue-50 transition-colors"
+                  title="View"
+                >
+                  <Eye className="w-4 h-4" />
+                </button>
+                {canEdit && (
+                  <button
+                    onClick={() => openEditFoodModal(food)}
+                    className="p-1.5 rounded text-amber-600 hover:bg-amber-50 transition-colors"
+                    title="Edit"
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </button>
+                )}
+                {canDelete && (
+                  <button
+                    onClick={() => handleDelete(food.id)}
+                    disabled={deleting}
+                    className="p-1.5 rounded text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Delete"
+                  >
+                    {deleting ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-4 h-4" />
+                    )}
+                  </button>
+                )}
+              </div>
+            ),
+          },
+        ]}
+        emptyState={{
+          title: "No Data Found",
+          description: "No food items match your search or restaurant filter",
+        }}
+        infiniteScroll={{ onLoadMore: loadMore, hasMore, loadingMore, total: totalFoods }}
+        renderMobileCard={(food) => (
+          <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+            <div className="flex items-start gap-3">
+              <div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-slate-100">
+                <img
+                  src={withImageVersion(food.image)}
+                  alt={food.name}
+                  className="h-full w-full object-cover"
+                  key={`${food.id}-${imageVersion}-m`}
+                  loading="lazy"
+                  onError={(e) => {
+                    e.target.src = "https://via.placeholder.com/40"
+                  }}
+                />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-slate-900">{food.name || "-"}</p>
+                <p className="mt-0.5 truncate text-xs text-slate-500">{food.restaurantName || "-"} • {food.categoryName || "-"}</p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
+                    {food.foodType || "Non-Veg"}
+                  </span>
+                </div>
+              </div>
+              <label className="relative inline-flex h-6 w-11 shrink-0 items-center cursor-pointer" title="Toggle active status">
+                <input
+                  type="checkbox"
+                  className="sr-only peer"
+                  checked={food.isAvailable !== false}
+                  onChange={() => handleToggleAvailability(food.id, food.isAvailable !== false)}
+                />
+                <div className="absolute inset-0 rounded-full bg-gray-200 peer-checked:bg-[#FF6A00] transition-colors" />
+                <span className="relative inline-block h-4 w-4 translate-x-1 transform rounded-full bg-white transition-transform peer-checked:translate-x-6" />
+              </label>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 pt-2">
+              <button onClick={() => handleViewDetails(food)} className="rounded-lg p-1.5 text-blue-600 hover:bg-blue-50"><Eye className="h-4 w-4" /></button>
+              {canEdit && (
+                <button onClick={() => openEditFoodModal(food)} className="rounded-lg p-1.5 text-amber-600 hover:bg-amber-50"><Pencil className="h-4 w-4" /></button>
+              )}
+              {canDelete && (
+                <button onClick={() => handleDelete(food.id)} disabled={deleting} className="rounded-lg p-1.5 text-red-600 hover:bg-red-50 disabled:opacity-50">
+                  {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+      />
 
       <Dialog open={showDetailModal} onOpenChange={setShowDetailModal}>
         <DialogContent className="max-w-xl p-0 overflow-hidden">
@@ -869,15 +897,15 @@ export default function FoodsList() {
               {foodFormMode === "edit" ? "Edit Food" : "Add Food"}
             </DialogTitle>
           </DialogHeader>
-          <div className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Restaurant</label>
+          <div className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
+            <FormSection title="Item Details">
+              <FormField label="Restaurant" htmlFor="food-restaurant">
                 <select
+                  id="food-restaurant"
                   value={foodForm.restaurantId}
                   onChange={(e) => setFoodForm((prev) => ({ ...prev, restaurantId: e.target.value, categoryId: "", categoryName: "" }))}
                   disabled={foodFormMode === "edit"}
-                  className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm bg-white disabled:bg-slate-100"
+                  className={formInputClass}
                 >
                   <option value="">Select restaurant</option>
                   {restaurantOptions.map((restaurant) => (
@@ -886,14 +914,13 @@ export default function FoodsList() {
                     </option>
                   ))}
                 </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Category</label>
+              </FormField>
+              <FormField label="Category">
                 <Popover open={categoryPopoverOpen} onOpenChange={setCategoryPopoverOpen}>
                   <PopoverTrigger asChild>
                     <button
                       type="button"
-                      className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm bg-white text-left flex items-center justify-between"
+                      className={`${formInputClass} text-left flex items-center justify-between`}
                     >
                       <span className={foodForm.categoryName ? "text-slate-900" : "text-slate-400"}>
                         {foodForm.categoryName || "Select category"}
@@ -938,18 +965,17 @@ export default function FoodsList() {
                     </div>
                   </PopoverContent>
                 </Popover>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Food Name</label>
+              </FormField>
+              <FormField label="Food Name" htmlFor="food-name">
                 <input
+                  id="food-name"
                   type="text"
                   value={foodForm.name}
                   onChange={(e) => setFoodForm((prev) => ({ ...prev, name: e.target.value }))}
-                  className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm bg-white"
+                  className={formInputClass}
                 />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Base Price</label>
+              </FormField>
+              <FormField label="Base Price">
                 <div className="grid grid-cols-2 gap-2">
                   <input
                     type="number"
@@ -958,7 +984,7 @@ export default function FoodsList() {
                     value={foodForm.price}
                     onChange={(e) => setFoodForm((prev) => ({ ...prev, price: e.target.value }))}
                     placeholder="Price"
-                    className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm bg-white"
+                    className={formInputClass}
                   />
                   <input
                     type="number"
@@ -967,24 +993,41 @@ export default function FoodsList() {
                     value={foodForm.otherPrice}
                     onChange={(e) => setFoodForm((prev) => ({ ...prev, otherPrice: e.target.value }))}
                     placeholder="Other Price"
-                    className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm bg-white"
+                    className={formInputClass}
                   />
                 </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Food Type</label>
+              </FormField>
+              <FormField label="Food Type" htmlFor="food-type">
                 <select
+                  id="food-type"
                   value={foodForm.foodType}
                   onChange={(e) => setFoodForm((prev) => ({ ...prev, foodType: e.target.value }))}
-                  className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm bg-white"
+                  className={formInputClass}
                 >
                   <option value="Veg">Veg</option>
                   <option value="Non-Veg">Non-Veg</option>
                 </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Upload Image</label>
+              </FormField>
+              <FormField label="Timing" htmlFor="food-timing">
+                <div className="relative">
+                  <select
+                    id="food-timing"
+                    value={foodForm.preparationTime}
+                    onChange={(e) => setFoodForm((prev) => ({ ...prev, preparationTime: e.target.value }))}
+                    className={`${formInputClass} pr-10 appearance-none`}
+                  >
+                    <option value="">Select timing</option>
+                    <option value="10-20 mins">10-20 mins</option>
+                    <option value="20-25 mins">20-25 mins</option>
+                    <option value="25-35 mins">25-35 mins</option>
+                    <option value="35-45 mins">35-45 mins</option>
+                  </select>
+                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
+                </div>
+              </FormField>
+              <FormField label="Upload Image" htmlFor="food-image" span="full">
                 <input
+                  id="food-image"
                   type="file"
                   accept="image/*"
                   onChange={(e) => {
@@ -996,29 +1039,11 @@ export default function FoodsList() {
                       setImagePreviewUrl(foodForm.image.trim())
                     }
                   }}
-                  className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm bg-white file:mr-3 file:rounded file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-sm"
+                  className={`${formInputClass} file:mr-3 file:rounded file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-sm`}
                 />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Timing</label>
-                <div className="relative">
-                  <select
-                  value={foodForm.preparationTime}
-                  onChange={(e) => setFoodForm((prev) => ({ ...prev, preparationTime: e.target.value }))}
-                    className="w-full px-3 py-2.5 pr-10 border border-slate-300 rounded-lg text-sm bg-white appearance-none"
-                  >
-                    <option value="">Select timing</option>
-                    <option value="10-20 mins">10-20 mins</option>
-                    <option value="20-25 mins">20-25 mins</option>
-                    <option value="25-35 mins">25-35 mins</option>
-                    <option value="35-45 mins">35-45 mins</option>
-                  </select>
-                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
-                </div>
-              </div>
+              </FormField>
               {imagePreviewUrl ? (
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Image Preview</label>
+                <FormField label="Image Preview" span="full">
                   <div className="w-28 h-28 rounded-lg overflow-hidden border border-slate-200 bg-slate-50">
                     <img
                       src={imagePreviewUrl}
@@ -1026,9 +1051,9 @@ export default function FoodsList() {
                       className="w-full h-full object-cover"
                     />
                   </div>
-                </div>
+                </FormField>
               ) : null}
-              <div className="flex items-center gap-6 pt-7">
+              <FormField span="full">
                 <label className="inline-flex items-center gap-2 text-sm text-slate-700">
                   <input
                     type="checkbox"
@@ -1037,23 +1062,25 @@ export default function FoodsList() {
                   />
                   Available
                 </label>
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Description</label>
-              <textarea
-                rows={4}
-                value={foodForm.description}
-                onChange={(e) => setFoodForm((prev) => ({ ...prev, description: e.target.value }))}
-                className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm bg-white resize-none"
-              />
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold text-slate-900">Variants</p>
-                  <p className="text-xs text-slate-500">Optional. Add multiple names and prices such as Half, Full, Small, or Large.</p>
-                </div>
+              </FormField>
+            </FormSection>
+
+            <FormSection title="Description">
+              <FormField label="Description" htmlFor="food-description" span="full">
+                <textarea
+                  id="food-description"
+                  rows={4}
+                  value={foodForm.description}
+                  onChange={(e) => setFoodForm((prev) => ({ ...prev, description: e.target.value }))}
+                  className={`${formInputClass} resize-none`}
+                />
+              </FormField>
+            </FormSection>
+
+            <FormSection
+              title="Variants"
+              description="Optional. Add multiple names and prices such as Half, Full, Small, or Large."
+              actions={
                 <button
                   type="button"
                   onClick={handleAddVariant}
@@ -1062,45 +1089,43 @@ export default function FoodsList() {
                   <Plus className="w-3.5 h-3.5" />
                   Add variant
                 </button>
-              </div>
+              }
+            >
               {(foodForm.variants || []).length ? (
-                <div className="space-y-3">
+                <div className="md:col-span-2 space-y-3">
                   {(foodForm.variants || []).map((variant, index) => (
                     <div key={variant.id} className="grid grid-cols-[1fr_auto] gap-3 rounded-lg border border-slate-200 bg-white p-3">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <div>
-                          <label className="block text-xs font-medium text-slate-600 mb-1">Variant name</label>
+                        <FormField label="Variant name" className="text-xs">
                           <input
                             type="text"
                             value={variant.name}
                             onChange={(e) => handleVariantChange(variant.id, "name", e.target.value)}
                             placeholder={index === 0 ? "Full" : "Half"}
-                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white"
+                            className={formInputClass}
                           />
-                        </div>
+                        </FormField>
                         <div className="grid grid-cols-2 gap-2">
-                          <div>
-                            <label className="block text-xs font-medium text-slate-600 mb-1">Price</label>
+                          <FormField label="Price">
                             <input
                               type="number"
                               min="0"
                               step="0.01"
                               value={variant.price}
                               onChange={(e) => handleVariantChange(variant.id, "price", e.target.value)}
-                              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white"
+                              className={formInputClass}
                             />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium text-slate-600 mb-1">Other Price</label>
+                          </FormField>
+                          <FormField label="Other Price">
                             <input
                               type="number"
                               min="0"
                               step="0.01"
                               value={variant.otherPrice}
                               onChange={(e) => handleVariantChange(variant.id, "otherPrice", e.target.value)}
-                              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white"
+                              className={formInputClass}
                             />
-                          </div>
+                          </FormField>
                         </div>
                       </div>
                       <button
@@ -1115,20 +1140,28 @@ export default function FoodsList() {
                   ))}
                 </div>
               ) : (
-                <p className="text-sm text-slate-500">No variants added. This food will use the single base price.</p>
+                <p className="md:col-span-2 text-sm text-slate-500">No variants added. This food will use the single base price.</p>
               )}
-            </div>
-            <div className="flex justify-end">
-              <button
-                type="button"
-                onClick={handleFoodFormSubmit}
-                disabled={submittingFood || (foodFormMode === "edit" ? !canEdit : !canCreate)}
-                className="px-4 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-60 inline-flex items-center gap-2"
-              >
-                {submittingFood ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                <span>{submittingFood ? "Saving..." : foodFormMode === "edit" ? "Update Food" : "Add Food"}</span>
-              </button>
-            </div>
+            </FormSection>
+
+            <FormActions
+              onCancel={() => {
+                setShowFoodFormModal(false)
+                setEditingFood(null)
+                setFoodForm(createFoodForm())
+                setCategoryOptions([])
+                setCategorySearch("")
+                setCategoryPopoverOpen(false)
+                setSelectedImageFile(null)
+                setImagePreviewUrl("")
+              }}
+              onSubmit={handleFoodFormSubmit}
+              submitType="button"
+              submitting={submittingFood}
+              submitDisabled={foodFormMode === "edit" ? !canEdit : !canCreate}
+              submitLabel={foodFormMode === "edit" ? "Update Food" : "Add Food"}
+              sticky
+            />
           </div>
         </DialogContent>
       </Dialog>

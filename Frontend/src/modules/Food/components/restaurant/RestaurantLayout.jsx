@@ -506,7 +506,7 @@ export default function RestaurantLayout() {
           </header>
 
           {/* ── Page content ── */}
-          <main className="flex-1 overflow-y-auto pb-20 lg:pb-0">
+          <main className="flex-1 overflow-y-auto overflow-x-hidden pb-20 lg:pb-0 bg-gray-50 dark:bg-[#0a0a0a]">
             <Outlet />
           </main>
         </div>

@@ -3,8 +3,6 @@ import { createPortal } from "react-dom"
 import { AnimatePresence, motion } from "framer-motion"
 import {
   BadgeCheck,
-  ChevronLeft,
-  ChevronRight,
   Download,
   Eye,
   Globe,
@@ -20,7 +18,11 @@ import { adminAPI, uploadAPI } from "@food/api"
 import { API_BASE_URL } from "@food/api/config"
 import { toast } from "sonner"
 import { useAuth } from "@core/context/AuthContext"
-import useCachedPaginatedQuery from "@food/hooks/useCachedPaginatedQuery"
+import useInfiniteList from "@food/hooks/useInfiniteList"
+import AdminTable from "@/shared/components/admin/AdminTable"
+import RefreshButton from "@/shared/components/ui/RefreshButton"
+import FormField, { formInputClass } from "@/shared/components/admin/FormField"
+import FormActions from "@/shared/components/admin/FormActions"
 import { getCurrentUser } from "@food/utils/auth"
 import { canPerformAdminPermissionAction, extractAdminPermissions, extractAdminRoleId, fetchAdminRolePermissions } from "@food/utils/adminPermissions"
 import NameSuggestionField from "@food/components/NameSuggestionField"
@@ -320,14 +322,14 @@ export default function Category() {
   const {
     items: categories,
     total: totalCategories,
-    page: currentPage,
-    setPage: setCurrentPage,
-    totalPages,
+    hasMore,
     loading,
+    loadingMore,
+    loadMore,
     search: cachedSearchQuery,
     setSearch: setCachedSearchQuery,
     refresh: refreshCategories,
-  } = useCachedPaginatedQuery(
+  } = useInfiniteList(
     async (params, config) => {
       const response = await adminAPI.getCategories(params, config)
       const data = response?.data?.data || response?.data
@@ -713,6 +715,8 @@ export default function Category() {
               />
             </div>
 
+            <RefreshButton onClick={fetchCategories} loading={loading} />
+
             <button
               onClick={handleExportPDF}
               disabled={filteredCategories.length === 0}
@@ -734,223 +738,267 @@ export default function Category() {
           </div>
         </div>
         {!loading && totalCategories > 0 && (
-          <div className="flex flex-col gap-3 border-t border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="border-t border-slate-200 px-5 py-3">
             <p className="text-sm text-slate-500">
-              Showing <span className="font-semibold text-slate-800">{(currentPage - 1) * 20 + 1}</span>
-              {" - "}
-              <span className="font-semibold text-slate-800">{Math.min(currentPage * 20, totalCategories)}</span>
+              Loaded <span className="font-semibold text-slate-800">{filteredCategories.length}</span>
               {" "}of <span className="font-semibold text-slate-800">{totalCategories}</span> categories
             </p>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
-                disabled={currentPage === 1}
-                className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50 hover:bg-slate-50"
-              >
-                <ChevronLeft className="h-4 w-4" />
-                Prev
-              </button>
-              <span className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-900">
-                {currentPage} / {totalPages}
-              </span>
-              <button
-                type="button"
-                onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
-                disabled={currentPage >= totalPages}
-                className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50 hover:bg-slate-50"
-              >
-                Next
-                <ChevronRight className="h-4 w-4" />
-              </button>
-            </div>
           </div>
         )}
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="min-w-full">
-            <thead className="border-b border-slate-200 bg-slate-50">
-              <tr>
-                <th className="w-[25%] px-5 py-4 text-left text-[11px] font-bold uppercase tracking-wider text-slate-600">Category</th>
-                <th className="w-[17%] px-4 py-4 text-left text-[11px] font-bold uppercase tracking-wider text-slate-600">Owner</th>
-                <th className="w-[15%] px-4 py-4 text-left text-[11px] font-bold uppercase tracking-wider text-slate-600">Zone</th>
-                <th className="w-[10%] px-4 py-4 text-center text-[11px] font-bold uppercase tracking-wider text-slate-600">Diet</th>
-                <th className="w-[10%] px-4 py-4 text-center text-[11px] font-bold uppercase tracking-wider text-slate-600">Status</th>
-                <th className="w-[13%] px-4 py-4 text-left text-[11px] font-bold uppercase tracking-wider text-slate-600">Approval</th>
-                <th className="w-[20%] px-5 py-4 text-right text-[11px] font-bold uppercase tracking-wider text-slate-600">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {loading ? (
-                <tr>
-                  <td colSpan={7} className="px-6 py-20 text-center">
-                    <Loader2 className="mx-auto h-8 w-8 animate-spin text-blue-600" />
-                    <p className="mt-2 text-sm text-slate-500">Loading categories...</p>
-                  </td>
-                </tr>
-              ) : filteredCategories.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-6 py-20 text-center">
-                    <p className="text-lg font-semibold text-slate-700">No categories found</p>
-                    <p className="mt-1 text-sm text-slate-500">Try a different search or create a new category.</p>
-                  </td>
-                </tr>
-              ) : (
-                filteredCategories.map((category) => {
-                  const creatorName = category?.createdByRestaurant?.name || category?.restaurant?.name || "Admin"
-                  const approvalStatus = category?.approvalStatus || "pending"
-                  const isRestaurantCategory = Boolean(category?.createdByRestaurantId || category?.restaurantId)
-                  const zoneText = zoneLabel(category?.zoneId)
-
-                  return (
-                    <tr key={category.id} className="align-top hover:bg-slate-50/80">
-                      <td className="px-5 py-5">
-                        <div className="flex items-start gap-3">
-                          <div className="h-11 w-11 overflow-hidden rounded-2xl bg-slate-100">
-                            {category?.image ? (
-                              <img src={category.image} alt={category.name} className="h-full w-full object-cover" />
-                            ) : (
-                              <div className="flex h-full w-full items-center justify-center text-sm font-bold text-slate-500">
-                                {String(category?.name || "C").slice(0, 1).toUpperCase()}
-                              </div>
-                            )}
-                          </div>
-                          <div className="min-w-0">
-                            <p className="truncate text-lg font-semibold leading-6 text-slate-900">{category?.name || "-"}</p>
-                            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
-                              <span>{category?.type || "No type"}</span>
-                              <span className="text-slate-300">•</span>
-                              <span>Items linked: {category?.itemCount || 0}</span>
-                            </div>
-                            {category?.isNewSubmission && (
-                              <span className="mt-2 inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-700">
-                                New category — awaiting first approval
-                              </span>
-                            )}
-                            {category?.isResubmission && (
-                              <span className="mt-2 inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-1 text-[11px] font-semibold text-sky-700">
-                                Resubmitted — open view for changes
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-5 text-sm text-slate-600">
-                        <div className="space-y-1">
-                          <p className="font-medium leading-6 text-slate-800">{creatorName}</p>
-                          <p className="text-xs text-slate-400">
-                            {category?.isGlobal ? "Global category" : "Private to creator"}
-                          </p>
-                          {category?.isGlobal && isRestaurantCategory && (
-                            <span className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-1 text-[11px] font-semibold text-sky-700">
-                              <Globe className="mr-1 h-3.5 w-3.5" />
-                              Shared
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-5">
-                        <div className="max-w-[180px]">
-                          <p className="truncate text-sm font-medium text-slate-700" title={zoneText}>
-                            {zoneText}
-                          </p>
-                        </div>
-                      </td>
-                      <td className="px-4 py-5 text-center">
-                        <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${scopeBadgeClass(category?.foodTypeScope)}`}>
-                          {category?.foodTypeScope || "Both"}
-                        </span>
-                      </td>
-                      <td className="px-4 py-5 text-center">
-                        <button
-                          onClick={() => handleToggleStatus(category.id)}
-                          disabled={!canEdit}
-                          className={`relative inline-flex h-6 w-11 items-center rounded-full ${category?.status ? "bg-blue-600" : "bg-slate-300"} ${!canEdit ? "opacity-50 cursor-not-allowed" : ""}`}
-                          title={category?.status ? "Deactivate" : "Activate"}
-                        >
-                          <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${category?.status ? "translate-x-6" : "translate-x-1"}`} />
-                        </button>
-                      </td>
-                      <td className="px-4 py-5">
-                        <div className="space-y-2">
-                          <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${approvalBadgeClass(approvalStatus)}`}>
-                            {approvalStatus === "approved" && <BadgeCheck className="mr-1 h-3.5 w-3.5" />}
-                            {approvalStatus.charAt(0).toUpperCase() + approvalStatus.slice(1)}
-                          </span>
-                          {category?.rejectionReason && approvalStatus === "rejected" && (
-                            <p className="max-w-[220px] text-xs leading-5 text-rose-600">
-                              Last rejection: {category.rejectionReason}
-                            </p>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-5 py-5">
-                        <div className="flex flex-col items-end gap-2">
-                          <div className="flex flex-wrap justify-end gap-2">
-                            {canEdit && approvalStatus !== "approved" && (
-                              <button
-                                onClick={() => handleApprove(category.id)}
-                                className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm"
-                              >
-                                Approve
-                              </button>
-                            )}
-                            {canEdit && isRestaurantCategory && approvalStatus === "pending" && (
-                              <button
-                                onClick={() => openRejectModal(category)}
-                                className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm"
-                              >
-                                Reject
-                              </button>
-                            )}
-                            {canEdit && isRestaurantCategory && !category?.isGlobal && approvalStatus === "approved" && (
-                              <button
-                                onClick={() => handleMakeGlobal(category)}
-                                className="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm"
-                              >
-                                Make Global
-                              </button>
-                            )}
-                          </div>
-                          <div className="flex items-center justify-end gap-1">
-                            <button
-                              onClick={() => setViewCategory(category)}
-                              className="rounded-lg p-2 text-slate-600 hover:bg-slate-100"
-                              title="View details"
-                            >
-                              <Eye className="h-4 w-4" />
-                            </button>
-                            {canEdit && (
-                              <button
-                                onClick={() => handleEdit(category)}
-                                className="rounded-lg p-2 text-blue-600 hover:bg-blue-50"
-                                title="Edit"
-                              >
-                                <Pencil className="h-4 w-4" />
-                              </button>
-                            )}
-                            {canDelete && (
-                              <button
-                                onClick={() => handleDelete(category._id || category.id)}
-                                className="rounded-lg p-2 text-rose-600 hover:bg-rose-50"
-                                title="Delete"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <AdminTable
+        loading={loading}
+        skeletonRows={6}
+        data={filteredCategories}
+        getRowId={(category) => category.id}
+        columns={[
+          {
+            key: "category",
+            header: "Category",
+            width: "25%",
+            cell: (category) => (
+              <div className="flex items-start gap-3">
+                <div className="h-11 w-11 overflow-hidden rounded-2xl bg-slate-100">
+                  {category?.image ? (
+                    <img src={category.image} alt={category.name} className="h-full w-full object-cover" />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center text-sm font-bold text-slate-500">
+                      {String(category?.name || "C").slice(0, 1).toUpperCase()}
+                    </div>
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate text-base font-semibold leading-6 text-slate-900">{category?.name || "-"}</p>
+                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+                    <span>{category?.type || "No type"}</span>
+                    <span className="text-slate-300">•</span>
+                    <span>Items linked: {category?.itemCount || 0}</span>
+                  </div>
+                  {category?.isNewSubmission && (
+                    <span className="mt-2 inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-700">
+                      New — awaiting approval
+                    </span>
+                  )}
+                  {category?.isResubmission && (
+                    <span className="mt-2 inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-1 text-[11px] font-semibold text-sky-700">
+                      Resubmitted
+                    </span>
+                  )}
+                </div>
+              </div>
+            ),
+          },
+          {
+            key: "owner",
+            header: "Owner",
+            width: "17%",
+            cell: (category) => {
+              const creatorName = category?.createdByRestaurant?.name || category?.restaurant?.name || "Admin"
+              return (
+                <div className="space-y-1">
+                  <p className="font-medium leading-6 text-slate-800">{creatorName}</p>
+                  <span className={`inline-flex items-center rounded-full border px-2 py-1 text-[10px] font-bold uppercase tracking-wide ${category?.isGlobal ? "bg-sky-50 text-sky-700 border-sky-200" : "bg-purple-50 text-purple-700 border-purple-200"}`}>
+                    {category?.isGlobal ? (
+                      <>
+                        <Globe className="mr-1 h-3 w-3" /> Global
+                      </>
+                    ) : "Self"}
+                  </span>
+                </div>
+              )
+            },
+          },
+          {
+            key: "zone",
+            header: "Zone",
+            width: "15%",
+            cell: (category) => {
+              const zoneText = zoneLabel(category?.zoneId)
+              return (
+                <p className="max-w-[180px] truncate text-sm font-medium text-slate-700" title={zoneText}>
+                  {zoneText}
+                </p>
+              )
+            },
+          },
+          {
+            key: "diet",
+            header: "Diet",
+            align: "center",
+            width: "10%",
+            cell: (category) => (
+              <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${scopeBadgeClass(category?.foodTypeScope)}`}>
+                {category?.foodTypeScope || "Both"}
+              </span>
+            ),
+          },
+          {
+            key: "status",
+            header: "Status",
+            align: "center",
+            width: "10%",
+            cell: (category) => (
+              <button
+                onClick={() => handleToggleStatus(category.id)}
+                disabled={!canEdit}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full ${category?.status ? "bg-blue-600" : "bg-slate-300"} ${!canEdit ? "opacity-50 cursor-not-allowed" : ""}`}
+                title={category?.status ? "Deactivate" : "Activate"}
+              >
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${category?.status ? "translate-x-6" : "translate-x-1"}`} />
+              </button>
+            ),
+          },
+          {
+            key: "approval",
+            header: "Approval",
+            width: "13%",
+            cell: (category) => {
+              const approvalStatus = category?.approvalStatus || "pending"
+              return (
+                <div className="space-y-2">
+                  <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${approvalBadgeClass(approvalStatus)}`}>
+                    {approvalStatus === "approved" && <BadgeCheck className="mr-1 h-3.5 w-3.5" />}
+                    {approvalStatus.charAt(0).toUpperCase() + approvalStatus.slice(1)}
+                  </span>
+                  {category?.rejectionReason && approvalStatus === "rejected" && (
+                    <p className="max-w-[220px] text-xs leading-5 text-rose-600">
+                      Last rejection: {category.rejectionReason}
+                    </p>
+                  )}
+                </div>
+              )
+            },
+          },
+          {
+            key: "actions",
+            header: "Actions",
+            align: "right",
+            width: "20%",
+            cell: (category) => {
+              const approvalStatus = category?.approvalStatus || "pending"
+              const isRestaurantCategory = Boolean(category?.createdByRestaurantId || category?.restaurantId)
+              return (
+                <div className="flex flex-col items-end gap-2">
+                  <div className="flex flex-wrap justify-end gap-2">
+                    {canEdit && approvalStatus !== "approved" && (
+                      <button
+                        onClick={() => handleApprove(category.id)}
+                        className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm"
+                      >
+                        Approve
+                      </button>
+                    )}
+                    {canEdit && isRestaurantCategory && approvalStatus === "pending" && (
+                      <button
+                        onClick={() => openRejectModal(category)}
+                        className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm"
+                      >
+                        Reject
+                      </button>
+                    )}
+                    {canEdit && isRestaurantCategory && !category?.isGlobal && approvalStatus === "approved" && (
+                      <button
+                        onClick={() => handleMakeGlobal(category)}
+                        className="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm"
+                      >
+                        Make Global
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-end gap-1">
+                    <button
+                      onClick={() => setViewCategory(category)}
+                      className="rounded-lg p-2 text-slate-600 hover:bg-slate-100"
+                      title="View details"
+                    >
+                      <Eye className="h-4 w-4" />
+                    </button>
+                    {canEdit && (
+                      <button
+                        onClick={() => handleEdit(category)}
+                        className="rounded-lg p-2 text-blue-600 hover:bg-blue-50"
+                        title="Edit"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </button>
+                    )}
+                    {canDelete && (
+                      <button
+                        onClick={() => handleDelete(category._id || category.id)}
+                        className="rounded-lg p-2 text-rose-600 hover:bg-rose-50"
+                        title="Delete"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )
+            },
+          },
+        ]}
+        emptyState={{
+          title: "No categories found",
+          description: "Try a different search or create a new category.",
+        }}
+        infiniteScroll={{ onLoadMore: loadMore, hasMore, loadingMore, total: totalCategories }}
+        renderMobileCard={(category) => {
+          const creatorName = category?.createdByRestaurant?.name || category?.restaurant?.name || "Admin"
+          const approvalStatus = category?.approvalStatus || "pending"
+          const isRestaurantCategory = Boolean(category?.createdByRestaurantId || category?.restaurantId)
+          const zoneText = zoneLabel(category?.zoneId)
+          return (
+            <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+              <div className="flex items-start gap-3">
+                <div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-slate-100">
+                  {category?.image ? (
+                    <img src={category.image} alt={category.name} className="h-full w-full object-cover" />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center text-sm font-bold text-slate-500">
+                      {String(category?.name || "C").slice(0, 1).toUpperCase()}
+                    </div>
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-slate-900">{category?.name || "-"}</p>
+                  <p className="mt-0.5 truncate text-xs text-slate-500">{creatorName} • {zoneText}</p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold ${scopeBadgeClass(category?.foodTypeScope)}`}>
+                      {category?.foodTypeScope || "Both"}
+                    </span>
+                    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${approvalBadgeClass(approvalStatus)}`}>
+                      {approvalStatus.charAt(0).toUpperCase() + approvalStatus.slice(1)}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleToggleStatus(category.id)}
+                  disabled={!canEdit}
+                  className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full ${category?.status ? "bg-blue-600" : "bg-slate-300"} ${!canEdit ? "opacity-50" : ""}`}
+                >
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${category?.status ? "translate-x-6" : "translate-x-1"}`} />
+                </button>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 pt-2">
+                {canEdit && approvalStatus !== "approved" && (
+                  <button onClick={() => handleApprove(category.id)} className="rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white">Approve</button>
+                )}
+                {canEdit && isRestaurantCategory && approvalStatus === "pending" && (
+                  <button onClick={() => openRejectModal(category)} className="rounded-lg bg-rose-600 px-2.5 py-1 text-xs font-semibold text-white">Reject</button>
+                )}
+                <button onClick={() => setViewCategory(category)} className="rounded-lg p-1.5 text-slate-600 hover:bg-slate-100"><Eye className="h-4 w-4" /></button>
+                {canEdit && (
+                  <button onClick={() => handleEdit(category)} className="rounded-lg p-1.5 text-blue-600 hover:bg-blue-50"><Pencil className="h-4 w-4" /></button>
+                )}
+                {canDelete && (
+                  <button onClick={() => handleDelete(category._id || category.id)} className="rounded-lg p-1.5 text-rose-600 hover:bg-rose-50"><Trash2 className="h-4 w-4" /></button>
+                )}
+              </div>
+            </div>
+          )
+        }}
+      />
 
       {typeof window !== "undefined" &&
         createPortal(
@@ -979,12 +1027,12 @@ export default function Category() {
 
                     <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
                       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5">
-                        <div>
-                          <label className="mb-2 block text-sm font-medium text-slate-700">Zone</label>
+                        <FormField label="Zone" htmlFor="category-zone">
                           <select
+                            id="category-zone"
                             value={formData.zoneId}
                             onChange={(event) => setFormData((prev) => ({ ...prev, zoneId: event.target.value }))}
-                            className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none focus:border-slate-900"
+                            className={formInputClass}
                           >
                             <option value="global">Global (all zones)</option>
                             {zonesLoading && <option value="" disabled>Loading zones...</option>}
@@ -998,34 +1046,33 @@ export default function Category() {
                               )
                             })}
                           </select>
-                        </div>
+                        </FormField>
 
-                        <div>
-                          <label className="mb-2 block text-sm font-medium text-slate-700">Diet Scope</label>
+                        <FormField label="Diet Scope" htmlFor="category-diet-scope">
                           <select
+                            id="category-diet-scope"
                             value={formData.foodTypeScope}
                             onChange={(event) => setFormData((prev) => ({ ...prev, foodTypeScope: event.target.value }))}
-                            className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none focus:border-slate-900"
+                            className={formInputClass}
                           >
                             <option value="Veg">Veg</option>
                             <option value="Non-Veg">Non-Veg</option>
                             <option value="Both">Both</option>
                           </select>
-                        </div>
+                        </FormField>
 
-                        <div>
-                          <label className="mb-2 block text-sm font-medium text-slate-700">Category Type</label>
+                        <FormField label="Category Type" htmlFor="category-type">
                           <input
+                            id="category-type"
                             type="text"
                             value={formData.type}
                             onChange={(event) => setFormData((prev) => ({ ...prev, type: event.target.value }))}
-                            className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-slate-900"
+                            className={formInputClass}
                             placeholder="Examples: Starters, Desserts, Drinks"
                           />
-                        </div>
+                        </FormField>
 
-                        <div>
-                          <label className="mb-2 block text-sm font-medium text-slate-700">Category Name</label>
+                        <FormField label="Category Name" htmlFor="category-name" required>
                           <NameSuggestionField
                             required
                             value={formData.name}
@@ -1034,13 +1081,12 @@ export default function Category() {
                             excludeId={editingCategory?.id}
                             entityLabel="category"
                             placeholder="Enter category name"
-                            inputClassName="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-slate-900"
+                            inputClassName={formInputClass}
                             onDuplicateChange={setIsNameDuplicate}
                           />
-                        </div>
+                        </FormField>
 
-                        <div>
-                          <label className="mb-2 block text-sm font-medium text-slate-700">Category Image</label>
+                        <FormField label="Category Image">
                           <div className="space-y-3">
                             {(imagePreview || formData.image) && (
                               <div className="relative h-32 w-32 overflow-hidden rounded-2xl border border-slate-300">
@@ -1069,7 +1115,7 @@ export default function Category() {
                               </label>
                             </div>
                           </div>
-                        </div>
+                        </FormField>
 
                         <label className="flex items-center gap-3 text-sm font-medium text-slate-700">
                           <input
@@ -1082,23 +1128,13 @@ export default function Category() {
                         </label>
                       </div>
 
-                      <div className="flex items-center gap-3 border-t bg-white px-6 py-4">
-                        <button
-                          type="button"
-                          onClick={resetModal}
-                          className="flex-1 rounded-xl border border-slate-300 px-4 py-3 text-slate-700"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="submit"
-                          disabled={isSubmitting || isNameDuplicate}
-                          className={`flex-1 rounded-xl bg-blue-600 px-4 py-3 text-white flex items-center justify-center gap-2 ${isSubmitting || isNameDuplicate ? "opacity-70 cursor-not-allowed" : "hover:bg-blue-700"}`}
-                        >
-                          {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
-                          {editingCategory ? "Update" : "Create"}
-                        </button>
-                      </div>
+                      <FormActions
+                        onCancel={resetModal}
+                        submitting={isSubmitting}
+                        submitDisabled={isNameDuplicate}
+                        submitLabel={editingCategory ? "Update" : "Create"}
+                        className="border-t bg-white px-6 py-4"
+                      />
                     </form>
                   </motion.div>
                 </div>

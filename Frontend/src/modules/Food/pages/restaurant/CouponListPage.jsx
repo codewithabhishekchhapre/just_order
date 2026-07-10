@@ -16,7 +16,10 @@ import { formatCurrency, usdToInr } from "@food/utils/currency"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
-
+import { restaurantAPI } from "@food/api"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { toast } from "sonner"
+import { Loader2 } from "lucide-react"
 
 export default function CouponListPage() {
   const navigate = useNavigate()
@@ -63,20 +66,28 @@ export default function CouponListPage() {
     }
   }, [openMenuId])
 
-  // Coupon data matching the image
-  const coupons = [
-    {
-      id: 1,
-      discount: "10 % OFF",
-      merchant: "on Hungry Puppets",
-      name: "fest",
-      validity: {
-        start: "07 Feb, 2023",
-        end: "01 Dec, 2025"
-      },
-      minPurchase: usdToInr(50.00)
+  const queryClient = useQueryClient()
+  
+  const { data, isLoading } = useQuery({
+    queryKey: ['restaurantCoupons'],
+    queryFn: async () => {
+      const res = await restaurantAPI.getCoupons()
+      return res.data?.data || []
     }
-  ]
+  })
+
+  const coupons = data || []
+
+  const deleteMutation = useMutation({
+    mutationFn: (id) => restaurantAPI.deleteCoupon(id),
+    onSuccess: () => {
+      toast.success("Coupon deleted successfully")
+      queryClient.invalidateQueries(['restaurantCoupons'])
+    },
+    onError: (error) => {
+      toast.error(error?.response?.data?.message || "Failed to delete coupon")
+    }
+  })
 
   return (
     <div className="min-h-screen bg-[#f6e9dc] overflow-x-hidden pb-24 md:pb-6">
@@ -131,12 +142,19 @@ export default function CouponListPage() {
                         className="absolute top-full right-0 mt-2 bg-white rounded-xl shadow-2xl border border-gray-200 py-2 z-50 min-w-[180px]"
                         data-menu-id={coupon.id}
                       >
-                            {[
                               { 
                                 label: "Edit Coupon", 
-                                action: () => navigate(`/restaurant/coupon/${coupon.id}/edit`) 
+                                action: () => navigate(`/food/restaurant/coupon/${coupon._id || coupon.id}/edit`) 
                               },
-                              { label: "Delete Coupon", action: () => debugLog("Delete:", coupon.id), isDanger: true }
+                              { 
+                                label: "Delete Coupon", 
+                                action: () => {
+                                  if (window.confirm("Are you sure you want to delete this coupon?")) {
+                                    deleteMutation.mutate(coupon._id || coupon.id)
+                                  }
+                                }, 
+                                isDanger: true 
+                              }
                             ].map((option, idx) => (
                               <motion.button
                                 key={option.label}
@@ -173,11 +191,30 @@ export default function CouponListPage() {
                       </div>
                     </div>
                     <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-2">
-                      {coupon.discount}
+                      {coupon.discountType === 'percentage' ? `${coupon.discountValue}% OFF` : `₹${coupon.discountValue} FLAT`}
                     </h2>
-                    <p className="text-sm text-gray-600 text-center">
-                      {coupon.merchant}
+                    <p className="text-sm font-semibold text-gray-600 text-center tracking-wide uppercase">
+                      {coupon.couponCode}
                     </p>
+                    
+                    {/* Status Badge */}
+                    <div className="mt-3">
+                      {coupon.approvalStatus === 'approved' && (
+                        <span className="px-2 py-0.5 text-[10px] font-bold tracking-wide uppercase bg-emerald-100 text-emerald-700 rounded-full border border-emerald-200 shadow-sm">
+                          Active
+                        </span>
+                      )}
+                      {(coupon.approvalStatus === 'pending' || !coupon.approvalStatus) && (
+                        <span className="px-2 py-0.5 text-[10px] font-bold tracking-wide uppercase bg-amber-100 text-amber-700 rounded-full border border-amber-200 shadow-sm flex items-center gap-1">
+                          <Loader2 className="w-3 h-3 animate-spin" /> Pending Approval
+                        </span>
+                      )}
+                      {coupon.approvalStatus === 'rejected' && (
+                        <span className="px-2 py-0.5 text-[10px] font-bold tracking-wide uppercase bg-rose-100 text-rose-700 rounded-full border border-rose-200 shadow-sm">
+                          Rejected
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   {/* Perforated Line */}
@@ -189,33 +226,56 @@ export default function CouponListPage() {
                   </div>
 
                   {/* Right Section */}
-                  <div className="flex-1 p-4">
+                  <div className="flex-1 p-4 flex flex-col justify-center">
                     {/* Coupon Name */}
-                    <h3 className="text-lg font-bold text-gray-900 mb-3">
-                      {coupon.name}
+                    <h3 className="text-lg font-bold text-gray-900 mb-2 truncate">
+                      {coupon.couponName || "Coupon"}
                     </h3>
 
                     {/* Validity */}
-                    <p className="text-xs text-gray-600 mb-3">
-                      {coupon.validity.start} To {coupon.validity.end}
+                    <p className="text-xs text-gray-600 mb-2 font-medium">
+                      {new Date(coupon.startDate || coupon.createdAt).toLocaleDateString()} to {new Date(coupon.endDate || coupon.expiryDate).toLocaleDateString()}
                     </p>
 
                     {/* Min Purchase */}
                     <p className="text-xs">
-                      <span className="text-red-600 font-medium">*Min purchase</span>{" "}
-                      <span className="text-gray-700">{formatCurrency(coupon.minPurchase)}</span>
+                      <span className="text-red-600 font-medium">*Min order</span>{" "}
+                      <span className="text-gray-700 font-semibold text-sm">₹{coupon.minOrderAmount || 0}</span>
                     </p>
                   </div>
                 </div>
+
+                {/* Rejection Reason Footer */}
+                {coupon.approvalStatus === 'rejected' && coupon.rejectionReason && (
+                  <div className="bg-rose-50 px-4 py-3 border-t border-rose-100 flex items-start gap-2">
+                    <div className="flex-1">
+                      <p className="text-[11px] font-bold text-rose-700 uppercase tracking-wide mb-0.5">Admin Feedback</p>
+                      <p className="text-sm text-rose-900 leading-snug font-medium">{coupon.rejectionReason}</p>
+                    </div>
+                    <button
+                      onClick={() => navigate(`/food/restaurant/coupon/${coupon._id || coupon.id}/edit`)}
+                      className="px-3 py-1.5 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-md shadow-sm transition-colors whitespace-nowrap"
+                    >
+                      Fix & Resubmit
+                    </button>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </motion.div>
         ))}
 
         {/* Empty State */}
-        {coupons.length === 0 && (
+        {!isLoading && coupons.length === 0 && (
           <div className="text-center py-12">
             <p className="text-gray-500 text-sm">No coupons found</p>
+          </div>
+        )}
+
+        {/* Loading State */}
+        {isLoading && (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="w-8 h-8 text-[#ff8100] animate-spin" />
           </div>
         )}
       </div>
@@ -228,7 +288,7 @@ export default function CouponListPage() {
         whileHover={{ scale: 1.1 }}
         whileTap={{ scale: 0.9 }}
         onClick={() => {
-          navigate("/restaurant/coupon/new")
+          navigate("/food/restaurant/coupon/new")
         }}
         className="fixed bottom-20 md:bottom-6 right-4 md:right-6 w-14 h-14 bg-[#ff8100] hover:bg-[#e67300] text-white rounded-full shadow-lg flex items-center justify-center z-40 transition-colors"
       >

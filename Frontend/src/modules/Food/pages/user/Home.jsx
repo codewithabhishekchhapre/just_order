@@ -103,6 +103,11 @@ import { PorterProvider } from "../../../porter/user/context/BookingContext";
 import PromoRow from "@food/components/user/home/PromoRow";
 import { optimizeCloudinaryUrl } from "../../../../shared/utils/cloudinaryUtils";
 import VegModePopups from "@food/components/user/VegModePopups";
+import { useEnabledModules } from "@/modules/common/hooks/useEnabledModules";
+import {
+  getFirstEnabledModulePath,
+  getVisibleHomeTabs,
+} from "@/modules/common/utils/enabledModules";
 
 import * as imgUtils from "@food/utils/imageUtils";
 import { useFoodHomeData } from "@food/hooks/useFoodHomeData";
@@ -181,6 +186,11 @@ export default function Home() {
   const restaurantLoadMoreRef = useRef(null);
   const isHandlingSwitchOff = useRef(false);
   const routerLocation = useRouterLocation();
+  const { modules: enabledModules, loading: modulesLoading } = useEnabledModules();
+  const visibleHomeTabs = useMemo(
+    () => getVisibleHomeTabs(enabledModules),
+    [enabledModules],
+  );
 
   // --- Location Logic ---
   const { location } = useLocation();
@@ -270,19 +280,47 @@ export default function Home() {
     };
   }, [showVegModePopup, showSwitchOffPopup, showAllCategoriesModal]);
 
-  // Sync activeTab with URL
+  // Sync activeTab with URL and respect disabled modules
   useEffect(() => {
+    if (modulesLoading) return;
+
     const path = routerLocation.pathname;
     const targetTab = path.endsWith("/quick")
       ? "quick"
       : path === "/porter" || path.endsWith("/porter")
       ? "porter"
       : "food";
+
+    const moduleKey =
+      targetTab === "quick" ? "quickCommerce" : targetTab === "porter" ? "porter" : "food";
+
+    if (enabledModules[moduleKey] === false) {
+      const fallbackPath = getFirstEnabledModulePath(enabledModules);
+      if (fallbackPath && fallbackPath !== path) {
+        navigate(fallbackPath, { replace: true });
+      }
+      return;
+    }
+
     if (activeTab !== targetTab) setActiveTab(targetTab);
-  }, [routerLocation.pathname]);
+  }, [routerLocation.pathname, enabledModules, modulesLoading, activeTab, navigate]);
+
+  useEffect(() => {
+    if (modulesLoading || visibleHomeTabs.length === 0) return;
+    const allowedTabIds = new Set(visibleHomeTabs.map((tab) => tab.id));
+    if (!allowedTabIds.has(activeTab)) {
+      const nextTab = visibleHomeTabs[0].id;
+      if (nextTab === "quick") navigate("/quick", { replace: true });
+      else if (nextTab === "porter") navigate("/porter", { replace: true });
+      else navigate("/food/user", { replace: true });
+    }
+  }, [activeTab, modulesLoading, navigate, visibleHomeTabs]);
 
   // --- Handlers ---
   const handleTabChange = (tab) => {
+    const moduleKey = tab === "quick" ? "quickCommerce" : tab === "porter" ? "porter" : "food";
+    if (enabledModules[moduleKey] === false) return;
+
     startTransition(() => setActiveTab(tab));
     if (tab === "quick") navigate("/quick");
     else if (tab === "porter") navigate("/porter");

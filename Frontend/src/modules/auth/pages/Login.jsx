@@ -385,11 +385,11 @@ export default function UnifiedOTPFastLogin() {
           
           {/* Back button (Only when step is 2 or showNameInput) */}
           {(step === 2 || showNameInput) && (
-            <div className="w-full max-w-sm mb-4">
+            <div className="w-full max-w-sm mb-4 flex justify-start">
               <button
                 type="button"
                 onClick={handleEditNumber}
-                className="flex items-center justify-center mx-auto lg:mx-0 gap-2 text-sm text-slate-500 dark:text-zinc-400 hover:text-[#FF6A00] transition-colors mb-6 group cursor-pointer"
+                className="flex items-center gap-2 text-sm text-slate-500 dark:text-zinc-400 hover:text-[#FF6A00] transition-colors mb-6 group cursor-pointer"
               >
                 <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" strokeWidth={2} />
                 Back

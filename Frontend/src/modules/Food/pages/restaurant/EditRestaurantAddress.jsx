@@ -2,13 +2,14 @@ import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation"
 import Lenis from "lenis"
-import { ArrowLeft, Loader2 } from "lucide-react"
+import { Loader2 } from "lucide-react"
 import { restaurantAPI, zoneAPI } from "@food/api"
 import { getGoogleMapsApiKey } from "@food/utils/googleMapsApiKey"
 import { loadGoogleMaps as loadGoogleMapsSdk } from "@core/services/googleMapsLoader"
 import { toast } from "react-hot-toast"
 import { useRef, useCallback } from "react"
 import { Search, MapPin, Save } from "lucide-react"
+import RestaurantPageShell from "@food/components/restaurant/RestaurantPageShell"
 
 const debugLog = (...args) => console.log(...args)
 const debugWarn = (...args) => console.warn(...args)
@@ -455,24 +456,16 @@ export default function EditRestaurantAddress() {
   const simplifiedAddress = getSimplifiedAddress(address)
 
   return (
-    <div className="h-screen bg-white dark:bg-[#0a0a0a] overflow-hidden flex flex-col">
-      {/* Sticky Header */}
-      <div className="bg-white dark:bg-[#111] border-b border-gray-100 dark:border-gray-800 px-4 py-4 sticky top-0 z-50 flex items-center gap-3 shrink-0">
-        <button
-          onClick={goBack}
-          className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-colors shrink-0"
-          aria-label="Go back"
-        >
-          <ArrowLeft className="w-5 h-5 text-gray-900 dark:text-white" />
-        </button>
-        <div className="flex-1 min-w-0">
-          <h1 className="text-base font-bold text-gray-900 dark:text-white truncate">{restaurantName}</h1>
-          <p className="text-xs text-gray-400 dark:text-gray-500 truncate">{simplifiedAddress}</p>
-        </div>
-      </div>
-
+    <RestaurantPageShell
+      title={restaurantName}
+      subtitle={simplifiedAddress}
+      onBack={goBack}
+      flush
+      maxWidth="full"
+      contentClassName="flex flex-col overflow-hidden"
+    >
       {/* Map Section - Takes remaining space */}
-      <div className="flex-1 relative overflow-hidden bg-gray-50 min-h-[400px]">
+      <div className="flex-1 relative overflow-hidden bg-gray-50 min-h-[calc(100dvh-10rem)]">
         {/* Search Bar - Absolute positioned on map */}
         <div className="absolute top-4 left-4 right-4 z-10 flex gap-2">
           <div className="flex-1 relative shadow-lg">
@@ -556,7 +549,7 @@ export default function EditRestaurantAddress() {
           </div>
         </div>
       )}
-    </div>
+    </RestaurantPageShell>
   )
 }
 

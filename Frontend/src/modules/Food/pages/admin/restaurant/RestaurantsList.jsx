@@ -3,6 +3,9 @@ import { useNavigate, useSearchParams } from "react-router-dom"
 import { Search, Download, ChevronDown, Eye, Settings, ArrowUpDown, Loader2, X, MapPin, Phone, Mail, Clock, Star, Building2, User, FileText, CreditCard, Calendar, Image as ImageIcon, ExternalLink, ShieldX, AlertTriangle, Trash2, Plus } from "lucide-react"
 import { adminAPI, restaurantAPI, uploadAPI } from "@food/api"
 import { clearModuleAuth } from "@food/utils/auth"
+import useInfiniteList from "@food/hooks/useInfiniteList"
+import InfiniteScrollSentinel from "@/shared/components/ui/InfiniteScrollSentinel"
+import RefreshButton from "@/shared/components/ui/RefreshButton"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@food/components/ui/dropdown-menu"
 import { exportRestaurantsToPDF } from "@food/components/admin/restaurants/restaurantsExportUtils"
 import ApprovalAuditCard from "@food/components/admin/ApprovalAuditCard"
@@ -162,15 +165,12 @@ export default function RestaurantsList() {
   const canDelete = useMemo(() => {
     return canPerformAdminPermissionAction(currentUser, resolvedPermissions, "food::restaurant_management::restaurants::list", "delete")
   }, [currentUser, resolvedPermissions])
-  const [searchQuery, setSearchQuery] = useState("")
-  const [restaurants, setRestaurants] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
   const [selectedRestaurant, setSelectedRestaurant] = useState(null)
   const [restaurantDetails, setRestaurantDetails] = useState(null)
   const [loadingDetails, setLoadingDetails] = useState(false)
   const [banConfirmDialog, setBanConfirmDialog] = useState(null) // { restaurant, action: 'show' | 'hide' }
   const [banning, setBanning] = useState(false)
+  const [togglingNoMenuId, setTogglingNoMenuId] = useState(null)
   const [deleteConfirmDialog, setDeleteConfirmDialog] = useState(null) // { restaurant }
   const [deleting, setDeleting] = useState(false)
   const [sortConfig, setSortConfig] = useState({ key: null, direction: "asc" })
@@ -264,18 +264,45 @@ export default function RestaurantsList() {
     return `#REST${lastDigits}`
   }
 
-  // Fetch restaurants from backend API
-  useEffect(() => {
-    let cancelled = false
-    const fetchRestaurants = async () => {
+  const zoneLabelFromRestaurant = (restaurant, zonesList) => {
+    const zid = restaurant?.zoneId
+    const zoneName = (typeof zid === "object" ? (zid?.name || zid?.zoneName) : "") || ""
+    if (zoneName) return zoneName
+
+    const zoneIdString = typeof zid === "string" ? zid : (zid?._id || zid?.id || "")
+    if (zoneIdString && Array.isArray(zonesList) && zonesList.length > 0) {
+      const match = zonesList.find((z) => (z?._id || z?.id) === zoneIdString)
+      const label = match?.name || match?.zoneName
+      if (label) return label
+    }
+
+    return (
+      restaurant?.zone ||
+      restaurant?.location?.area ||
+      restaurant?.location?.city ||
+      restaurant?.area ||
+      restaurant?.city ||
+      "N/A"
+    )
+  }
+
+  // Fetch restaurants from backend API, 20 at a time, loading more on scroll
+  const {
+    items: restaurants,
+    setItems: setRestaurants,
+    total: totalRestaurantsOnServer,
+    hasMore,
+    loading,
+    loadingMore,
+    loadMore,
+    error: fetchError,
+    search: searchQuery,
+    setSearch: setSearchQuery,
+    refresh: refreshRestaurants,
+  } = useInfiniteList(
+    async (params, config) => {
       try {
-        setLoading(true)
-        setError(null)
-
-        const response = await adminAPI.getApprovedRestaurants({})
-
-        if (cancelled) return
-
+        const response = await adminAPI.getApprovedRestaurants(params, config)
         const body = response?.data
         const data = body?.data
         const rawList = Array.isArray(data?.restaurants)
@@ -285,79 +312,46 @@ export default function RestaurantsList() {
             : Array.isArray(body?.restaurants)
               ? body.restaurants
               : []
+        const total = data?.total ?? body?.total ?? rawList.length
 
-        const zoneLabelFromRestaurant = (restaurant) => {
-          const zid = restaurant?.zoneId
-          const zoneName =
-            (typeof zid === "object" ? (zid?.name || zid?.zoneName) : "") ||
-            ""
-          if (zoneName) return zoneName
+        const mappedRestaurants = rawList.map((restaurant, index) => ({
+          id: restaurant._id || restaurant.id || index + 1,
+          _id: restaurant._id,
+          name: restaurant.name || restaurant.restaurantName || "N/A",
+          ownerName: restaurant.ownerName || "N/A",
+          ownerPhone: restaurant.ownerPhone || restaurant.phone || "N/A",
+          zone: zoneLabelFromRestaurant(restaurant, zones),
+          approvalStatus: normalizeApprovalStatus(restaurant),
+          isActive: restaurant.isVisibleToUsers !== false,
+          isVisibleToUsers: restaurant.isVisibleToUsers !== false,
+          showRestaurantToUsersWithoutItems: !!restaurant.showRestaurantToUsersWithoutItems,
+          hasHadActiveItems: !!restaurant.hasHadActiveItems,
+          rating: restaurant.ratings?.average || restaurant.rating || 0,
+          address: restaurant.location?.formattedAddress || [restaurant.addressLine1, restaurant.area, restaurant.city, restaurant.state].filter(Boolean).join(", ") || restaurant.address || "N/A",
+          isVeg: restaurant.pureVegRestaurant || restaurant.onboarding?.step1?.pureVegRestaurant || false,
+          logo: getPrimaryRestaurantImage(restaurant, PLACEHOLDER_40),
+          originalData: restaurant,
+        }))
 
-          const zoneIdString =
-            typeof zid === "string"
-              ? zid
-              : (zid?._id || zid?.id || "")
-          if (zoneIdString && Array.isArray(zones) && zones.length > 0) {
-            const match = zones.find((z) => (z?._id || z?.id) === zoneIdString)
-            const label = match?.name || match?.zoneName
-            if (label) return label
-          }
-
-          return (
-            restaurant?.zone ||
-            restaurant?.location?.area ||
-            restaurant?.location?.city ||
-            restaurant?.area ||
-            restaurant?.city ||
-            "N/A"
-          )
-        }
-
-        if (rawList.length > 0 || body?.success === true) {
-          const mappedRestaurants = rawList.map((restaurant, index) => ({
-            id: restaurant._id || restaurant.id || index + 1,
-            _id: restaurant._id,
-            name: restaurant.name || restaurant.restaurantName || "N/A",
-            ownerName: restaurant.ownerName || "N/A",
-            ownerPhone: restaurant.ownerPhone || restaurant.phone || "N/A",
-            zone: zoneLabelFromRestaurant(restaurant),
-            approvalStatus: normalizeApprovalStatus(restaurant),
-            isActive: restaurant.isVisibleToUsers !== false,
-            isVisibleToUsers: restaurant.isVisibleToUsers !== false,
-            showRestaurantToUsersWithoutItems: !!restaurant.showRestaurantToUsersWithoutItems,
-            hasHadActiveItems: !!restaurant.hasHadActiveItems,
-            rating: restaurant.ratings?.average || restaurant.rating || 0,
-            logo: getPrimaryRestaurantImage(restaurant, PLACEHOLDER_40),
-            originalData: restaurant,
-          }))
-          if (!cancelled) setRestaurants(mappedRestaurants)
-        } else {
-          if (!cancelled) setRestaurants([])
-        }
+        return { items: mappedRestaurants, total }
       } catch (err) {
-        if (cancelled) return
         debugError("Error fetching restaurants:", err)
         const status = err?.response?.status
-        const serverMessage = err?.response?.data?.message || err?.response?.data?.error
         if (status === 401) {
-          setError(serverMessage || "Session expired or not logged in. Please log in as admin.")
-          setRestaurants([])
           try {
             clearModuleAuth("admin")
           } catch (_) {}
           navigate("/admin/login", { replace: true, state: { from: "/admin/food/restaurants" } })
-          return
         }
-        setError(serverMessage || err.message || "Failed to fetch restaurants")
-        setRestaurants([])
-      } finally {
-        if (!cancelled) setLoading(false)
+        throw err
       }
-    }
+    },
+    { pageSize: 20, cacheKey: "admin-restaurants" },
+  )
 
-    fetchRestaurants()
-    return () => { cancelled = true }
-  }, [])
+  const error = fetchError
+    ? (fetchError?.response?.data?.message || fetchError?.response?.data?.error || fetchError?.message || "Failed to fetch restaurants")
+    : null
 
   const [searchParams] = useSearchParams()
   const restaurantIdFromUrl = searchParams.get("restaurantId")
@@ -451,7 +445,7 @@ export default function RestaurantsList() {
     setSortConfig({ key, direction })
   }
 
-  const totalRestaurants = restaurants.length
+  const totalRestaurants = totalRestaurantsOnServer || restaurants.length
   const activeRestaurants = restaurants.filter(r => r.isActive === true).length
   const inactiveRestaurants = restaurants.filter(r => r.isActive !== true).length
 
@@ -1358,6 +1352,63 @@ export default function RestaurantsList() {
     setBanConfirmDialog(null)
   }
 
+  const handleToggleNoMenuOverride = async (restaurant) => {
+    if (!canEdit) {
+      toast.error("Permission denied")
+      return
+    }
+
+    const restaurantId = restaurant._id || restaurant.id
+    if (!restaurantId) {
+      toast.error("Restaurant ID not found")
+      return
+    }
+
+    const nextValue = !restaurant.showRestaurantToUsersWithoutItems
+
+    try {
+      setTogglingNoMenuId(String(restaurantId))
+      const response = await adminAPI.updateRestaurant(restaurantId, {
+        showRestaurantToUsersWithoutItems: nextValue,
+      })
+      const updatedRestaurant = response?.data?.data?.restaurant || response?.data?.data || null
+      const resolvedValue = updatedRestaurant?.showRestaurantToUsersWithoutItems ?? nextValue
+
+      setRestaurants((prev) =>
+        prev.map((r) =>
+          r.id === restaurant.id || r._id === restaurant._id
+            ? {
+              ...r,
+              showRestaurantToUsersWithoutItems: !!resolvedValue,
+              originalData: {
+                ...(r.originalData || {}),
+                showRestaurantToUsersWithoutItems: !!resolvedValue,
+              },
+            }
+            : r,
+        ),
+      )
+
+      if (restaurantDetails && (restaurantDetails._id === restaurantId || restaurantDetails.id === restaurantId)) {
+        setRestaurantDetails((prev) => prev ? {
+          ...prev,
+          showRestaurantToUsersWithoutItems: !!resolvedValue,
+        } : prev)
+      }
+
+      toast.success(
+        resolvedValue
+          ? "Restaurant can now be shown to users without menu items"
+          : "Restaurant will only show when it has active menu items",
+      )
+    } catch (err) {
+      debugError("Error toggling show-without-menu setting:", err)
+      toast.error(err?.response?.data?.message || "Failed to update restaurant visibility setting")
+    } finally {
+      setTogglingNoMenuId(null)
+    }
+  }
+
   // Handle delete restaurant
   const handleDeleteRestaurant = (restaurant) => {
     if (!canDelete) {
@@ -1501,6 +1552,8 @@ export default function RestaurantsList() {
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               </div>
 
+              <RefreshButton onClick={refreshRestaurants} loading={loading} />
+
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button className="px-4 py-2.5 text-sm font-medium rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 flex items-center gap-2 transition-all">
@@ -1521,8 +1574,76 @@ export default function RestaurantsList() {
             </div>
           </div>
 
+          {/* Mobile cards */}
+          {!loading && !error && (
+            <div className="space-y-3 md:hidden">
+              {filteredRestaurants.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16">
+                  <p className="text-base font-semibold text-slate-700 mb-1">No Data Found</p>
+                  <p className="text-sm text-slate-500">No restaurants match your search</p>
+                </div>
+              ) : (
+                filteredRestaurants.map((restaurant) => (
+                  <div key={restaurant.id} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                    <div className="flex items-start gap-3">
+                      <div
+                        className="h-11 w-11 shrink-0 overflow-hidden rounded-full border border-slate-100 bg-slate-100"
+                        onClick={() => handleViewDetails(restaurant)}
+                      >
+                        <img
+                          src={restaurant.logo}
+                          alt={restaurant.name}
+                          className="h-full w-full object-cover"
+                          onError={(e) => { e.target.src = PLACEHOLDER_40 }}
+                        />
+                      </div>
+                      <div className="min-w-0 flex-1" onClick={() => handleViewDetails(restaurant)}>
+                        <p className="truncate text-sm font-semibold text-slate-900">{restaurant.name}</p>
+                        <p className="text-xs text-slate-500">{restaurant.ownerName} • {formatPhone(restaurant.ownerPhone)}</p>
+                        <p className="mt-0.5 text-xs text-slate-500">{restaurant.zone}</p>
+                      </div>
+                      <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-1 text-[10px] font-semibold ${approvalStatusBadgeClass(restaurant.approvalStatus)}`}>
+                        {approvalStatusLabel(restaurant.approvalStatus)}
+                      </span>
+                    </div>
+                    <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-2">
+                      <span className="text-xs text-slate-500">Visible to users: {restaurant.isActive ? "Yes" : "No"}</span>
+                      <div className="flex items-center gap-1">
+                        <button onClick={() => handleViewDetails(restaurant)} className="rounded-lg p-1.5 text-blue-600 hover:bg-blue-50" title="View Details">
+                          <Eye className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => handleBanRestaurant(restaurant)}
+                          disabled={!canEdit}
+                          className={`rounded-lg p-1.5 ${!canEdit ? "opacity-50 text-slate-400" : (!restaurant.isActive ? "text-green-600 hover:bg-green-50" : "text-red-600 hover:bg-red-50")}`}
+                          title={!restaurant.isActive ? "Show to Users" : "Hide from Users"}
+                        >
+                          <ShieldX className="h-4 w-4" />
+                        </button>
+                        {canDelete && (
+                          <button onClick={() => handleDeleteRestaurant(restaurant)} className="rounded-lg p-1.5 text-red-600 hover:bg-red-50" title="Delete Restaurant">
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+              {filteredRestaurants.length > 0 && (
+                <InfiniteScrollSentinel
+                  onIntersect={loadMore}
+                  hasMore={hasMore}
+                  loading={loadingMore}
+                  total={totalRestaurants}
+                  loadedCount={restaurants.length}
+                />
+              )}
+            </div>
+          )}
+
           {/* Table */}
-          <div className="overflow-x-auto">
+          <div className="hidden overflow-x-auto md:block">
             {loading ? (
               <div className="flex items-center justify-center py-20">
                 <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
@@ -1582,11 +1703,11 @@ export default function RestaurantsList() {
                     </th>
                     <th
                       className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors"
-                      onClick={() => handleSort('rating')}
+                      onClick={() => handleSort('address')}
                     >
                       <div className="flex items-center gap-1">
-                        <span>Rating</span>
-                        <ArrowUpDown className={`w-3 h-3 ${sortConfig.key === 'rating' ? 'text-blue-600' : 'text-slate-400'}`} />
+                        <span>Address</span>
+                        <ArrowUpDown className={`w-3 h-3 ${sortConfig.key === 'address' ? 'text-blue-600' : 'text-slate-400'}`} />
                       </div>
                     </th>
                     <th
@@ -1643,7 +1764,19 @@ export default function RestaurantsList() {
                                 {restaurant.name}
                               </span>
                               <span className="text-xs text-slate-500">ID {formatRestaurantId(restaurant.originalData || restaurant)}</span>
-                              <span className="text-xs text-slate-500">{renderStars(restaurant.rating)}</span>
+                              <span className="mt-1">
+                                {restaurant.isVeg ? (
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-100 text-green-700 border border-green-200">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-green-500 mr-1"></span>
+                                    Pure Veg
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-100 text-red-700 border border-red-200">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-red-500 mr-1"></span>
+                                    Non Veg
+                                  </span>
+                                )}
+                              </span>
                             </div>
                           </div>
                         </td>
@@ -1656,22 +1789,34 @@ export default function RestaurantsList() {
                         <td className="px-6 py-4 whitespace-nowrap">
                           <span className="text-sm text-slate-700">{restaurant.zone}</span>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center gap-1.5">
-                            <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-                            <span className="text-sm font-semibold text-slate-900">
-                              {(Number(restaurant.rating) || 0).toFixed(1)}
-                            </span>
-                          </div>
+                        <td className="px-6 py-4 whitespace-normal max-w-xs">
+                          <span className="text-xs text-slate-600 line-clamp-2" title={restaurant.address}>
+                            {restaurant.address}
+                          </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex flex-col gap-1">
+                          <div className="flex flex-col gap-1.5">
                             <span className={`inline-flex w-fit items-center rounded-full px-2.5 py-1 text-xs font-semibold ${approvalStatusBadgeClass(restaurant.approvalStatus)}`}>
                               {approvalStatusLabel(restaurant.approvalStatus)}
                             </span>
                             <span className="text-[11px] text-slate-500">
                               Visible to Users: {restaurant.isActive ? "Yes" : "No"}
                             </span>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <span className="text-[11px] text-slate-500">Show w/o menu:</span>
+                              <button 
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleToggleNoMenuOverride(restaurant);
+                                }}
+                                disabled={!canEdit || togglingNoMenuId === String(restaurant._id || restaurant.id)}
+                                className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${!canEdit || togglingNoMenuId === String(restaurant._id || restaurant.id) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} ${restaurant.showRestaurantToUsersWithoutItems ? "bg-green-500" : "bg-slate-300"}`}
+                                title="Allow this restaurant to be visible to users even without active menu items"
+                              >
+                                <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${restaurant.showRestaurantToUsersWithoutItems ? "translate-x-3.5" : "translate-x-0.5"}`} />
+                              </button>
+                            </div>
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-center">
@@ -1712,6 +1857,17 @@ export default function RestaurantsList() {
               </table>
             )}
           </div>
+          {!loading && !error && filteredRestaurants.length > 0 && (
+            <div className="hidden md:block">
+              <InfiniteScrollSentinel
+                onIntersect={loadMore}
+                hasMore={hasMore}
+                loading={loadingMore}
+                total={totalRestaurants}
+                loadedCount={restaurants.length}
+              />
+            </div>
+          )}
         </div>
       </div>
 
@@ -1733,32 +1889,12 @@ export default function RestaurantsList() {
               </div>
               <div className="flex items-center gap-2">
                 {canEdit ? (
-                  !isEditingDetails ? (
-                    <button
-                      onClick={handleStartEditDetails}
-                      className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors"
-                    >
-                      Edit Details
-                    </button>
-                  ) : (
-                    <>
-                      <button
-                        onClick={handleCancelEditDetails}
-                        disabled={savingDetails}
-                        className="px-3 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-sm font-medium transition-colors disabled:opacity-60"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        onClick={handleSaveDetails}
-                        disabled={savingDetails}
-                        className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors disabled:opacity-60 flex items-center gap-2"
-                      >
-                        {savingDetails && <Loader2 className="w-4 h-4 animate-spin" />}
-                        {savingDetails ? "Saving..." : "Save Changes"}
-                      </button>
-                    </>
-                  )
+                  <button
+                    onClick={() => navigate(`/admin/food/restaurants/edit/${selectedRestaurant?.id || selectedRestaurant?._id}`)}
+                    className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors"
+                  >
+                    Edit Details
+                  </button>
                 ) : null}
                 <button
                   onClick={closeDetailsModal}

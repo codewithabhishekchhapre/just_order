@@ -7,6 +7,7 @@ import { API_ENDPOINTS } from "@food/api/config"
 import { toast } from "sonner"
 import { useCompanyName } from "@food/hooks/useCompanyName"
 import { Modal } from "@food/components/restaurant/Modal"
+import RestaurantPageShell from "@food/components/restaurant/RestaurantPageShell"
 
 const debugError = (...args) => {}
 
@@ -44,14 +45,14 @@ export default function ShareFeedback() {
   const emoji = LABELS[rating ?? 5]
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] flex flex-col">
-      {/* Header */}
-      <div className="bg-white dark:bg-[#111] border-b border-gray-100 dark:border-gray-800 px-4 py-4">
-        <h1 className="text-base font-bold text-gray-900 dark:text-white">Share Feedback</h1>
-        <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Help us improve your experience</p>
-      </div>
-
-      <div className="flex-1 max-w-lg mx-auto w-full px-4 py-8 flex flex-col">
+    <RestaurantPageShell
+      title="Share Feedback"
+      subtitle="Help us improve your experience"
+      onBack={goBack}
+      maxWidth="lg"
+      contentClassName="flex flex-col"
+    >
+      <div className="py-4 flex flex-col">
         {/* Emoji */}
         <div className="flex flex-col items-center mb-10">
           <motion.div
@@ -111,8 +112,7 @@ export default function ShareFeedback() {
         )}
       </div>
 
-      {/* CTA */}
-      <div className="bg-white dark:bg-[#111] border-t border-gray-100 dark:border-gray-800 px-4 py-4">
+      <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-800">
         <button
           onClick={handleContinue}
           disabled={rating === null || isSubmitting}
@@ -148,6 +148,6 @@ export default function ShareFeedback() {
           </button>
         </div>
       </Modal>
-    </div>
+    </RestaurantPageShell>
   )
 }

@@ -1,9 +1,9 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo, useRef } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation"
 import { motion, AnimatePresence } from "framer-motion"
 import Lenis from "lenis"
-import { 
+import {
   ArrowLeft,
   Search,
   Filter,
@@ -14,19 +14,19 @@ import BottomNavbar from "@food/components/restaurant/BottomNavbar"
 import MenuOverlay from "@food/components/restaurant/MenuOverlay"
 import { formatCurrency } from "@food/utils/currency"
 import { restaurantAPI } from "@food/api"
-import { flattenMenuItems, getMenuFromResponse } from "@food/utils/menuItems"
+import useInfiniteList from "@food/hooks/useInfiniteList"
+import InfiniteScrollSentinel from "@/shared/components/ui/InfiniteScrollSentinel"
+import RefreshButton from "@/shared/components/ui/RefreshButton"
 
 export default function AllFoodPage() {
   const navigate = useNavigate()
   const goBack = useRestaurantBackNavigation()
   const [searchParams] = useSearchParams()
   const [activeCategory, setActiveCategory] = useState("All")
-  const [searchQuery, setSearchQuery] = useState("")
   const [showMenu, setShowMenu] = useState(false)
   const [showFilterModal, setShowFilterModal] = useState(false)
   const [foodTypeFilter, setFoodTypeFilter] = useState("all")
   const [stockFilter, setStockFilter] = useState("all")
-  const [allFoods, setAllFoods] = useState([])
 
   // Lenis smooth scrolling
   useEffect(() => {
@@ -56,45 +56,6 @@ export default function AllFoodPage() {
     }
   }, [searchParams])
 
-  // Load foods and listen for updates
-  useEffect(() => {
-    let isMounted = true
-
-    const refreshFoods = async () => {
-      try {
-        const response = await restaurantAPI.getMenu()
-        const menu = getMenuFromResponse(response)
-        const foods = flattenMenuItems(menu)
-        if (isMounted) {
-          setAllFoods(foods)
-        }
-      } catch {
-        if (isMounted) {
-          setAllFoods([])
-        }
-      }
-    }
-
-    // Initial load
-    refreshFoods()
-
-    // Listen for food changes
-    window.addEventListener('foodsChanged', refreshFoods)
-    window.addEventListener('foodAdded', refreshFoods)
-    window.addEventListener('foodUpdated', refreshFoods)
-    window.addEventListener('foodDeleted', refreshFoods)
-    window.addEventListener('storage', refreshFoods)
-
-    return () => {
-      isMounted = false
-      window.removeEventListener('foodsChanged', refreshFoods)
-      window.removeEventListener('foodAdded', refreshFoods)
-      window.removeEventListener('foodUpdated', refreshFoods)
-      window.removeEventListener('foodDeleted', refreshFoods)
-      window.removeEventListener('storage', refreshFoods)
-    }
-  }, [])
-
   // Categories
   const categories = [
     "All",
@@ -109,8 +70,62 @@ export default function AllFoodPage() {
     "Japanese"
   ]
 
+  const listFilters = useMemo(
+    () => ({
+      category: activeCategory && activeCategory !== "All" ? activeCategory : undefined,
+    }),
+    [activeCategory]
+  )
+
+  const {
+    items: foodItems,
+    total,
+    hasMore,
+    loading,
+    loadingMore,
+    loadMore,
+    search: searchQuery,
+    setSearch: setSearchQuery,
+    refresh,
+  } = useInfiniteList(
+    async (params, { signal }) => {
+      const response = await restaurantAPI.getMenuItems(params, { signal })
+      return {
+        items: response?.data?.data?.items || [],
+        total: response?.data?.data?.total || 0,
+      }
+    },
+    {
+      pageSize: 20,
+      filters: listFilters,
+      cacheKey: "restaurant-menu-items",
+    }
+  )
+
+  // Listen for food changes and refresh the list
+  const refreshRef = useRef(refresh)
+  refreshRef.current = refresh
+
+  useEffect(() => {
+    const handleRefresh = () => refreshRef.current()
+
+    window.addEventListener('foodsChanged', handleRefresh)
+    window.addEventListener('foodAdded', handleRefresh)
+    window.addEventListener('foodUpdated', handleRefresh)
+    window.addEventListener('foodDeleted', handleRefresh)
+    window.addEventListener('storage', handleRefresh)
+
+    return () => {
+      window.removeEventListener('foodsChanged', handleRefresh)
+      window.removeEventListener('foodAdded', handleRefresh)
+      window.removeEventListener('foodUpdated', handleRefresh)
+      window.removeEventListener('foodDeleted', handleRefresh)
+      window.removeEventListener('storage', handleRefresh)
+    }
+  }, [])
+
   // Transform foods for display (convert prices if needed, ensure all fields)
-  const transformedFoods = allFoods.map(food => ({
+  const transformedFoods = foodItems.map(food => ({
     ...food,
     // Ensure price is in correct format (already stored, but ensure consistency)
     price: food.price || 0,
@@ -197,6 +212,7 @@ export default function AllFoodPage() {
             >
               <Filter className="w-5 h-5 text-[#ff8100]" />
             </motion.button>
+            <RefreshButton onClick={refresh} loading={loading} />
           </div>
         </div>
       </div>
@@ -304,6 +320,13 @@ export default function AllFoodPage() {
             </div>
           </motion.div>
         )))}
+        <InfiniteScrollSentinel
+          onIntersect={loadMore}
+          hasMore={hasMore}
+          loading={loadingMore}
+          total={total}
+          loadedCount={filteredFoods.length}
+        />
       </div>
 
       {/* Floating Action Button - Add Food */}

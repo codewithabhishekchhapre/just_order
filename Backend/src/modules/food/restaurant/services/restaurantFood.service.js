@@ -15,6 +15,7 @@ import {
     categoryAllowsFoodType,
     GLOBAL_CATEGORY_FILTER
 } from '../../shared/categoryWorkflow.js';
+import { applyAutoReactivateToFoodUpdate } from '../../shared/menuItemCategoryWorkflow.js';
 
 const toStr = (v) => (v != null ? String(v).trim() : '');
 const APPROVED_CATEGORY_FILTER = [
@@ -266,6 +267,7 @@ export async function updateRestaurantFood(restaurantId, foodId, body = {}) {
     if (!existing) return null;
 
     const update = {};
+    let didAutoReactivate = false;
 
     if (body.name !== undefined) {
         const name = toStr(body.name);
@@ -284,7 +286,6 @@ export async function updateRestaurantFood(restaurantId, foodId, body = {}) {
         update.images = img ? [img] : [];
     }
     Object.assign(update, getUpdatedFoodPricing(existing, body));
-    if (body.isAvailable !== undefined) update.isAvailable = body.isAvailable !== false;
     if (body.preparationTime !== undefined) update.preparationTime = toStr(body.preparationTime);
 
     const targetFoodType = body.foodType !== undefined ? normalizeFoodType(body.foodType) : normalizeFoodType(existing.foodType);
@@ -302,12 +303,51 @@ export async function updateRestaurantFood(restaurantId, foodId, body = {}) {
         });
         update.categoryId = categoryObjectId;
         update.categoryName = categoryName || '';
+        didAutoReactivate = applyAutoReactivateToFoodUpdate(existing, update, body);
     }
 
-    // Availability toggles are operational (on/off, in-stock/out-of-stock) and don't
-    // change the approved content, so they shouldn't force the item back into review.
-    const shouldResubmitForApproval = Object.keys(update).some((key) => key !== 'isAvailable');
+    let finalIsAvailable;
+    if (didAutoReactivate) {
+        finalIsAvailable = true;
+    } else if (body.isAvailable !== undefined) {
+        finalIsAvailable = body.isAvailable !== false;
+    } else if (update.isAvailable !== undefined) {
+        finalIsAvailable = update.isAvailable !== false;
+    } else {
+        finalIsAvailable = existing.isAvailable !== false;
+    }
 
+    const finalCategoryId = update.categoryId !== undefined ? update.categoryId : existing.categoryId;
+    if (!didAutoReactivate && body.isAvailable !== undefined && finalIsAvailable === true) {
+        if (!finalCategoryId) {
+            throw new ValidationError('This menu item cannot be enabled because it is not assigned to a category. Please assign it to a category first.');
+        }
+    }
+    if (body.isAvailable !== undefined || didAutoReactivate) {
+        update.isAvailable = finalIsAvailable;
+    }
+
+    // Changes to non-critical details (preparation time, description, availability, etc.)
+    // should not force the item back into review.
+    let shouldResubmitForApproval = false;
+    const criticalFields = ['name', 'image', 'images', 'price', 'otherPrice', 'variants', 'categoryId', 'categoryName', 'foodType'];
+    for (const key of criticalFields) {
+        if (update[key] !== undefined) {
+            if (key === 'categoryId') {
+                if (String(existing.categoryId || '') !== String(update.categoryId || '')) {
+                    shouldResubmitForApproval = true; break;
+                }
+            } else if (key === 'variants' || key === 'images') {
+                if (JSON.stringify(existing[key] || []) !== JSON.stringify(update[key] || [])) {
+                    shouldResubmitForApproval = true; break;
+                }
+            } else {
+                if (existing[key] !== update[key]) {
+                    shouldResubmitForApproval = true; break;
+                }
+            }
+        }
+    }
     if (shouldResubmitForApproval) {
         // Snapshot the pre-edit values whenever the item is resubmitted, whether it was
         // previously approved or rejected, so the admin can always see what the
@@ -352,6 +392,15 @@ export async function updateRestaurantFood(restaurantId, foodId, body = {}) {
             });
         } catch (e) {
             console.error('Failed to notify admins of resubmitted food approval request:', e);
+        }
+    }
+
+    if (updated && didAutoReactivate) {
+        try {
+            const { invalidatePublicRestaurantMenuCache } = await import('./restaurantMenu.service.js');
+            await invalidatePublicRestaurantMenuCache();
+        } catch (e) {
+            console.error('Failed to invalidate menu cache after food category reassignment:', e);
         }
     }
 

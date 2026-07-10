@@ -27,7 +27,7 @@ const SectionCard = ({ title, children, id }) => (
   </div>
 );
 
-const InputField = ({ label, name, value, onChange, placeholder, info }) => {
+const InputField = ({ label, name, value, onChange, placeholder, info, maxLength }) => {
   const inputClass = "w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm text-gray-800 bg-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-colors shadow-sm";
   const labelClass = "block text-xs font-semibold text-gray-500 mb-1.5";
 
@@ -41,6 +41,7 @@ const InputField = ({ label, name, value, onChange, placeholder, info }) => {
           value={value || ''}
           onChange={(e) => onChange(name, e.target.value)}
           placeholder={placeholder}
+          maxLength={maxLength}
           className={cn(inputClass, name === 'themeColor' && "pl-10")}
         />
         {name === 'themeColor' && (
@@ -196,17 +197,30 @@ const GlobalApplicationSettings = () => {
 
   const handleUpdate = async () => {
     try {
-      if (!formData.companyName.trim()) {
-        toast.error("Application name is required");
+      if (!formData.companyName?.trim() || formData.companyName.trim().length < 2 || formData.companyName.trim().length > 20) {
+        toast.error("Application name must be between 2 and 20 characters");
         return;
       }
+      if (!formData.email?.trim() || formData.email.trim().length < 5 || formData.email.trim().length > 255 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+        toast.error("A valid Support Email is required (5-255 characters)");
+        return;
+      }
+      if (!formData.phoneNumber?.trim() || !/^\d{10,15}$/.test(formData.phoneNumber.replace(/\D/g, ''))) {
+        toast.error("A valid Support Phone is required (10-15 digits)");
+        return;
+      }
+      if (!formData.address?.trim() || formData.address.trim().length < 5 || formData.address.trim().length > 500) {
+        toast.error("Office Address must be between 5 and 500 characters");
+        return;
+      }
+      
       setSaving(true);
       const dataToSend = {
         companyName: formData.companyName.trim(),
         themeColor: formData.themeColor,
-        email: formData.email,
-        phoneNumber: formData.phoneNumber,
-        address: formData.address,
+        email: formData.email.trim(),
+        phoneNumber: formData.phoneNumber.trim(),
+        address: formData.address.trim(),
         sellerLoginBannerUrl: sellerLoginBannerPreview ? undefined : "",
         sellerLoginBannerActive: sellerLoginBannerActive,
         restaurantLoginBannerUrl: restaurantLoginBannerPreview ? undefined : "",
@@ -281,11 +295,11 @@ const GlobalApplicationSettings = () => {
         {/* Basic Identification */}
         <SectionCard title="Application Identification">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-8">
-            <InputField label="App Name" name="companyName" value={formData.companyName} onChange={handleChange} placeholder="DukaanWallah" />
-            <InputField label="Admin Theme Color" name="themeColor" value={formData.themeColor} onChange={handleChange} placeholder="#0a0a0a" />
-            <InputField label="Support Email" name="email" value={formData.email} onChange={handleChange} placeholder="[EMAIL_ADDRESS]" />
-            <InputField label="Support Phone" name="phoneNumber" value={formData.phoneNumber} onChange={handleChange} placeholder="0000000000" />
-            <InputField label="Office Address" name="address" value={formData.address} onChange={handleChange} placeholder="Main Street, NY" />
+            <InputField label="App Name" name="companyName" value={formData.companyName} onChange={handleChange} placeholder="DukaanWallah" maxLength={20} />
+            <InputField label="Admin Theme Color" name="themeColor" value={formData.themeColor} onChange={handleChange} placeholder="#0a0a0a" maxLength={7} />
+            <InputField label="Support Email" name="email" value={formData.email} onChange={handleChange} placeholder="[EMAIL_ADDRESS]" maxLength={255} />
+            <InputField label="Support Phone" name="phoneNumber" value={formData.phoneNumber} onChange={handleChange} placeholder="0000000000" maxLength={15} />
+            <InputField label="Office Address" name="address" value={formData.address} onChange={handleChange} placeholder="Main Street, NY" maxLength={500} />
           </div>
         </SectionCard>
 

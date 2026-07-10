@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom"
 import { Bell, RefreshCw, X, ShoppingBag, Megaphone, Loader2, Trash2 } from "lucide-react"
 import { restaurantAPI } from "@food/api"
 import useNotificationInbox from "@food/hooks/useNotificationInbox"
+import RestaurantPageShell from "@food/components/restaurant/RestaurantPageShell"
 
 const debugLog  = (...args) => {}
 const debugError = (...args) => {}
@@ -106,18 +107,12 @@ export default function Notifications() {
   const isLoading = loading || broadcastLoading
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a]">
-      {/* Page header */}
-      <div className="bg-white dark:bg-[#111] border-b border-gray-100 dark:border-gray-800 px-4 py-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-base font-bold text-gray-900 dark:text-white">Notifications</h1>
-          {!isLoading && (
-            <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
-              {notifications.length > 0 ? `${notifications.length} notification${notifications.length !== 1 ? "s" : ""}` : "All caught up"}
-            </p>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
+    <RestaurantPageShell
+      title="Notifications"
+      subtitle={!isLoading ? (notifications.length > 0 ? `${notifications.length} notification${notifications.length !== 1 ? "s" : ""}` : "All caught up") : undefined}
+      maxWidth="2xl"
+      actions={(
+        <>
           {notifications.length > 0 && (
             <button
               onClick={clearAll}
@@ -134,10 +129,9 @@ export default function Notifications() {
           >
             <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`} strokeWidth={2} />
           </button>
-        </div>
-      </div>
-
-      <div className="max-w-2xl mx-auto px-4 py-4">
+        </>
+      )}
+    >
         {isLoading ? (
           <div className="flex flex-col items-center justify-center py-20">
             <Loader2 className="w-8 h-8 text-gray-300 animate-spin mb-3" />
@@ -220,7 +214,6 @@ export default function Notifications() {
             })}
           </div>
         )}
-      </div>
-    </div>
+    </RestaurantPageShell>
   )
 }

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useLocation } from "react-router-dom";
 import { adminAPI, uploadAPI } from "@/services/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,6 +13,7 @@ import {
 } from "@/components/ui/card";
 import { toast } from "sonner";
 import { User, Mail, Phone, Save, Loader2, Upload, X, Pencil, Eye, EyeOff } from "lucide-react";
+import { useAuth } from "@core/context/AuthContext";
 
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -19,6 +21,13 @@ const debugError = (...args) => {}
 
 
 export default function AdminProfile() {
+  const location = useLocation();
+  const isGlobalAdminSettings = location.pathname.startsWith("/admin/global-settings");
+  const pageTitle = isGlobalAdminSettings ? "Admin Settings" : "Profile";
+  const pageDescription = isGlobalAdminSettings
+    ? "Manage your admin account, profile, and password"
+    : "Manage your admin profile information";
+
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -27,6 +36,7 @@ export default function AdminProfile() {
   const [selectedFile, setSelectedFile] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const fileInputRef = useRef(null);
+  const { logout } = useAuth();
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -158,6 +168,19 @@ export default function AdminProfile() {
     e.preventDefault();
     
     try {
+      if (!formData.name?.trim() || formData.name.trim().length < 2 || formData.name.trim().length > 100) {
+        toast.error("Full Name must be between 2 and 100 characters");
+        return;
+      }
+      if (!formData.email?.trim() || formData.email.trim().length < 5 || formData.email.trim().length > 255 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+        toast.error("A valid Email Address is required (5-255 characters)");
+        return;
+      }
+      if (formData.phone && !/^\d{10,15}$/.test(formData.phone.replace(/\D/g, ''))) {
+        toast.error("A valid Phone Number is required (10-15 digits)");
+        return;
+      }
+
       const currentPassword = String(passwordData.currentPassword || "").trim();
       const newPassword = String(passwordData.newPassword || "").trim();
       const confirmPassword = String(passwordData.confirmPassword || "").trim();
@@ -169,8 +192,8 @@ export default function AdminProfile() {
           toast.error("Please fill Old, New, and Confirm password fields.");
           return;
         }
-        if (newPassword.length < 6) {
-          toast.error("New password must be at least 6 characters.");
+        if (newPassword.length < 6 || newPassword.length > 50) {
+          toast.error("New password must be between 6 and 50 characters.");
           return;
         }
         if (newPassword !== confirmPassword) {
@@ -240,8 +263,11 @@ export default function AdminProfile() {
           try {
             await adminAPI.changePassword(currentPassword, newPassword);
             resetPasswordFields();
-            toast.success("Profile and password updated successfully");
+            toast.success("You have changed the password. You need to login again with the new password.");
             setIsEditMode(false);
+            setTimeout(() => {
+              logout();
+            }, 2000);
           } catch (passwordError) {
             debugError("Error updating admin password:", passwordError);
             toast.error(
@@ -339,14 +365,14 @@ export default function AdminProfile() {
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-neutral-900">Profile</h1>
-        <p className="text-neutral-600 mt-1">Manage your admin profile information</p>
+        <h1 className="text-3xl font-bold text-neutral-900">{pageTitle}</h1>
+        <p className="text-neutral-600 mt-1">{pageDescription}</p>
       </div>
 
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between gap-4">
-            <div>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="text-left">
               <CardTitle>Profile Information</CardTitle>
               <CardDescription>
                 {isEditMode ? "Update your profile details below" : "View your admin profile details"}
@@ -356,19 +382,19 @@ export default function AdminProfile() {
               <Button
                 type="button"
                 onClick={handleStartEditing}
-                className="bg-primary text-white hover:bg-primary/90"
+                className="hidden sm:flex bg-primary text-white hover:bg-primary/90 w-full sm:w-auto"
               >
                 <Pencil className="w-4 h-4 mr-2" />
                 Edit
               </Button>
             ) : (
-              <div className="flex items-center gap-3">
+              <div className="hidden sm:flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
                 <Button
                   type="button"
                   variant="outline"
                   onClick={handleCancelEditing}
                   disabled={saving || uploading}
-                  className="h-10 px-6"
+                  className="h-10 px-6 w-full sm:w-auto"
                 >
                   Cancel
                 </Button>
@@ -376,7 +402,7 @@ export default function AdminProfile() {
                   type="submit"
                   form="admin-profile-form"
                   disabled={saving || uploading}
-                  className="bg-primary text-white hover:bg-primary/90 h-10 px-6"
+                  className="bg-primary text-white hover:bg-primary/90 h-10 px-6 w-full sm:w-auto"
                 >
                   {uploading ? (
                     <>
@@ -417,6 +443,7 @@ export default function AdminProfile() {
                   placeholder="Enter your full name"
                   required
                   disabled={!isEditMode || saving || uploading}
+                  maxLength={100}
                   className={`h-11 ${!isEditMode ? "bg-neutral-50 cursor-not-allowed" : ""}`}
                 />
               </div>
@@ -434,6 +461,7 @@ export default function AdminProfile() {
                   placeholder="Enter your email address"
                   required
                   disabled={!isEditMode || saving || uploading}
+                  maxLength={255}
                   className={`h-11 ${!isEditMode ? "bg-neutral-50 cursor-not-allowed" : ""}`}
                 />
                 <p className="text-xs text-neutral-500">Email can be changed</p>
@@ -451,6 +479,7 @@ export default function AdminProfile() {
                   onChange={(e) => handleInputChange("phone", e.target.value)}
                   placeholder="Enter phone number (optional)"
                   disabled={!isEditMode || saving || uploading}
+                  maxLength={15}
                   className={`h-11 ${!isEditMode ? "bg-neutral-50 cursor-not-allowed" : ""}`}
                 />
               </div>
@@ -486,7 +515,7 @@ export default function AdminProfile() {
                         <button
                           type="button"
                           onClick={handleRemoveImage}
-                          className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors shadow-lg z-10"
+                          className="absolute top-2 right-2 w-8 h-8 flex items-center justify-center bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors shadow-lg z-10"
                           title="Remove image"
                         >
                           <X className="w-4 h-4" />
@@ -664,6 +693,55 @@ export default function AdminProfile() {
                     {new Date(profile.createdAt).toLocaleDateString()}
                   </span>
                 </div>
+              )}
+            </div>
+
+            {/* Mobile Actions */}
+            <div className="pt-6 sm:hidden flex flex-col gap-3">
+              {!isEditMode ? (
+                <Button
+                  type="button"
+                  onClick={handleStartEditing}
+                  className="bg-primary text-white hover:bg-primary/90 w-full"
+                >
+                  <Pencil className="w-4 h-4 mr-2" />
+                  Edit
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    type="submit"
+                    form="admin-profile-form"
+                    disabled={saving || uploading}
+                    className="bg-primary text-white hover:bg-primary/90 h-10 w-full"
+                  >
+                    {uploading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Uploading...
+                      </>
+                    ) : saving ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-4 h-4 mr-2" />
+                        Save Changes
+                      </>
+                    )}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleCancelEditing}
+                    disabled={saving || uploading}
+                    className="h-10 w-full"
+                  >
+                    Cancel
+                  </Button>
+                </>
               )}
             </div>
 
