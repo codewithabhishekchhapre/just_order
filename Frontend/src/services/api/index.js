@@ -1226,34 +1226,54 @@ export const restaurantAPI = {
   getPublicOffers: () => apiClient.get("/food/restaurant/offers"),
   /** Backward-compat helper used by Cart: returns coupons array for an item by adapting public offers */
   getCouponsByItemIdPublic: (restaurantId, _itemId) =>
-    apiClient.get("/food/restaurant/offers", { params: { restaurantId } }).then((res) => {
+    apiClient.get("/food/restaurant/offers", {
+      params: { restaurantId, _ts: Date.now() },
+    }).then((res) => {
       const list = res?.data?.data?.allOffers || res?.data?.allOffers || [];
       const now = Date.now();
+      const cartRestaurantId = String(restaurantId || "").trim();
       const coupons = list
         .filter((o) => {
-          // Guard: respect selected restaurant scope
+          if (o?.showInCart === false) return false;
+          if (o?.endDate && new Date(o.endDate).getTime() <= now) return false;
+          if (o?.startDate && new Date(o.startDate).getTime() > now) return false;
+
+          // Guard: respect selected restaurant scope (match Mongo _id or public REST id)
           if (String(o?.restaurantScope) === "selected") {
-            if (!restaurantId) return false;
-            return String(o.restaurantId || "") === String(restaurantId || "");
+            if (!cartRestaurantId) return false;
+            const candidates = [
+              o.restaurantId,
+              o.restaurantMongoId,
+              o.restaurantPublicId,
+            ]
+              .map((id) => String(id || "").trim())
+              .filter(Boolean);
+            return candidates.includes(cartRestaurantId);
           }
           return true;
         })
         .map((o) => {
           const isPct = o.discountType === "percentage";
+          const discountValue = Number(o.discountValue) || 0;
           return {
             couponCode: o.couponCode,
             discountType: o.discountType,
-            discountPercentage: isPct ? Number(o.discountValue) || 0 : 0,
-            originalPrice: isPct ? 0 : Number(o.discountValue) || 0,
+            discountPercentage: isPct ? discountValue : 0,
+            originalPrice: isPct ? 0 : discountValue,
             discountedPrice: 0,
+            discountValue,
             minOrderValue: Number(o.minOrderValue || 0),
             minOrder: Number(o.minOrderValue || 0),
             maxDiscount: o.maxDiscount != null ? Number(o.maxDiscount) : null,
             customerGroup: o.customerScope || "all",
-            isGlobalCoupon: true,
+            isGlobalCoupon: String(o?.restaurantScope || "") !== "selected",
             freeDelivery: Boolean(o.freeDelivery),
+            startDate: o.startDate || null,
             endDate: o.endDate || null,
             showInCart: o.showInCart !== false,
+            restaurantId: o.restaurantId || null,
+            restaurantMongoId: o.restaurantMongoId || null,
+            restaurantPublicId: o.restaurantPublicId || null,
             _ts: now,
           };
         });

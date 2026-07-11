@@ -890,22 +890,28 @@ export default function Cart() {
             coupons.forEach(coupon => {
               if (!uniqueCouponCodes.has(coupon.couponCode)) {
                 uniqueCouponCodes.add(coupon.couponCode)
-                // Convert backend coupon format to frontend format
+                const isPct = coupon.discountType === "percentage"
+                const discountValue = Number(coupon.discountValue ?? coupon.discountPercentage ?? coupon.originalPrice ?? 0) || 0
+                const fixedDiscount = isPct
+                  ? 0
+                  : Math.max(0, Number(coupon.originalPrice || discountValue || 0) - Number(coupon.discountedPrice || 0))
                 allCoupons.push({
                   code: coupon.couponCode,
-                  discount: coupon.originalPrice - coupon.discountedPrice,
-                  discountPercentage: coupon.discountPercentage,
-                  discountDisplay: coupon.discountType === "percentage"
-                    ? `${coupon.discountPercentage}% OFF`
-                    : `${RUPEE_SYMBOL}${Math.max(0, (coupon.originalPrice || 0) - (coupon.discountedPrice || 0))} OFF`,
-                  minOrder: coupon.minOrderValue || 0,
-                  description: coupon.discountType === "percentage"
-                    ? `${coupon.discountPercentage}% OFF with '${coupon.couponCode}'`
-                    : `Save ${RUPEE_SYMBOL}${Math.max(0, (coupon.originalPrice || 0) - (coupon.discountedPrice || 0))} with '${coupon.couponCode}'`,
+                  discount: isPct ? discountValue : fixedDiscount,
+                  discountPercentage: isPct ? (Number(coupon.discountPercentage) || discountValue) : 0,
+                  discountDisplay: isPct
+                    ? `${Number(coupon.discountPercentage) || discountValue}% OFF`
+                    : `${RUPEE_SYMBOL}${fixedDiscount} OFF`,
+                  minOrder: coupon.minOrderValue || coupon.minOrder || 0,
+                  description: isPct
+                    ? `${Number(coupon.discountPercentage) || discountValue}% OFF with '${coupon.couponCode}'`
+                    : `Save ${RUPEE_SYMBOL}${fixedDiscount} with '${coupon.couponCode}'`,
                   originalPrice: coupon.originalPrice,
                   discountedPrice: coupon.discountedPrice,
                   customerGroup: coupon.customerGroup || "all",
                   isGlobalCoupon: Boolean(coupon.isGlobalCoupon),
+                  freeDelivery: Boolean(coupon.freeDelivery),
+                  maxDiscount: coupon.maxDiscount != null ? Number(coupon.maxDiscount) : null,
                   itemId: couponItemId,
                   itemName: cartItem.name,
                 })

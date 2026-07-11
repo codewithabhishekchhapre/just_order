@@ -2523,9 +2523,11 @@ export const listPublicOffers = async (query = {}) => {
     let restaurantCouponsMapped = [];
     try {
         const { RestaurantCoupon } = await import('../../admin/models/restaurantCoupon.model.js');
+        // RestaurantCoupon uses approvalStatus + startDate/endDate (not seller-coupon status/expiryDate).
         const couponFilter = {
-            status: 'Approved',
-            expiryDate: { $gt: now }
+            approvalStatus: 'approved',
+            startDate: { $lte: now },
+            endDate: { $gt: now },
         };
 
         if (query?.restaurantId) {
@@ -2544,15 +2546,23 @@ export const listPublicOffers = async (query = {}) => {
 
         const dbCoupons = await RestaurantCoupon.find(couponFilter).sort({ createdAt: -1 }).lean();
 
-        // Resolve custom restaurantIds for mapped objects so frontend comparisons match
+        // Resolve custom restaurantIds so cart can match either Mongo _id or public REST###### id
         const restIds = [...new Set(dbCoupons.map(c => String(c.restaurantId)))];
         const restDocs = await FoodRestaurant.find({ _id: { $in: restIds } }).select('_id restaurantId').lean();
         const customIdMap = new Map(restDocs.map(r => [String(r._id), r.restaurantId]));
 
-        restaurantCouponsMapped = dbCoupons.map((c) => {
+        restaurantCouponsMapped = dbCoupons
+            .filter((c) => {
+                const usageLimit = Number(c.usageLimit);
+                if (!Number.isFinite(usageLimit) || usageLimit <= 0) return true;
+                return Number(c.usedCount || 0) < usageLimit;
+            })
+            .map((c) => {
             const title = c.discountType === 'percentage'
                 ? `${Number(c.discountValue) || 0}% OFF`
                 : `Flat ₹${Number(c.discountValue) || 0} OFF`;
+            const mongoRestaurantId = String(c.restaurantId);
+            const publicRestaurantId = customIdMap.get(mongoRestaurantId) || null;
 
             return {
                 id: String(c._id),
@@ -2561,16 +2571,20 @@ export const listPublicOffers = async (query = {}) => {
                 title,
                 discountType: c.discountType,
                 discountValue: c.discountValue,
-                maxDiscount: null,
+                maxDiscount: c.maxDiscount != null ? Number(c.maxDiscount) : null,
                 customerScope: 'all',
                 restaurantScope: 'selected',
-                restaurantId: customIdMap.get(String(c.restaurantId)) || String(c.restaurantId),
+                // Prefer Mongo _id so cart restaurantData._id matching works; also expose public id.
+                restaurantId: mongoRestaurantId,
+                restaurantMongoId: mongoRestaurantId,
+                restaurantPublicId: publicRestaurantId,
                 restaurantName: c.restaurantName || 'Selected Restaurant',
                 restaurantSlug: undefined,
                 restaurantImage: null,
                 deliveryTime: null,
                 restaurantRating: 0,
-                endDate: c.expiryDate || null,
+                startDate: c.startDate || null,
+                endDate: c.endDate || null,
                 showInCart: true,
                 minOrderValue: c.minOrderAmount ?? 0,
                 usageLimit: c.usageLimit ?? null,

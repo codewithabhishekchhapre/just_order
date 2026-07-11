@@ -1832,19 +1832,26 @@ async function computeCouponDiscount({ couponCode, subtotal, restaurantId, userI
     const isIdValid = mongoose.Types.ObjectId.isValid(resolvedRestaurantId);
     const restCoupon = isIdValid ? await RestaurantCoupon.findOne({
       couponCode: codeRaw,
-      status: 'Approved',
+      approvalStatus: 'approved',
       restaurantId: new mongoose.Types.ObjectId(resolvedRestaurantId)
     }).lean() : null;
 
     if (!restCoupon) return { discount: 0, appliedCoupon: null, couponCode: codeRaw, freeDelivery: false };
 
-    const endOk = !restCoupon.expiryDate || now < new Date(restCoupon.expiryDate);
+    const startOk = !restCoupon.startDate || now >= new Date(restCoupon.startDate);
+    const endOk = !restCoupon.endDate || now < new Date(restCoupon.endDate);
     const minOk = subtotal >= (Number(restCoupon.minOrderAmount) || 0);
     const usageOk = !(Number(restCoupon.usageLimit) > 0 && Number(restCoupon.usedCount || 0) >= Number(restCoupon.usageLimit));
-    if (!(endOk && minOk && usageOk)) return { discount: 0, appliedCoupon: null, couponCode: codeRaw, freeDelivery: false };
+
+    if (!(startOk && endOk && minOk && usageOk)) {
+      return { discount: 0, appliedCoupon: null, couponCode: codeRaw, freeDelivery: false };
+    }
 
     const discount = restCoupon.discountType === "percentage"
-      ? Math.max(0, Math.min(subtotal, Math.floor(subtotal * (Number(restCoupon.discountValue) / 100))))
+      ? Math.max(0, Math.min(subtotal, Math.floor(Math.min(
+          subtotal * (Number(restCoupon.discountValue) / 100),
+          Number(restCoupon.maxDiscount) > 0 ? Number(restCoupon.maxDiscount) : Infinity,
+        ))))
       : Math.max(0, Math.min(subtotal, Math.floor(Number(restCoupon.discountValue) || 0)));
     const freeDelivery = Boolean(restCoupon.freeDelivery);
     return { discount, appliedCoupon: { code: codeRaw, discount, freeDelivery }, couponCode: codeRaw, freeDelivery };

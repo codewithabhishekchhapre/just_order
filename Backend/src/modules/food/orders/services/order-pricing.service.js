@@ -282,15 +282,22 @@ export async function calculateOrderPricing(userId, dto) {
       }
     } else {
       const { RestaurantCoupon } = await import('../../admin/models/restaurantCoupon.model.js');
-      const isIdValid = mongoose.Types.ObjectId.isValid(dto.restaurantId);
-      const restCoupon = isIdValid ? await RestaurantCoupon.findOne({
+      let resolvedRestaurantId = dto.restaurantId;
+      if (resolvedRestaurantId && !mongoose.Types.ObjectId.isValid(resolvedRestaurantId)) {
+        const { FoodRestaurant } = await import('../../restaurant/models/restaurant.model.js');
+        const rest = await FoodRestaurant.findOne({ restaurantId: resolvedRestaurantId }).select('_id').lean();
+        if (rest) resolvedRestaurantId = rest._id;
+      }
+      const resolvedIdValid = mongoose.Types.ObjectId.isValid(resolvedRestaurantId);
+      const restCoupon = resolvedIdValid ? await RestaurantCoupon.findOne({
         couponCode: codeRaw,
-        status: 'Approved',
-        restaurantId: new mongoose.Types.ObjectId(dto.restaurantId)
+        approvalStatus: 'approved',
+        restaurantId: new mongoose.Types.ObjectId(resolvedRestaurantId)
       }).lean() : null;
 
       if (restCoupon) {
-        const endOk = !restCoupon.expiryDate || now < new Date(restCoupon.expiryDate);
+        const startOk = !restCoupon.startDate || now >= new Date(restCoupon.startDate);
+        const endOk = !restCoupon.endDate || now < new Date(restCoupon.endDate);
         const minOk = subtotal >= (Number(restCoupon.minOrderAmount) || 0);
         let usageOk = true;
         if (
@@ -300,12 +307,15 @@ export async function calculateOrderPricing(userId, dto) {
           usageOk = false;
         }
 
-        const allowed = endOk && minOk && usageOk;
+        const allowed = startOk && endOk && minOk && usageOk;
 
         if (allowed) {
           if (restCoupon.discountType === "percentage") {
             const raw = subtotal * (Number(restCoupon.discountValue) / 100);
-            discount = Math.max(0, Math.min(subtotal, Math.floor(raw)));
+            const capped = Number(restCoupon.maxDiscount) > 0
+              ? Math.min(raw, Number(restCoupon.maxDiscount))
+              : raw;
+            discount = Math.max(0, Math.min(subtotal, Math.floor(capped)));
           } else {
             discount = Math.max(
               0,
