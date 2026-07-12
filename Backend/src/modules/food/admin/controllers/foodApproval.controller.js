@@ -2,7 +2,9 @@ import { sendResponse, sendError } from '../../../../utils/response.js';
 import {
     listPendingFoodApprovals,
     approveFoodItem,
-    rejectFoodItem
+    rejectFoodItem,
+    approveRestaurantUpdate,
+    rejectRestaurantUpdate
 } from '../services/foodApproval.service.js';
 import { resolveActionPerformerSnapshot } from '../../../../core/utils/performer.js';
 
@@ -32,6 +34,28 @@ export async function rejectFoodItemController(req, res, next) {
         const updated = await rejectFoodItem(req.params.id, req.body?.reason, performer);
         if (!updated) return sendError(res, 404, 'Food item not found or not pending');
         return sendResponse(res, 200, 'Food item rejected successfully', { food: updated });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function approveRestaurantUpdateController(req, res, next) {
+    try {
+        const performer = await resolveActionPerformerSnapshot(req.user);
+        const updated = await approveRestaurantUpdate(req.params.id, performer);
+        if (!updated) return sendError(res, 404, 'Restaurant update not found or not pending');
+        return sendResponse(res, 200, 'Restaurant profile update approved successfully', { restaurant: updated });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function rejectRestaurantUpdateController(req, res, next) {
+    try {
+        const performer = await resolveActionPerformerSnapshot(req.user);
+        const updated = await rejectRestaurantUpdate(req.params.id, req.body?.reason, performer);
+        if (!updated) return sendError(res, 404, 'Restaurant update not found or not pending');
+        return sendResponse(res, 200, 'Restaurant profile update rejected successfully', { restaurant: updated });
     } catch (error) {
         next(error);
     }

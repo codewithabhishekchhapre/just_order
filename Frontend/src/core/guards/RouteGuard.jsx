@@ -158,6 +158,17 @@ function detectWrongPortal(pathname, allowedModule) {
  */
 export function AuthPageGuard({ children, module, home }) {
   if (isModuleAuthenticated(module)) {
+    if (module === "restaurant") {
+      try {
+        const raw = localStorage.getItem("restaurant_user")
+        const user = raw ? JSON.parse(raw) : null
+        if (String(user?.status || "").toLowerCase() === "pending") {
+          return <Navigate to="/food/restaurant/pending-verification" replace />
+        }
+      } catch {
+        // fall through to home
+      }
+    }
     return <Navigate to={home} replace />
   }
   return <>{children}</>

@@ -72,6 +72,142 @@ const formatRestaurantId = (restaurant) => {
   return `REST${lastDigits}`
 }
 
+const IMAGE_DIFF_FIELDS = new Set(["profileImage", "panImage", "gstImage", "fssaiImage", "menuImages", "upiQrImage"])
+
+const formatDiffValue = (value) => {
+  if (value == null || value === "") return "—"
+  if (typeof value === "boolean") return value ? "Yes" : "No"
+  if (Array.isArray(value)) {
+    const items = value
+      .map((item) => (typeof item === "string" ? item : item?.url || String(item || "")))
+      .filter(Boolean)
+    return items.length ? items.join(", ") : "—"
+  }
+  if (typeof value === "object") {
+    if (value.url) return value.url
+    if (value._id) return String(value._id)
+  }
+  return String(value)
+}
+
+const RestaurantChangesPanel = ({ restaurant }) => {
+  const changedFields = Array.isArray(restaurant?.outletChangedFields) && restaurant.outletChangedFields.length
+    ? restaurant.outletChangedFields
+    : (Array.isArray(restaurant?.changedFields) ? restaurant.changedFields : [])
+  const previous = restaurant?.previousSubmission
+  const isResubmission = Boolean(restaurant?.isResubmission || previous)
+  const isOutletUpdate = Boolean(restaurant?.isOutletUpdate || restaurant?.requestType === "outlet_update")
+
+  if (!isResubmission && !isOutletUpdate && !changedFields.length) return null
+
+  return (
+    <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-4">
+      <div>
+        <p className="text-xs font-bold uppercase tracking-wide text-amber-800">
+          {isOutletUpdate
+            ? "Outlet info update request"
+            : isResubmission
+            ? "Restaurant resubmitted with updates"
+            : "Pending changes"}
+        </p>
+        <p className="mt-1 text-xs text-amber-700">
+          {isOutletUpdate
+            ? "Compare currently approved values with the newly requested outlet changes."
+            : "Compare the previous rejected submission with the latest values before approving."}
+        </p>
+      </div>
+
+      {changedFields.length > 0 ? (
+        <ul className="space-y-3">
+          {changedFields.map(({ field, label, before, after }) => (
+            <li key={field} className="rounded-lg border border-amber-200/80 bg-white/80 p-3">
+              <p className="text-xs font-semibold text-slate-700">{label || field}</p>
+              {IMAGE_DIFF_FIELDS.has(field) ? (
+                <div className="mt-2 flex flex-wrap items-start gap-3 text-xs text-slate-600">
+                  <div className="max-w-[45%]">
+                    <p className="mb-1 text-[10px] uppercase text-slate-500">Before</p>
+                    {String(before || "").startsWith("http") ? (
+                      <img src={before} alt="Before" className="h-14 w-14 rounded-lg border border-slate-200 object-cover" />
+                    ) : (
+                      <span className="line-through break-all">{before || "(empty)"}</span>
+                    )}
+                  </div>
+                  <span className="text-slate-400 self-center">→</span>
+                  <div className="max-w-[45%]">
+                    <p className="mb-1 text-[10px] font-semibold uppercase text-amber-800">After</p>
+                    {String(after || "").startsWith("http") ? (
+                      <img src={after} alt="After" className="h-14 w-14 rounded-lg border border-amber-300 object-cover" />
+                    ) : (
+                      <span className="font-semibold text-amber-900 break-all">{after || "(empty)"}</span>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-2 flex flex-col gap-1 text-sm sm:flex-row sm:flex-wrap sm:items-center">
+                  <span className="rounded-md bg-slate-100 px-2 py-1 text-slate-600 line-through break-all">{before || "(empty)"}</span>
+                  <span className="hidden text-slate-400 sm:inline">→</span>
+                  <span className="rounded-md bg-amber-100 px-2 py-1 font-semibold text-amber-900 break-all">{after || "(empty)"}</span>
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : previous ? (
+        <div className="rounded-lg border border-amber-200/80 bg-white/80 p-3 space-y-2 text-sm">
+          <p className="text-xs font-semibold text-amber-800">Previous submission snapshot</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div>
+              <p className="text-[10px] uppercase text-slate-500">Previous restaurant name</p>
+              <p className="font-medium text-slate-700 line-through">{formatDiffValue(previous.restaurantName)}</p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase text-amber-700">Current restaurant name</p>
+              <p className="font-semibold text-amber-900">{formatDiffValue(restaurant.restaurantName || restaurant.name)}</p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase text-slate-500">Previous owner</p>
+              <p className="font-medium text-slate-700 line-through">{formatDiffValue(previous.ownerName)}</p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase text-amber-700">Current owner</p>
+              <p className="font-semibold text-amber-900">{formatDiffValue(restaurant.ownerName)}</p>
+            </div>
+          </div>
+          <p className="text-[11px] text-amber-700">
+            No field-level differences were detected against the stored snapshot. If the restaurant edited before this update was deployed, reject once and ask them to Edit &amp; Resubmit again so changes are tracked.
+          </p>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+const RestaurantStatusHistory = ({ history }) => {
+  if (!Array.isArray(history) || history.length === 0) return null
+  const sorted = [...history].sort((a, b) => new Date(b.changedAt || 0) - new Date(a.changedAt || 0))
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+      <p className="text-xs font-bold uppercase tracking-wide text-slate-600">Approval history</p>
+      <ul className="mt-3 space-y-2">
+        {sorted.slice(0, 8).map((entry, idx) => (
+          <li key={`${entry.action}-${entry.changedAt}-${idx}`} className="text-sm text-slate-700">
+            <span className="font-semibold capitalize">{entry.action}</span>
+            {entry.changedAt ? (
+              <span className="text-xs text-slate-500 ml-2">
+                {new Date(entry.changedAt).toLocaleString("en-IN")}
+              </span>
+            ) : null}
+            {entry.note ? (
+              <p className="text-xs text-slate-600 mt-0.5 whitespace-pre-wrap">{entry.note}</p>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 
 export default function JoiningRequest() {
   const { user: authUser } = useAuth()
@@ -198,10 +334,21 @@ export default function JoiningRequest() {
       const list = (response?.data?.data || []).map((request) =>
         normalizeRequestRecord(request),
       )
+      const isPendingRow = (r) =>
+        r.status === "pending" ||
+        r.displayStatus === "pending" ||
+        r.pendingUpdateStatus === "pending" ||
+        r.isOutletUpdatePending === true
+      const isRejectedRow = (r) =>
+        r.status === "rejected" ||
+        r.displayStatus === "rejected" ||
+        r.pendingUpdateStatus === "rejected" ||
+        r.isOutletUpdateRejected === true
+
       if (activeTab === "pending") {
-        setPendingRequests(list.filter((r) => r.status === "pending"))
+        setPendingRequests(list.filter(isPendingRow))
       } else {
-        setRejectedRequests(list.filter((r) => r.status === "rejected"))
+        setRejectedRequests(list.filter(isRejectedRow))
       }
     } catch (err) {
       debugError("Error fetching restaurant requests:", err)
@@ -320,12 +467,23 @@ export default function JoiningRequest() {
     }
     try {
       setProcessing(true)
-      await adminAPI.approveRestaurant(request._id)
-      
-      // Refresh the list
+      const isOutletUpdate =
+        request?.requestType === "outlet_update" ||
+        request?.isOutletUpdatePending === true ||
+        (request?.pendingUpdateStatus === "pending" && request?.status === "approved")
+
+      if (isOutletUpdate) {
+        await adminAPI.approveRestaurantUpdate(request._id)
+        toast.success(`Outlet update for ${request.restaurantName} approved.`)
+      } else {
+        await adminAPI.approveRestaurant(request._id)
+        toast.success(`Successfully approved ${request.restaurantName}'s join request!`)
+      }
+
       await fetchRequests()
-      
-      toast.success(`Successfully approved ${request.restaurantName}'s join request!`)
+      setShowDetailsModal(false)
+      setSelectedRequest(null)
+      setRestaurantDetails(null)
     } catch (err) {
       debugError("Error approving request:", err)
       toast.error(err.response?.data?.message || "Failed to approve request. Please try again.")
@@ -356,16 +514,26 @@ export default function JoiningRequest() {
 
     try {
       setProcessing(true)
-      await adminAPI.rejectRestaurant(selectedRequest._id, rejectionReason)
-      
-      // Refresh the list
+      const isOutletUpdate =
+        selectedRequest?.requestType === "outlet_update" ||
+        selectedRequest?.isOutletUpdatePending === true ||
+        (selectedRequest?.pendingUpdateStatus === "pending" && selectedRequest?.status === "approved")
+
+      if (isOutletUpdate) {
+        await adminAPI.rejectRestaurantUpdate(selectedRequest._id, rejectionReason)
+        toast.success(`Outlet update for ${selectedRequest.restaurantName} rejected.`)
+      } else {
+        await adminAPI.rejectRestaurant(selectedRequest._id, rejectionReason)
+        alert(`Successfully rejected ${selectedRequest.restaurantName}'s join request!`)
+      }
+
       await fetchRequests()
-      
+
       setShowRejectDialog(false)
       setSelectedRequest(null)
       setRejectionReason("")
-      
-      alert(`Successfully rejected ${selectedRequest.restaurantName}'s join request!`)
+      setShowDetailsModal(false)
+      setRestaurantDetails(null)
     } catch (err) {
       debugError("Error rejecting request:", err)
       alert(err.response?.data?.message || "Failed to reject request. Please try again.")
@@ -390,7 +558,14 @@ export default function JoiningRequest() {
       // First, use fullData if available (has all details from API)
       if (request.fullData) {
         debugLog("Using fullData from request:", request.fullData)
-        setRestaurantDetails(request.fullData)
+        setRestaurantDetails({
+          ...request.fullData,
+          changedFields: request.changedFields || request.fullData.changedFields,
+          isResubmission: request.isResubmission ?? request.fullData.isResubmission,
+          isNewSubmission: request.isNewSubmission ?? request.fullData.isNewSubmission,
+          previousSubmission: request.previousSubmission || request.fullData.previousSubmission,
+          statusHistory: request.statusHistory || request.fullData.statusHistory,
+        })
         setLoadingDetails(false)
         return
       }
@@ -422,13 +597,16 @@ export default function JoiningRequest() {
       // Check response structure
       if (response?.data?.success) {
         const data = response.data.data
-        if (data?.restaurant) {
-          setRestaurantDetails(data.restaurant)
-        } else if (data) {
-          setRestaurantDetails(data)
-        } else {
-          setRestaurantDetails(request)
-        }
+        const fetched = data?.restaurant || data || request
+        // Preserve list-level workflow metadata (diffs / resubmission flags).
+        setRestaurantDetails({
+          ...fetched,
+          changedFields: request.changedFields || fetched.changedFields,
+          isResubmission: request.isResubmission ?? fetched.isResubmission,
+          isNewSubmission: request.isNewSubmission ?? fetched.isNewSubmission,
+          previousSubmission: request.previousSubmission || fetched.previousSubmission,
+          statusHistory: request.statusHistory || fetched.statusHistory,
+        })
       } else {
         // Use the request data we already have
         setRestaurantDetails(request)
@@ -641,13 +819,39 @@ export default function JoiningRequest() {
                         <span className="text-sm text-slate-700">{request.zone || "—"}</span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                          request.status === "Pending" || request.status === "pending"
-                            ? (request?.reVerification?.isZoneUpdate || request?.reVerification?.reVerificationReason === 'FSSAI License Update' ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700")
-                            : "bg-red-100 text-red-700"
-                        }`}>
-                          {request?.reVerification?.isZoneUpdate || request?.reVerification?.reVerificationReason === 'FSSAI License Update' ? "Re-verification" : request.status}
-                        </span>
+                        <div className="flex flex-col gap-1 items-start">
+                          {(() => {
+                            const isOutletUpdate =
+                              request.requestType === "outlet_update" ||
+                              request.isOutletUpdatePending ||
+                              request.pendingUpdateStatus === "pending"
+                            const statusLabel = isOutletUpdate
+                              ? "Outlet Update"
+                              : (request?.reVerification?.isZoneUpdate || request?.reVerification?.reVerificationReason === 'FSSAI License Update'
+                                ? "Re-verification"
+                                : (request.displayStatus || request.status))
+                            const statusClass = isOutletUpdate
+                              ? "bg-amber-100 text-amber-800"
+                              : (request.displayStatus === "pending" || request.status === "Pending" || request.status === "pending"
+                                ? (request?.reVerification?.isZoneUpdate || request?.reVerification?.reVerificationReason === 'FSSAI License Update' ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700")
+                                : "bg-red-100 text-red-700")
+                            return (
+                              <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusClass}`}>
+                                {statusLabel}
+                              </span>
+                            )
+                          })()}
+                          {request.isResubmission && (request.status === "pending" || request.status === "Pending") ? (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-800 border border-amber-200">
+                              Resubmission{Array.isArray(request.changedFields) && request.changedFields.length > 0 ? ` · ${request.changedFields.length} changes` : ""}
+                            </span>
+                          ) : null}
+                          {(request.requestType === "outlet_update" || request.isOutletUpdatePending) && Array.isArray(request.outletChangedFields) && request.outletChangedFields.length > 0 ? (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-sky-100 text-sky-800 border border-sky-200">
+                              {request.outletChangedFields.length} field change{request.outletChangedFields.length > 1 ? "s" : ""}
+                            </span>
+                          ) : null}
+                        </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-center">
                         <div className="flex items-center justify-center gap-2">
@@ -797,6 +1001,22 @@ export default function JoiningRequest() {
                 Are you sure you want to reject this restaurant request? Please provide a reason for rejection.
               </p>
 
+              {Array.isArray(selectedRequest?.changedFields) && selectedRequest.changedFields.length > 0 && (
+                <div className="mb-4 max-h-40 overflow-y-auto rounded-lg border border-amber-200 bg-amber-50 p-3">
+                  <p className="text-xs font-bold uppercase text-amber-800 mb-2">
+                    Changes in this resubmission ({selectedRequest.changedFields.length})
+                  </p>
+                  <ul className="space-y-1 text-xs text-amber-900">
+                    {selectedRequest.changedFields.slice(0, 6).map((c) => (
+                      <li key={c.field}>• {c.label || c.field}</li>
+                    ))}
+                    {selectedRequest.changedFields.length > 6 ? (
+                      <li>…and {selectedRequest.changedFields.length - 6} more</li>
+                    ) : null}
+                  </ul>
+                </div>
+              )}
+
               <div className="mb-4">
                 <label className="block text-sm font-medium text-slate-700 mb-2">
                   Rejection Reason <span className="text-red-500">*</span>
@@ -877,7 +1097,29 @@ export default function JoiningRequest() {
                 </div>
               )}
               {!loadingDetails && (restaurantDetails || selectedRequest) && (() => {
-                const r = restaurantDetails || selectedRequest
+                const base = restaurantDetails || selectedRequest
+                const r = {
+                  ...base,
+                  changedFields: selectedRequest?.outletChangedFields?.length
+                    ? selectedRequest.outletChangedFields
+                    : (selectedRequest?.changedFields || base?.changedFields),
+                  outletChangedFields: selectedRequest?.outletChangedFields || base?.outletChangedFields,
+                  isOutletUpdate: selectedRequest?.isOutletUpdate ?? base?.isOutletUpdate,
+                  requestType: selectedRequest?.requestType || base?.requestType,
+                  pendingUpdates: selectedRequest?.pendingUpdates || base?.pendingUpdates,
+                  pendingUpdateStatus: selectedRequest?.pendingUpdateStatus || base?.pendingUpdateStatus,
+                  pendingUpdateReason: selectedRequest?.pendingUpdateReason || base?.pendingUpdateReason,
+                  isResubmission: selectedRequest?.isResubmission ?? base?.isResubmission,
+                  isNewSubmission: selectedRequest?.isNewSubmission ?? base?.isNewSubmission,
+                  previousSubmission: selectedRequest?.previousSubmission || base?.previousSubmission,
+                  statusHistory: selectedRequest?.statusHistory || base?.statusHistory,
+                }
+                const changedFieldKeys = new Set(
+                  (Array.isArray(r.outletChangedFields) && r.outletChangedFields.length
+                    ? r.outletChangedFields
+                    : (Array.isArray(r.changedFields) ? r.changedFields : [])
+                  ).map((c) => c.field)
+                )
                 const restaurantPhotoList = Array.isArray(r?.coverImages) ? r.coverImages.filter(Boolean) : []
                 const profileImgUrl =
                   getNormalizedImageUrl(restaurantPhotoList[0]) ||
@@ -897,6 +1139,10 @@ export default function JoiningRequest() {
                   r?.onboarding?.step1?.location?.city
                 ].filter(Boolean)
                 const hasAddress = addressParts.length > 0 || r?.location || r?.onboarding?.step1?.location
+                const highlightClass = (field) =>
+                  changedFieldKeys.has(field)
+                    ? "rounded-lg border border-amber-300 bg-amber-50/80 px-2 py-1"
+                    : ""
                 const openingTime = r?.openingTime || r?.deliveryTimings?.openingTime || r?.onboarding?.step2?.deliveryTimings?.openingTime
                 const closingTime = r?.closingTime || r?.deliveryTimings?.closingTime || r?.onboarding?.step2?.deliveryTimings?.closingTime
                 const approvalStatus = r?.status || (r?.isActive !== false ? "approved" : "pending")
@@ -906,7 +1152,7 @@ export default function JoiningRequest() {
                 <div className="space-y-6">
                   {/* Restaurant Basic Info */}
                   <div className="flex items-start gap-6 pb-6 border-b border-slate-200">
-                    <div className="w-24 h-24 rounded-lg overflow-hidden bg-slate-100 shrink-0">
+                    <div className={`w-24 h-24 rounded-lg overflow-hidden bg-slate-100 shrink-0 ${changedFieldKeys.has("profileImage") ? "ring-2 ring-amber-400" : ""}`}>
                       <img
                         src={profileImgUrl || "https://via.placeholder.com/96"}
                         alt={r?.restaurantName || r?.name || "Restaurant"}
@@ -917,8 +1163,11 @@ export default function JoiningRequest() {
                       />
                     </div>
                     <div className="flex-1">
-                      <h3 className="text-2xl font-bold text-slate-900 mb-2">
+                      <h3 className={`text-2xl font-bold text-slate-900 mb-2 ${highlightClass("restaurantName")}`}>
                         {r?.restaurantName || r?.name || "N/A"}
+                        {changedFieldKeys.has("restaurantName") ? (
+                          <span className="ml-2 text-xs font-semibold text-amber-700">(Updated)</span>
+                        ) : null}
                       </h3>
                       <div className="flex items-center gap-4 flex-wrap">
                         {r?.rating != null && (
@@ -938,34 +1187,47 @@ export default function JoiningRequest() {
                         }`}>
                           {approvalStatus === "approved" ? "Approved" : (approvalStatus === "rejected" || approvalStatus === "Rejected") ? "Rejected" : (r?.reVerification?.isZoneUpdate || r?.reVerification?.reVerificationReason === 'FSSAI License Update' ? "Re-verification" : "Pending Approval")}
                         </span>
+                        {r?.isResubmission ? (
+                          <span className="px-3 py-1 rounded-full text-xs font-semibold bg-sky-100 text-sky-800 border border-sky-200">
+                            Resubmission
+                          </span>
+                        ) : null}
                       </div>
+                      {r?.isResubmission ? (
+                        <p className="mt-2 text-sm text-sky-700">
+                          Restaurant edited and resubmitted this joining request for approval.
+                        </p>
+                      ) : null}
                     </div>
                   </div>
+
+                  <RestaurantChangesPanel restaurant={r} />
+                  <RestaurantStatusHistory history={r?.statusHistory} />
 
                   {/* Owner Information */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
                       <h4 className="text-lg font-semibold text-slate-900 mb-4">Owner Information</h4>
                       <div className="space-y-3">
-                        <div className="flex items-center gap-3">
+                        <div className={`flex items-center gap-3 ${highlightClass("ownerName")}`}>
                           <User className="w-5 h-5 text-slate-400" />
                           <div>
-                            <p className="text-xs text-slate-500">Owner Name</p>
+                            <p className="text-xs text-slate-500">Owner Name{changedFieldKeys.has("ownerName") ? " (Updated)" : ""}</p>
                             <p className="text-sm font-medium text-slate-900">{r?.ownerName || "N/A"}</p>
                           </div>
                         </div>
-                        <div className="flex items-center gap-3">
+                        <div className={`flex items-center gap-3 ${highlightClass("ownerPhone")}`}>
                           <Phone className="w-5 h-5 text-slate-400" />
                           <div>
-                            <p className="text-xs text-slate-500">Phone</p>
+                            <p className="text-xs text-slate-500">Phone{changedFieldKeys.has("ownerPhone") ? " (Updated)" : ""}</p>
                             <p className="text-sm font-medium text-slate-900">{r?.ownerPhone || r?.phone || "N/A"}</p>
                           </div>
                         </div>
                         {(r?.ownerEmail || r?.email) && (
-                          <div className="flex items-center gap-3">
+                          <div className={`flex items-center gap-3 ${highlightClass("ownerEmail")}`}>
                             <Mail className="w-5 h-5 text-slate-400" />
                             <div>
-                              <p className="text-xs text-slate-500">Email</p>
+                              <p className="text-xs text-slate-500">Email{changedFieldKeys.has("ownerEmail") ? " (Updated)" : ""}</p>
                               <p className="text-sm font-medium text-slate-900">{r.ownerEmail || r.email}</p>
                             </div>
                           </div>
@@ -1484,11 +1746,13 @@ export default function JoiningRequest() {
                   )}
 
                   {/* Rejection Reason (if rejected) */}
-                  {r?.rejectionReason && (
+                  {(r?.rejectionReason || r?.pendingUpdateReason) && (
                     <div className="pt-6 border-t border-slate-200">
                       <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                        <h4 className="text-lg font-semibold text-red-900 mb-2">Rejection Reason</h4>
-                        <p className="text-sm text-red-800">{r.rejectionReason}</p>
+                        <h4 className="text-lg font-semibold text-red-900 mb-2">
+                          {r?.pendingUpdateStatus === "rejected" ? "Outlet Update Rejection Reason" : "Rejection Reason"}
+                        </h4>
+                        <p className="text-sm text-red-800">{r.pendingUpdateReason || r.rejectionReason}</p>
                         {r.rejectedAt && (
                           <p className="text-xs text-red-600 mt-2">
                             Rejected on: {new Date(r.rejectedAt).toLocaleString('en-IN')}

@@ -201,6 +201,9 @@ export default function FoodApproval() {
       if (request.entityType === 'addon') {
         await adminAPI.approveRestaurantAddon(id)
         toast.success('Add-on approved successfully')
+      } else if (request.entityType === 'restaurant_update') {
+        await adminAPI.approveRestaurantUpdate(id)
+        toast.success('Restaurant update approved successfully')
       } else {
         await adminAPI.approveFoodItem(id)
         toast.success('Food item approved successfully')
@@ -239,6 +242,9 @@ export default function FoodApproval() {
       if (selectedRequest.entityType === 'addon') {
         await adminAPI.rejectRestaurantAddon(id, rejectReason)
         toast.success('Add-on rejected')
+      } else if (selectedRequest.entityType === 'restaurant_update') {
+        await adminAPI.rejectRestaurantUpdate(id, rejectReason)
+        toast.success('Restaurant update rejected')
       } else {
         await adminAPI.rejectFoodItem(id, rejectReason)
         toast.success('Food item rejected')

@@ -500,7 +500,7 @@ export default function Under250() {
     }
   }, [])
 
-  const updateItemQuantity = (item, newQuantity, event = null, restaurantName = null) => {
+  const updateItemQuantity = async (item, newQuantity, event = null, restaurantName = null) => {
     if (!isModuleAuthenticated("user")) {
       toast.error("Please login to add items to cart")
       navigate("/user/auth/login", { state: { from: location.pathname } })
@@ -515,11 +515,13 @@ export default function Under250() {
     const restaurant = restaurantName || item.restaurant || "Under 250"
     const cartItem = {
       id: item.id,
+      itemId: item.id,
       name: item.name,
       price: item.price,
       otherPrice: item.otherPrice || item.originalPrice || 0,
       image: item.image,
       restaurant,
+      restaurantId: item.restaurantId || item.restaurant?._id || item.restaurant?.restaurantId,
       description: item.description || "",
       originalPrice: item.originalPrice || item.price,
     }
@@ -552,25 +554,16 @@ export default function Under250() {
       const existingCartItem = getCartItem(item.id)
       if (existingCartItem) {
         const productInfo = { id: item.id, name: item.name, imageUrl: item.image }
-        if (newQuantity > existingCartItem.quantity && sourcePosition) {
-          const result = addToCart(cartItem, sourcePosition)
-          if (result?.ok === false) {
-            toast.error(result.error || "Cannot add item from different restaurant. Please clear cart first.")
-            return
-          }
-          if (newQuantity > existingCartItem.quantity + 1) updateQuantity(item.id, newQuantity)
-        } else if (newQuantity < existingCartItem.quantity && sourcePosition) {
-          updateQuantity(item.id, newQuantity, sourcePosition, productInfo)
-        } else {
-          updateQuantity(item.id, newQuantity)
-        }
+        updateQuantity(item.id, newQuantity, sourcePosition, productInfo)
       } else {
-        const result = addToCart(cartItem, sourcePosition)
+        const result = await addToCart(
+          { ...cartItem, quantity: newQuantity > 0 ? newQuantity : 1 },
+          sourcePosition,
+        )
         if (result?.ok === false) {
           toast.error(result.error || "Cannot add item from different restaurant. Please clear cart first.")
           return
         }
-        if (newQuantity > 1) updateQuantity(item.id, newQuantity)
       }
     }
   }

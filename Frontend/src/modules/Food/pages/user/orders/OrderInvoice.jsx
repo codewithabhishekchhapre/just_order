@@ -9,6 +9,7 @@ import { Button } from "@food/components/ui/button"
 import { Badge } from "@food/components/ui/badge"
 import { useOrders } from "@food/context/OrdersContext"
 import { useCompanyName } from "@food/hooks/useCompanyName"
+import { orderAPI } from "@food/api"
 
 export default function OrderInvoice() {
   const companyName = useCompanyName()
@@ -64,6 +65,18 @@ export default function OrderInvoice() {
       </AnimatedPage>
     )
   }
+
+  const pricing = order.pricing || {}
+  const invoiceSubtotal = Number(order.subtotal ?? pricing.subtotal ?? 0)
+  const invoiceDeliveryFee = Number(order.deliveryFee ?? pricing.deliveryFee ?? 0)
+  const invoiceTax = Number(order.tax ?? pricing.tax ?? pricing.gst ?? 0)
+  const invoiceDiscount = Number(
+    order.couponDiscount ?? pricing.couponDiscount ?? order.discount ?? pricing.discount ?? 0
+  )
+  const invoiceCouponCode = order.couponCode || pricing.couponCode || ""
+  const invoiceTotal = Number(order.total ?? pricing.total ?? 0)
+  const invoiceItems = Array.isArray(order.items) ? order.items : []
+  const invoiceStatus = String(order.status || order.orderStatus || "placed")
 
   const formatDate = (dateString) => {
     const date = new Date(dateString)
@@ -218,7 +231,7 @@ export default function OrderInvoice() {
                     </p>
                   </div>
                   <Badge className="bg-[#FF6A00] text-white text-sm sm:text-base md:text-lg px-3 sm:px-4 py-1.5 sm:py-2 w-fit">
-                    {order.status.toUpperCase()}
+                    {invoiceStatus.toUpperCase()}
                   </Badge>
                 </div>
               </div>
@@ -257,8 +270,8 @@ export default function OrderInvoice() {
                       </tr>
                     </thead>
                     <tbody>
-                      {order.items.map((item) => (
-                        <tr key={item.id} className="border-b">
+                      {invoiceItems.map((item) => (
+                        <tr key={item.id || item.itemId || item._id} className="border-b">
                           <td className="px-2 sm:px-3 py-2 sm:py-3">
                             <div className="flex items-center gap-2 sm:gap-3">
                               <img
@@ -272,14 +285,14 @@ export default function OrderInvoice() {
                                   <span className="text-xs text-gray-500">{item.variantName}</span>
                                 ) : null}
                                 <span className="text-muted-foreground sm:hidden text-xs">
-                                  Qty: {item.quantity} � ${item.price.toFixed(2)}
+                                  Qty: {item.quantity} · ${Number(item.price || 0).toFixed(2)}
                                 </span>
                               </div>
                             </div>
                           </td>
                           <td className="px-2 sm:px-3 py-2 sm:py-3 text-center hidden sm:table-cell">{item.quantity}</td>
-                          <td className="px-2 sm:px-3 py-2 sm:py-3 text-right hidden md:table-cell">${item.price.toFixed(2)}</td>
-                          <td className="px-2 sm:px-3 py-2 sm:py-3 text-right font-medium">${(item.price * item.quantity).toFixed(2)}</td>
+                          <td className="px-2 sm:px-3 py-2 sm:py-3 text-right hidden md:table-cell">${Number(item.price || 0).toFixed(2)}</td>
+                          <td className="px-2 sm:px-3 py-2 sm:py-3 text-right font-medium">${(Number(item.price || 0) * Number(item.quantity || 1)).toFixed(2)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -291,19 +304,27 @@ export default function OrderInvoice() {
               <div className="total-section mt-4 sm:mt-6">
                 <div className="total-row flex justify-between text-xs sm:text-sm sm:text-base py-1 sm:py-2">
                   <span>Subtotal:</span>
-                  <span>${order.subtotal.toFixed(2)}</span>
+                  <span>${invoiceSubtotal.toFixed(2)}</span>
                 </div>
+                {(invoiceDiscount > 0 || invoiceCouponCode) && (
+                  <div className="total-row flex justify-between text-xs sm:text-sm sm:text-base py-1 sm:py-2 text-green-700">
+                    <span>
+                      Coupon{invoiceCouponCode ? ` (${invoiceCouponCode})` : ""}:
+                    </span>
+                    <span>-${invoiceDiscount.toFixed(2)}</span>
+                  </div>
+                )}
                 <div className="total-row flex justify-between text-xs sm:text-sm sm:text-base py-1 sm:py-2">
                   <span>Delivery Fee:</span>
-                  <span>${order.deliveryFee.toFixed(2)}</span>
+                  <span>${invoiceDeliveryFee.toFixed(2)}</span>
                 </div>
                 <div className="total-row flex justify-between text-xs sm:text-sm sm:text-base py-1 sm:py-2">
                   <span>Tax:</span>
-                  <span>${order.tax.toFixed(2)}</span>
+                  <span>${invoiceTax.toFixed(2)}</span>
                 </div>
                 <div className="grand-total flex justify-between text-base sm:text-lg md:text-xl md:text-2xl pt-2 sm:pt-3 mt-2 sm:mt-3 border-t-2 border-[#FF6A00]">
                   <span>Total:</span>
-                  <span>${order.total.toFixed(2)}</span>
+                  <span>${invoiceTotal.toFixed(2)}</span>
                 </div>
               </div>
 

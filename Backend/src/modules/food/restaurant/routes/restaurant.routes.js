@@ -4,6 +4,7 @@ import {
     registerRestaurantController,
     saveOnboardingStepController,
     getOnboardingDraftController,
+    activateRestaurantSessionController,
     listApprovedRestaurantsController,
     getApprovedRestaurantController,
     listPublicOffersController,
@@ -91,6 +92,7 @@ const uploadFields = upload.fields([
 router.post('/register', registrationRateLimiter, uploadFields, registerRestaurantController);
 router.post('/onboarding/step/:step', registrationRateLimiter, uploadFields, saveOnboardingStepController);
 router.get('/onboarding/draft', getOnboardingDraftController);
+router.post('/onboarding/activate-session', registrationRateLimiter, activateRestaurantSessionController);
 
 // Public: approved restaurants list (for user app)
 router.get('/restaurants', cacheResponse(300, 'restaurants'), listApprovedRestaurantsController);

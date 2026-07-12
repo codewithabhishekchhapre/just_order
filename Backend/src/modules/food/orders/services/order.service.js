@@ -13,8 +13,16 @@ import { resolveDeliverySpeedOptions, pickDeliverySpeedOption } from '../../admi
 import { resolveRestaurantCommissionPercentage } from '../../shared/restaurantCommissionDefaults.js';
 import { ValidationError, ForbiddenError, NotFoundError } from '../../../../core/auth/errors.js';
 import { buildPaginationOptions, buildPaginatedResult } from '../../../../utils/helpers.js';
-import { FoodOffer } from '../../admin/models/offer.model.js';
-import { FoodOfferUsage } from '../../admin/models/offerUsage.model.js';
+import {
+  computeCouponDiscount,
+  consumeCouponForOrder,
+  releaseCouponForOrder,
+  computeTaxOnTaxableAmount,
+} from './coupon.service.js';
+import {
+  buildOrderItemsFromFoodCart,
+  clearFoodCart,
+} from '../../user/services/foodCart.service.js';
 import { FoodDeliveryCommissionRule } from '../../admin/models/deliveryCommissionRule.model.js';
 import {
   sendNotificationToOwner,
@@ -1815,87 +1823,56 @@ async function enforceMinimumFoodItemPrices(items, sourceMap) {
  * (calculateOrder) and real order creation (createOrder) so a client can never submit
  * an arbitrary `discount` amount without a real, currently-valid coupon backing it.
  */
-async function computeCouponDiscount({ couponCode, subtotal, restaurantId, userId }) {
-  const codeRaw = couponCode ? String(couponCode).trim().toUpperCase() : "";
-  if (!codeRaw) return { discount: 0, appliedCoupon: null, couponCode: null, freeDelivery: false };
+/**
+ * Shared coupon computation lives in coupon.service.js (single source of truth).
+ */
 
-  const now = new Date();
-  const offer = await FoodOffer.findOne({ couponCode: codeRaw }).lean();
+/**
+ * Food checkout always uses the DB cart as source of truth.
+ * Quick-only orders keep client/QC cart items. Mixed = DB food + client quick lines.
+ */
+async function resolveCheckoutItems(userId, dto = {}) {
+  const clientItems = normalizeOrderItems(dto.items || [], dto.orderType);
+  const hasQuickClient = clientItems.some((item) => item.type === "quick");
+  const useCart = dto.useCart !== false && dto.orderType !== "quick";
 
-  if (!offer) {
-    const { RestaurantCoupon } = await import('../../admin/models/restaurantCoupon.model.js');
-    let resolvedRestaurantId = restaurantId;
-    if (resolvedRestaurantId && !mongoose.Types.ObjectId.isValid(resolvedRestaurantId)) {
-      const rest = await FoodRestaurant.findOne({ restaurantId: resolvedRestaurantId }).select('_id').lean();
-      if (rest) resolvedRestaurantId = rest._id;
+  if (!useCart || dto.orderType === "quick") {
+    if (!clientItems.length) throw new ValidationError("Your cart is empty");
+    return {
+      items: clientItems,
+      restaurantId: dto.restaurantId || null,
+      restaurantName: dto.restaurantName || "",
+      couponCode: String(dto.couponCode || "").trim(),
+    };
+  }
+
+  const fromCart = await buildOrderItemsFromFoodCart(userId);
+  const quickItems = clientItems.filter((item) => item.type === "quick");
+
+  if (dto.orderType === "mixed" || (hasQuickClient && fromCart.items.length)) {
+    if (!quickItems.length) {
+      throw new ValidationError("Mixed orders must include quick commerce items");
     }
-    const isIdValid = mongoose.Types.ObjectId.isValid(resolvedRestaurantId);
-    const restCoupon = isIdValid ? await RestaurantCoupon.findOne({
-      couponCode: codeRaw,
-      approvalStatus: 'approved',
-      restaurantId: new mongoose.Types.ObjectId(resolvedRestaurantId)
-    }).lean() : null;
-
-    if (!restCoupon) return { discount: 0, appliedCoupon: null, couponCode: codeRaw, freeDelivery: false };
-
-    const startOk = !restCoupon.startDate || now >= new Date(restCoupon.startDate);
-    const endOk = !restCoupon.endDate || now < new Date(restCoupon.endDate);
-    const minOk = subtotal >= (Number(restCoupon.minOrderAmount) || 0);
-    const usageOk = !(Number(restCoupon.usageLimit) > 0 && Number(restCoupon.usedCount || 0) >= Number(restCoupon.usageLimit));
-
-    if (!(startOk && endOk && minOk && usageOk)) {
-      return { discount: 0, appliedCoupon: null, couponCode: codeRaw, freeDelivery: false };
-    }
-
-    const discount = restCoupon.discountType === "percentage"
-      ? Math.max(0, Math.min(subtotal, Math.floor(Math.min(
-          subtotal * (Number(restCoupon.discountValue) / 100),
-          Number(restCoupon.maxDiscount) > 0 ? Number(restCoupon.maxDiscount) : Infinity,
-        ))))
-      : Math.max(0, Math.min(subtotal, Math.floor(Number(restCoupon.discountValue) || 0)));
-    const freeDelivery = Boolean(restCoupon.freeDelivery);
-    return { discount, appliedCoupon: { code: codeRaw, discount, freeDelivery }, couponCode: codeRaw, freeDelivery };
+    return {
+      items: [...fromCart.items, ...quickItems],
+      restaurantId: fromCart.restaurantId,
+      restaurantName: fromCart.restaurantName,
+      couponCode: String(dto.couponCode || fromCart.couponCode || "").trim(),
+    };
   }
 
-  const statusOk = offer.status === "active";
-  const startOk = !offer.startDate || now >= new Date(offer.startDate);
-  const endOk = !offer.endDate || now < new Date(offer.endDate);
-  const scopeOk = offer.restaurantScope !== "selected" || String(offer.restaurantId || "") === String(restaurantId || "");
-  const minOk = subtotal >= (Number(offer.minOrderValue) || 0);
-  const usageOk = !(Number(offer.usageLimit) > 0 && Number(offer.usedCount || 0) >= Number(offer.usageLimit));
-
-  let perUserOk = true;
-  if (userId && Number(offer.perUserLimit) > 0) {
-    const usage = await FoodOfferUsage.findOne({ offerId: offer._id, userId }).lean();
-    if (usage && Number(usage.count) >= Number(offer.perUserLimit)) perUserOk = false;
-  }
-
-  let firstOrderOk = true;
-  if (userId && offer.customerScope === "first-time") {
-    const c = await FoodOrder.countDocuments({ userId: new mongoose.Types.ObjectId(userId) });
-    firstOrderOk = c === 0;
-  }
-  if (userId && offer.isFirstOrderOnly === true) {
-    const c2 = await FoodOrder.countDocuments({ userId: new mongoose.Types.ObjectId(userId) });
-    if (c2 > 0) firstOrderOk = false;
-  }
-
-  const allowed = statusOk && startOk && endOk && scopeOk && minOk && usageOk && perUserOk && firstOrderOk;
-  if (!allowed) return { discount: 0, appliedCoupon: null, couponCode: codeRaw, freeDelivery: false };
-
-  const discount = offer.discountType === "percentage"
-    ? Math.max(0, Math.min(subtotal, Math.floor(Math.min(
-        subtotal * (Number(offer.discountValue) / 100),
-        Number(offer.maxDiscount) ? Number(offer.maxDiscount) : Infinity,
-      ))))
-    : Math.max(0, Math.min(subtotal, Math.floor(Number(offer.discountValue) || 0)));
-  const freeDelivery = Boolean(offer.freeDelivery);
-  return { discount, appliedCoupon: { code: codeRaw, discount, freeDelivery }, couponCode: codeRaw, freeDelivery };
+  return {
+    items: fromCart.items,
+    restaurantId: fromCart.restaurantId,
+    restaurantName: fromCart.restaurantName,
+    couponCode: String(dto.couponCode || fromCart.couponCode || "").trim(),
+  };
 }
 
 // ----- Calculate (validation + return pricing from payload) -----
 export async function calculateOrder(userId, dto) {
-  const items = normalizeOrderItems(dto.items, dto.orderType);
+  const resolved = await resolveCheckoutItems(userId, dto);
+  const items = resolved.items;
   const hasFoodItems = items.some((item) => item.type === "food");
   const hasQuickItems = items.some((item) => item.type === "quick");
   const orderType =
@@ -1904,6 +1881,12 @@ export async function calculateOrder(userId, dto) {
       : hasQuickItems
         ? "quick"
         : "food";
+  if (resolved.restaurantId) {
+    dto.restaurantId = resolved.restaurantId;
+  }
+  if (resolved.couponCode && !dto.couponCode) {
+    dto.couponCode = resolved.couponCode;
+  }
   const subtotal = items.reduce(
     (sum, it) => sum + (Number(it.price) || 0) * (Number(it.quantity) || 1),
     0,
@@ -2035,29 +2018,35 @@ export async function calculateOrder(userId, dto) {
     ? items.filter(i => i.type === "quick").reduce((s, i) => s + (Number(i.price) * Number(i.quantity)), 0)
     : 0;
 
-  let tax = 0;
-  if (orderType === "mixed") {
-    const foodSubtotal = items.filter(i => i.type === "food").reduce((s, i) => s + (Number(i.price) * Number(i.quantity)), 0);
-    const foodTax = Math.round(foodSubtotal * (feeSettings.gstRate / 100));
-    const quickGstRate = quickFeeDoc?.gstRate ?? 0;
-    const quickTax = Math.round(quickSubtotal * (quickGstRate / 100));
-    tax = foodTax + quickTax;
-  } else {
-    const gstRate = feeSettings.gstRate;
-    tax = Number.isFinite(gstRate) && gstRate > 0
-      ? Math.round(subtotal * (gstRate / 100))
-      : 0;
-  }
-
   const codeRaw = dto.couponCode
     ? String(dto.couponCode).trim().toUpperCase()
     : "";
-  const { discount, appliedCoupon, freeDelivery } = await computeCouponDiscount({
+  const {
+    discount,
+    couponDiscount,
+    itemDiscount,
+    appliedCoupon,
+    freeDelivery,
+    couponSource,
+    couponRefId,
+  } = await computeCouponDiscount({
     couponCode: codeRaw,
     subtotal,
     restaurantId: primaryRestaurantId,
     userId,
+    items,
   });
+
+  const tax = computeTaxOnTaxableAmount({
+    orderType,
+    items,
+    subtotal,
+    itemDiscount,
+    couponDiscount: couponDiscount || discount,
+    foodGstRate: feeSettings.gstRate,
+    quickGstRate: quickFeeDoc?.gstRate ?? 0,
+  });
+
   const quickDeliveryFee = orderType === "mixed"
     ? calculateDeliveryFeeFromSettings(quickSubtotal, quickFeeDoc || undefined)
     : 0;
@@ -2144,6 +2133,13 @@ export async function calculateOrder(userId, dto) {
         orderType === "food" ? deliverySponsorType : "USER_FULL",
       platformFee,
       discount,
+      itemDiscount: itemDiscount || 0,
+      couponDiscount: couponDiscount || discount || 0,
+      couponCode: appliedCoupon?.code || (discount > 0 || freeDelivery ? codeRaw : null) || null,
+      couponSource: appliedCoupon ? couponSource : null,
+      couponRefId: appliedCoupon ? couponRefId : null,
+      couponFreeDelivery: Boolean(freeDelivery),
+      couponConsumed: false,
       deliverySpeedFee,
       deliverySpeed: selectedDeliverySpeedOption
         ? {
@@ -2175,7 +2171,6 @@ export async function calculateOrder(userId, dto) {
       })),
       total,
       currency: "INR",
-        couponCode: appliedCoupon?.code || codeRaw || null,
         appliedCoupon,
         deliveryOptions,
         pickupDistanceKm: eligibility.pickupDistanceKm,
@@ -2192,7 +2187,8 @@ export async function calculateOrder(userId, dto) {
 // ----- Create order -----
 export async function createOrder(userId, dto) {
   console.log("[TRACE] createOrder reached", { userId, restaurantId: dto.restaurantId });
-  const items = normalizeOrderItems(dto.items, dto.orderType);
+  const resolved = await resolveCheckoutItems(userId, dto);
+  const items = resolved.items;
   const hasFoodItems = items.some((item) => item.type === "food");
   const hasQuickItems = items.some((item) => item.type === "quick");
   const orderType =
@@ -2201,6 +2197,15 @@ export async function createOrder(userId, dto) {
       : hasQuickItems
         ? "quick"
         : "food";
+  if (resolved.restaurantId) {
+    dto.restaurantId = resolved.restaurantId;
+  }
+  if (resolved.restaurantName) {
+    dto.restaurantName = resolved.restaurantName;
+  }
+  if (resolved.couponCode) {
+    dto.couponCode = resolved.couponCode;
+  }
   const sourceMap = await fetchPickupSourcesByType(items);
   await enforceMinimumFoodItemPrices(items, sourceMap);
   const foodSourceIds = [
@@ -2316,33 +2321,115 @@ export async function createOrder(userId, dto) {
     .lean();
   const feeSettingsForOrder = normalizeFoodFeeSettings(feeDocForOrder);
 
-  let computedTax = 0;
-  if (orderType === "mixed") {
-    const foodSubtotalOnly = items.filter((i) => i.type === "food").reduce((s, i) => s + (Number(i.price) || 0) * (Number(i.quantity) || 1), 0);
-    const quickSubtotalOnly = items.filter((i) => i.type === "quick").reduce((s, i) => s + (Number(i.price) || 0) * (Number(i.quantity) || 1), 0);
-    const quickFeeDocForOrder = await QuickFeeSettings.findOne({ isActive: true }).sort({ createdAt: -1 }).lean();
-    computedTax = Math.round(foodSubtotalOnly * (feeSettingsForOrder.gstRate / 100)) +
-      Math.round(quickSubtotalOnly * ((quickFeeDocForOrder?.gstRate ?? 0) / 100));
-  } else if (orderType === "food") {
-    computedTax = Number.isFinite(feeSettingsForOrder.gstRate) && feeSettingsForOrder.gstRate > 0
-      ? Math.round(computedSubtotal * (feeSettingsForOrder.gstRate / 100))
-      : 0;
-  } else {
-    computedTax = Number(dto.pricing?.tax ?? 0); // quick-only orders: pricing not yet hardened here (separate module)
-  }
-
   const computedPlatformFee = (orderType === "food" || orderType === "mixed")
     ? Number(feeSettingsForOrder.platformFee || 0)
-    : Number(dto.pricing?.platformFee ?? 0);
+    : 0;
 
-  const { discount: computedDiscount, freeDelivery: computedFreeDelivery } = (orderType === "food" || orderType === "mixed")
+  const couponResult = (orderType === "food" || orderType === "mixed")
     ? await computeCouponDiscount({
         couponCode: dto.couponCode,
         subtotal: computedSubtotal,
         restaurantId: primaryRestaurantId,
         userId,
+        items,
       })
-    : { discount: 0, freeDelivery: false };
+    : {
+        discount: 0,
+        couponDiscount: 0,
+        itemDiscount: 0,
+        freeDelivery: false,
+        couponCode: null,
+        couponSource: null,
+        couponRefId: null,
+        appliedCoupon: null,
+      };
+  const computedDiscount = Number(couponResult.discount || 0);
+  const computedCouponDiscount = Number(couponResult.couponDiscount || computedDiscount || 0);
+  const computedItemDiscount = Number(couponResult.itemDiscount || 0);
+  const computedFreeDelivery = Boolean(couponResult.freeDelivery);
+
+  const quickFeeDocForOrder = orderType === "mixed"
+    ? await QuickFeeSettings.findOne({ isActive: true }).sort({ createdAt: -1 }).lean()
+    : null;
+
+  const computedTax = (orderType === "food" || orderType === "mixed")
+    ? computeTaxOnTaxableAmount({
+        orderType,
+        items,
+        subtotal: computedSubtotal,
+        itemDiscount: computedItemDiscount,
+        couponDiscount: computedCouponDiscount,
+        foodGstRate: feeSettingsForOrder.gstRate,
+        quickGstRate: quickFeeDocForOrder?.gstRate ?? 0,
+      })
+    : 0;
+
+  // Server-side delivery fees (never trust client dto.pricing for food/mixed).
+  let serverDeliveryFee = 0;
+  let serverTotalDeliveryFee = 0;
+  let serverUserDeliveryFee = 0;
+  let serverRestaurantDeliveryFee = 0;
+  let serverSponsoredDelivery = false;
+  let serverSponsoredKm = 0;
+  let serverDeliveryDistanceKm = null;
+  let serverDeliverySponsorType = "USER_FULL";
+
+  if (orderType === "food") {
+    const userPoint = getPointLatLng(deliveryAddress?.location);
+    const restaurantPoint = getPointLatLng(primaryRestaurant?.location);
+    const distanceForFee =
+      userPoint && restaurantPoint
+        ? haversineKm(restaurantPoint.lat, restaurantPoint.lng, userPoint.lat, userPoint.lng)
+        : 0;
+    const deliveryPricing = calculateFoodDeliveryPricing({
+      subtotal: computedSubtotal,
+      distanceKm: distanceForFee,
+      feeSettings: feeSettingsForOrder,
+    });
+    serverDeliveryFee = deliveryPricing.deliveryFee;
+    serverTotalDeliveryFee = deliveryPricing.totalDeliveryFee;
+    serverUserDeliveryFee = deliveryPricing.userDeliveryFee;
+    serverRestaurantDeliveryFee = deliveryPricing.restaurantDeliveryFee;
+    serverSponsoredDelivery = deliveryPricing.sponsoredDelivery;
+    serverSponsoredKm = deliveryPricing.sponsoredKm;
+    serverDeliveryDistanceKm = deliveryPricing.deliveryDistanceKm;
+    serverDeliverySponsorType = deliveryPricing.deliverySponsorType;
+  } else if (orderType === "mixed") {
+    const userPoint = getPointLatLng(deliveryAddress?.location);
+    const restaurantPoint = getPointLatLng(primaryRestaurant?.location);
+    const distanceForFee =
+      userPoint && restaurantPoint
+        ? haversineKm(restaurantPoint.lat, restaurantPoint.lng, userPoint.lat, userPoint.lng)
+        : 0;
+    const foodDeliveryPricing = calculateFoodDeliveryPricing({
+      subtotal: computedSubtotal,
+      distanceKm: distanceForFee,
+      feeSettings: feeSettingsForOrder,
+    });
+    const quickSubtotalOnly = items
+      .filter((i) => i.type === "quick")
+      .reduce((s, i) => s + (Number(i.price) || 0) * (Number(i.quantity) || 1), 0);
+    const quickDeliveryFee = calculateDeliveryFeeFromSettings(
+      quickSubtotalOnly,
+      quickFeeDocForOrder || undefined,
+    );
+    const selectedFleet = requestedDeliveryFleet === "express" ? "express" : "normal";
+    serverDeliveryFee = selectedFleet === "express"
+      ? foodDeliveryPricing.deliveryFee + quickDeliveryFee
+      : Math.max(foodDeliveryPricing.deliveryFee, quickDeliveryFee);
+    serverTotalDeliveryFee = serverDeliveryFee;
+    serverUserDeliveryFee = serverDeliveryFee;
+    serverDeliveryDistanceKm = foodDeliveryPricing.deliveryDistanceKm;
+  }
+
+  if (computedFreeDelivery) {
+    serverDeliveryFee = 0;
+    serverTotalDeliveryFee = 0;
+    serverUserDeliveryFee = 0;
+    serverRestaurantDeliveryFee = 0;
+    serverSponsoredDelivery = false;
+    serverDeliverySponsorType = "USER_FULL";
+  }
 
   // Fast-delivery (Eco/Standard/Express) surcharge — same real lookup calculateOrder
   // already uses, so createOrder can't be handed a fabricated deliverySpeedFee.
@@ -2357,30 +2444,24 @@ export async function createOrder(userId, dto) {
   const normalizedPricing = {
     subtotal: computedSubtotal,
     tax: computedTax,
-    packagingFee: Number(dto.pricing?.packagingFee ?? 0),
-    // A valid free-delivery coupon zeroes the whole delivery-fee block rather than just
-    // the user-facing portion — otherwise the reconciliation logic below would misattribute
-    // the coupon-funded cost to the restaurant as if it were a restaurant sponsorship.
-    deliveryFee: computedFreeDelivery ? 0 : Number(dto.pricing?.deliveryFee ?? 0),
-    totalDeliveryFee: computedFreeDelivery ? 0 : Number(
-      dto.pricing?.totalDeliveryFee ?? dto.pricing?.deliveryFee ?? 0,
-    ),
-    userDeliveryFee: computedFreeDelivery ? 0 : Number(
-      dto.pricing?.userDeliveryFee ?? dto.pricing?.deliveryFee ?? 0,
-    ),
-    restaurantDeliveryFee: computedFreeDelivery ? 0 : Number(dto.pricing?.restaurantDeliveryFee ?? 0),
-    sponsoredDelivery: computedFreeDelivery ? false : Boolean(dto.pricing?.sponsoredDelivery),
-    sponsoredKm: Number(dto.pricing?.sponsoredKm ?? 0),
-    deliveryDistanceKm:
-      dto.pricing?.deliveryDistanceKm == null
-        ? null
-        : Number(dto.pricing.deliveryDistanceKm),
-    deliverySponsorType: computedFreeDelivery ? "USER_FULL" : String(
-      dto.pricing?.deliverySponsorType ||
-        (Number(dto.pricing?.restaurantDeliveryFee || 0) > 0 ? "RESTAURANT_FULL" : "USER_FULL"),
-    ),
+    packagingFee: 0,
+    deliveryFee: serverDeliveryFee,
+    totalDeliveryFee: serverTotalDeliveryFee,
+    userDeliveryFee: serverUserDeliveryFee,
+    restaurantDeliveryFee: serverRestaurantDeliveryFee,
+    sponsoredDelivery: serverSponsoredDelivery,
+    sponsoredKm: serverSponsoredKm,
+    deliveryDistanceKm: serverDeliveryDistanceKm,
+    deliverySponsorType: serverDeliverySponsorType,
     platformFee: computedPlatformFee,
     discount: computedDiscount,
+    itemDiscount: computedItemDiscount,
+    couponDiscount: computedCouponDiscount,
+    couponCode: couponResult.appliedCoupon?.code || (computedDiscount > 0 || computedFreeDelivery ? couponResult.couponCode : "") || "",
+    couponSource: couponResult.appliedCoupon ? (couponResult.couponSource || "") : "",
+    couponRefId: couponResult.appliedCoupon ? (couponResult.couponRefId || "") : "",
+    couponFreeDelivery: computedFreeDelivery,
+    couponConsumed: false,
     deliverySpeedFee: computedDeliverySpeedFee,
     deliverySpeed: selectedDeliverySpeedOptionForOrder
       ? {
@@ -2397,7 +2478,7 @@ export async function createOrder(userId, dto) {
     restaurantCommissionPercentage: commissionPercentage,
     restaurantCommission: restaurantCommission,
     total: 0,
-    currency: String(dto.pricing?.currency || "INR"),
+    currency: "INR",
   };
   normalizedPricing.totalDeliveryFee = Math.max(0, normalizedPricing.totalDeliveryFee);
   normalizedPricing.userDeliveryFee = Math.max(
@@ -2435,7 +2516,7 @@ export async function createOrder(userId, dto) {
     );
   }
   normalizedPricing.sponsoredDelivery =
-    Boolean(dto.pricing?.sponsoredDelivery) ||
+    Boolean(normalizedPricing.sponsoredDelivery) ||
     normalizedPricing.restaurantDeliveryFee > 0;
   const computedTotal = Math.max(
     0,
@@ -2712,36 +2793,29 @@ export async function createOrder(userId, dto) {
   } catch {
     // Don't block order placement on socket failures.
   }
-  const couponCode = dto.couponCode
-    ? String(dto.couponCode).trim().toUpperCase()
-    : "";
-  if ((orderType === "food" || orderType === "mixed") && couponCode) {
-    const offer = await FoodOffer.findOne({ couponCode }).lean();
-    if (offer) {
-      await FoodOffer.updateOne({ _id: offer._id }, { $inc: { usedCount: 1 } });
-      if (userId) {
-        await FoodOfferUsage.updateOne(
-          { offerId: offer._id, userId: new mongoose.Types.ObjectId(userId) },
-          { $inc: { count: 1 }, $set: { lastUsedAt: new Date() } },
-          { upsert: true },
-        );
-      }
-    } else {
-      let resolvedRestaurantId = primaryRestaurantId;
-      if (primaryRestaurantId && !mongoose.Types.ObjectId.isValid(primaryRestaurantId)) {
-        const { FoodRestaurant } = await import('../../restaurant/models/restaurant.model.js');
-        const rest = await FoodRestaurant.findOne({ restaurantId: primaryRestaurantId }).select('_id').lean();
-        if (rest) {
-          resolvedRestaurantId = rest._id;
-        }
-      }
-      if (mongoose.Types.ObjectId.isValid(resolvedRestaurantId)) {
-        const { RestaurantCoupon } = await import('../../admin/models/restaurantCoupon.model.js');
-        await RestaurantCoupon.updateOne(
-          { couponCode, restaurantId: new mongoose.Types.ObjectId(resolvedRestaurantId) },
-          { $inc: { usedCount: 1 } }
-        );
-      }
+  // Consume coupon only after successful COD/wallet placement (online unpaid waits for verifyPayment).
+  if (
+    (orderType === "food" || orderType === "mixed") &&
+    (isCash || isWallet) &&
+    (Number(order.pricing?.couponDiscount || order.pricing?.discount || 0) > 0 ||
+      order.pricing?.couponFreeDelivery)
+  ) {
+    try {
+      await consumeCouponForOrder(order);
+    } catch (err) {
+      logger.warn(`Coupon consume failed for order ${order.orderId}: ${err?.message || err}`);
+    }
+  }
+
+  // Clear DB food cart after successful COD/wallet/QR placement (online waits for verifyPayment).
+  if (
+    hasFoodItems &&
+    (isCash || isWallet || String(dto.paymentMethod || "") === "razorpay_qr")
+  ) {
+    try {
+      await clearFoodCart(userId);
+    } catch (err) {
+      logger.warn(`Food cart clear failed for order ${order.orderId}: ${err?.message || err}`);
     }
   }
 
@@ -2794,6 +2868,20 @@ export async function verifyPayment(userId, dto) {
     note: "Payment verified",
   });
   await order.save();
+
+  try {
+    await consumeCouponForOrder(order);
+  } catch (err) {
+    logger.warn(`Coupon consume failed after verifyPayment for ${order.orderId}: ${err?.message || err}`);
+  }
+
+  if (order.orderType === "food" || order.orderType === "mixed") {
+    try {
+      await clearFoodCart(userId);
+    } catch (err) {
+      logger.warn(`Food cart clear failed after verifyPayment for ${order.orderId}: ${err?.message || err}`);
+    }
+  }
 
   await foodTransactionService.updateTransactionStatus(order._id, 'captured', {
     status: 'captured',
@@ -3012,6 +3100,12 @@ export async function cancelOrder(orderId, userId, reason, refundTo) {
     to: "cancelled_by_user",
     note: reason || "",
   });
+
+  try {
+    await releaseCouponForOrder(order);
+  } catch (err) {
+    logger.warn(`Coupon release failed on cancel for ${order.orderId}: ${err?.message || err}`);
+  }
 
   const paymentMethod = String(order.payment?.method || "").trim().toLowerCase();
   const isOnlinePaid =
@@ -3612,6 +3706,14 @@ export async function updateOrderStatusRestaurant(
       }
       // Re-save order with updated payment status
       await order.save();
+    }
+
+    if (String(orderStatus).includes("cancel")) {
+      try {
+        await releaseCouponForOrder(order);
+      } catch (err) {
+        logger.warn(`Coupon release failed on restaurant cancel for ${order.orderId}: ${err?.message || err}`);
+      }
     }
 
     return order.toObject();
@@ -4697,6 +4799,11 @@ async function syncRazorpayQrPayment(orderDoc) {
   if (["paid", "captured", "authorized"].includes(linkStatus)) {
     orderDoc.payment.status = "paid";
     await orderDoc.save();
+    try {
+      await consumeCouponForOrder(orderDoc);
+    } catch (err) {
+      logger.warn(`Coupon consume failed after QR paid for ${orderDoc.orderId}: ${err?.message || err}`);
+    }
   } else if (["expired", "cancelled", "canceled", "failed"].includes(linkStatus)) {
     orderDoc.payment.status = "failed";
     await orderDoc.save();
@@ -5031,6 +5138,12 @@ export async function recoverStuckOrders() {
         });
 
         await order.save({ validateBeforeSave: false });
+
+        try {
+          await releaseCouponForOrder(order);
+        } catch (err) {
+          logger.warn(`Coupon release failed on watchdog cancel for ${order.orderId}: ${err?.message || err}`);
+        }
         
         // Sync mixed order seller legs
         if (order.orderType === 'mixed' || order.orderType === 'quick') {

@@ -106,6 +106,13 @@ const pricingSchema = new mongoose.Schema(
         deliverySponsorType: { type: String, default: 'USER_FULL', trim: true },
         platformFee: { type: Number, default: 0, min: 0 },
         discount: { type: Number, default: 0, min: 0 },
+        itemDiscount: { type: Number, default: 0, min: 0 },
+        couponDiscount: { type: Number, default: 0, min: 0 },
+        couponCode: { type: String, default: '', trim: true, uppercase: true },
+        couponSource: { type: String, enum: ['', 'admin', 'restaurant'], default: '' },
+        couponRefId: { type: String, default: '', trim: true },
+        couponFreeDelivery: { type: Boolean, default: false },
+        couponConsumed: { type: Boolean, default: false },
         deliverySpeedFee: { type: Number, default: 0, min: 0 },
         deliverySpeed: {
             type: new mongoose.Schema(

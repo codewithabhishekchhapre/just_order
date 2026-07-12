@@ -442,12 +442,13 @@ export default function RestaurantOTP() {
             <div className="p-5 space-y-4">
               <div className="space-y-1.5">
                 <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-widest">Reason</p>
-                <div className="bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl p-4 text-gray-700 dark:text-gray-300 text-sm leading-relaxed italic">
-                  {rejectionModalData.reason}
+                <div className="bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl p-4 text-gray-700 dark:text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">
+                  {rejectionModalData.reason || "No reason provided"}
                 </div>
               </div>
-              <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/30 rounded-2xl p-3 text-xs text-amber-800 dark:text-amber-400 leading-relaxed">
-                <strong>Note:</strong> Re-applying will clear your previous draft. You must fill out the form entirely from scratch.
+              <div className="bg-sky-50 dark:bg-sky-950/20 border border-sky-100 dark:border-sky-900/30 rounded-2xl p-3 text-xs text-sky-800 dark:text-sky-300 leading-relaxed">
+                <strong>Edit &amp; Resubmit</strong> keeps your previous details so you can fix only what is needed.
+                Choose <strong>Create New Restaurant</strong> only if you want a brand-new application with a different phone/email.
               </div>
             </div>
 
@@ -456,16 +457,43 @@ export default function RestaurantOTP() {
               <button
                 type="button"
                 onClick={() => {
+                  // Edit & Resubmit: keep phone, load previous data, update SAME record on submit.
                   localStorage.removeItem("restaurant_onboarding_data")
-                  localStorage.removeItem("restaurant_pendingPhone")
-                  sessionStorage.setItem("restaurantReonboard", "true")
-                  if (rejectionModalData.phone) localStorage.setItem("restaurant_pendingPhone", rejectionModalData.phone)
+                  sessionStorage.removeItem("restaurantReonboard")
+                  sessionStorage.removeItem("restaurantCreateNew")
+                  sessionStorage.setItem("restaurantResubmit", "true")
+                  if (rejectionModalData.phone) {
+                    localStorage.setItem("restaurant_pendingPhone", rejectionModalData.phone)
+                  }
                   setRejectionModalData({ isOpen: false, reason: "", phone: "" })
-                  navigate("/food/restaurant/onboarding", { replace: true })
+                  navigate("/food/restaurant/onboarding", {
+                    replace: true,
+                    state: {
+                      verifiedPhone: rejectionModalData.phone || "",
+                      isResubmit: true,
+                      rejectionReason: rejectionModalData.reason || "",
+                    },
+                  })
                 }}
                 className="w-full h-12 bg-red-500 hover:bg-red-600 text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-all"
               >
-                Re-apply / Start Fresh
+                Edit &amp; Resubmit
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  // Create New: leave previous rejected application unchanged; force new identity.
+                  localStorage.removeItem("restaurant_onboarding_data")
+                  localStorage.removeItem("restaurant_pendingPhone")
+                  sessionStorage.removeItem("restaurantResubmit")
+                  sessionStorage.removeItem("restaurantReonboard")
+                  sessionStorage.setItem("restaurantCreateNew", "true")
+                  setRejectionModalData({ isOpen: false, reason: "", phone: "" })
+                  navigate("/food/restaurant/auth/signup", { replace: true })
+                }}
+                className="w-full h-12 border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#151515] hover:bg-slate-50 dark:hover:bg-white/5 text-slate-800 dark:text-slate-100 rounded-2xl font-semibold text-sm active:scale-[0.98] transition-all"
+              >
+                Create New Restaurant
               </button>
               <button
                 type="button"

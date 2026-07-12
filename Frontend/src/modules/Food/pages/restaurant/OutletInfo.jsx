@@ -1,17 +1,10 @@
 import { useState, useEffect, useRef } from "react"
 import { useNavigate } from "react-router-dom"
 import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation"
-import { motion, AnimatePresence } from "framer-motion"
-import Lenis from "lenis"
 import {
-  Edit,
   Pencil,
   Plus,
   MapPin,
-  Clock,
-  Star,
-  ChevronRight,
-  X,
   Trash2,
   AlertCircle,
 } from "lucide-react"
@@ -58,6 +51,11 @@ export default function OutletInfo() {
   const [coverImages, setCoverImages] = useState([])
   const [showEditNameDialog, setShowEditNameDialog] = useState(false)
   const [editNameValue, setEditNameValue] = useState("")
+  const [showEditFoodTypeDialog, setShowEditFoodTypeDialog] = useState(false)
+  const [editFoodTypeValue, setEditFoodTypeValue] = useState(false)
+  const [pendingUpdateStatus, setPendingUpdateStatus] = useState("none")
+  const [pendingUpdateReason, setPendingUpdateReason] = useState("")
+  const [pendingUpdates, setPendingUpdates] = useState(null)
   const [showEditPhoneDialog, setShowEditPhoneDialog] = useState(false)
   const [editPhoneValue, setEditPhoneValue] = useState("")
   const [restaurantId, setRestaurantId] = useState("")
@@ -141,6 +139,11 @@ export default function OutletInfo() {
             email: data.ownerEmail || ""
           })
 
+          // Set pending updates
+          setPendingUpdateStatus(data.pendingUpdateStatus || "none")
+          setPendingUpdateReason(data.pendingUpdateReason || "")
+          setPendingUpdates(data.pendingUpdates || null)
+
           // Set Legal Info
           setLegalInfo({
             fssai: data.fssaiNumber || "",
@@ -220,25 +223,26 @@ export default function OutletInfo() {
     }
   }, [])
 
-  // Lenis smooth scrolling
-  useEffect(() => {
-    const lenis = new Lenis({
-      duration: 1.2,
-      easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
-      smoothWheel: true,
-    })
-
-    function raf(time) {
-      lenis.raf(time)
-      requestAnimationFrame(raf)
+  const pendingSummaryLabels = (() => {
+    if (!pendingUpdates || typeof pendingUpdates !== "object") return []
+    const labels = []
+    if (pendingUpdates.location || pendingUpdates.addressLine1 !== undefined) labels.push("Address")
+    const legalKeys = [
+      "fssaiNumber", "fssaiExpiry", "fssaiImage",
+      "panNumber", "nameOnPan", "panImage",
+      "gstRegistered", "gstNumber", "gstLegalName", "gstAddress", "gstImage",
+    ]
+    if (legalKeys.some((key) => Object.prototype.hasOwnProperty.call(pendingUpdates, key))) {
+      labels.push("Legal & Compliance")
     }
-
-    requestAnimationFrame(raf)
-
-    return () => {
-      lenis.destroy()
+    const bankKeys = [
+      "accountHolderName", "accountNumber", "ifscCode", "accountType", "upiId", "upiQrImage",
+    ]
+    if (bankKeys.some((key) => Object.prototype.hasOwnProperty.call(pendingUpdates, key))) {
+      labels.push("Bank Account")
     }
-  }, [])
+    return labels
+  })()
 
   // Handle profile image replacement
   const handleProfileImageReplace = async (file) => {
@@ -389,12 +393,37 @@ export default function OutletInfo() {
     const newName = editNameValue.trim()
     if (!newName) return
     try {
-      await restaurantAPI.updateProfile({ name: newName })
-      setRestaurantName(newName)
+      const response = await restaurantAPI.updateProfile({ name: newName })
+      const data = response?.data?.data?.restaurant || response?.data?.restaurant
+      setRestaurantName(data?.restaurantName || data?.name || newName)
+      if (data?.pendingUpdateStatus) setPendingUpdateStatus(data.pendingUpdateStatus)
+      if (data?.pendingUpdateReason !== undefined) setPendingUpdateReason(data.pendingUpdateReason || "")
+      if (data?.pendingUpdates !== undefined) setPendingUpdates(data.pendingUpdates || null)
       setShowEditNameDialog(false)
-      toast.success("Name updated successfully")
+      toast.success("Restaurant name updated")
     } catch (error) {
-      toast.error("Failed to update name")
+      toast.error(error?.response?.data?.message || "Failed to update name")
+    }
+  }
+
+  // Handle edit food type dialog
+  const handleOpenFoodTypeDialog = () => {
+    setEditFoodTypeValue(isPureVeg)
+    setShowEditFoodTypeDialog(true)
+  }
+
+  const handleSaveFoodType = async () => {
+    try {
+      const response = await restaurantAPI.updateProfile({ pureVegRestaurant: editFoodTypeValue })
+      const data = response?.data?.data?.restaurant || response?.data?.restaurant
+      setIsPureVeg(Boolean(data?.pureVegRestaurant ?? editFoodTypeValue))
+      if (data?.pendingUpdateStatus) setPendingUpdateStatus(data.pendingUpdateStatus)
+      if (data?.pendingUpdateReason !== undefined) setPendingUpdateReason(data.pendingUpdateReason || "")
+      if (data?.pendingUpdates !== undefined) setPendingUpdates(data.pendingUpdates || null)
+      setShowEditFoodTypeDialog(false)
+      toast.success("Food type updated")
+    } catch (error) {
+      toast.error(error?.response?.data?.message || "Failed to update food type")
     }
   }
 
@@ -437,7 +466,31 @@ export default function OutletInfo() {
           </span>
         )}
       >
-        <div className="relative w-full h-[200px] overflow-visible">
+        {pendingUpdateStatus === "pending" && (
+          <div className="bg-orange-50 border border-orange-200 p-4 m-4 rounded-xl flex flex-col gap-2">
+            <h4 className="text-orange-800 font-bold text-sm uppercase flex items-center gap-2">
+              <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse" />
+              Pending Approval
+            </h4>
+            <p className="text-orange-700 text-sm">
+              Changes to {pendingSummaryLabels.length ? pendingSummaryLabels.join(", ") : "Address, Legal & Compliance, or Bank Account"} were sent for admin approval. Approved live values stay active until then.
+            </p>
+          </div>
+        )}
+
+        {pendingUpdateStatus === "rejected" && (
+          <div className="bg-red-50 border border-red-200 p-4 m-4 rounded-xl flex flex-col gap-2">
+            <h4 className="text-red-800 font-bold text-sm uppercase">Update Rejected</h4>
+            <p className="text-red-700 text-sm font-medium">
+              {pendingUpdateReason || "Your outlet update was rejected. Please edit and resubmit."}
+            </p>
+            <p className="text-xs text-red-600">
+              Edit Address, Legal & Compliance, or Bank Account to update the same request and resubmit.
+            </p>
+          </div>
+        )}
+
+        <div className="relative w-full h-[200px] overflow-hidden">
           <img src={mainImage} alt="Restaurant banner" className="w-full h-full object-cover" />
           
           <button
@@ -541,7 +594,7 @@ export default function OutletInfo() {
         </div>
 
         {/* Info Sections */}
-        <div className="px-4 pb-4 space-y-8">
+        <div className="px-4 pb-24 space-y-8">
           {/* Basic Information */}
           <section className="space-y-4">
             <div className="flex items-center gap-2 ml-1">
@@ -569,6 +622,9 @@ export default function OutletInfo() {
                     <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">{isPureVeg ? "Pure Veg" : "Veg & Non-Veg"}</span>
                   </div>
                 </div>
+                <button onClick={handleOpenFoodTypeDialog} className="p-2 hover:bg-gray-50 rounded-full transition-colors">
+                  <Pencil className="w-4 h-4 text-[#FF6A00]" />
+                </button>
               </div>
             </div>
           </section>
@@ -584,6 +640,16 @@ export default function OutletInfo() {
                     <p className="text-xs text-gray-400 font-medium">Outlet Address</p>
                   </div>
                   <p className="text-sm font-semibold text-gray-800 leading-relaxed">{address || "Address not set"}</p>
+                  {pendingUpdateStatus === "pending" && pendingUpdates?.location ? (
+                    <p className="text-xs text-orange-600 mt-1 font-medium">
+                      Pending approval: {pendingUpdates.location?.formattedAddress || pendingUpdates.location?.address || "New address submitted"}
+                    </p>
+                  ) : null}
+                  {pendingUpdateStatus === "rejected" && pendingUpdates?.location ? (
+                    <p className="text-xs text-red-600 mt-1 font-medium">
+                      Rejected request: {pendingUpdates.location?.formattedAddress || pendingUpdates.location?.address || "Previous address submission"}
+                    </p>
+                  ) : null}
                 </div>
                 <button onClick={() => navigate("/food/restaurant/edit-address")} className="p-2 hover:bg-gray-50 rounded-full transition-colors">
                   <Pencil className="w-4 h-4 text-[#FF6A00]" />
@@ -636,6 +702,11 @@ export default function OutletInfo() {
                 <div className="flex-1 min-w-0">
                   <p className="text-xs text-gray-400 font-medium mb-1">FSSAI License</p>
                   <p className="text-sm font-bold text-gray-800 dark:text-gray-200">{restaurantData?.fssaiNumber || "Not provided"}</p>
+                  {pendingUpdateStatus === "pending" && pendingUpdates?.fssaiNumber ? (
+                    <p className="text-xs text-orange-600 mt-1 font-medium">
+                      Pending approval: {pendingUpdates.fssaiNumber}
+                    </p>
+                  ) : null}
                 </div>
                 <button onClick={() => navigate("/food/restaurant/fssai")} className="p-2 hover:bg-gray-50 rounded-full transition-colors">
                   <Pencil className="w-4 h-4 text-[#FF6A00]" />
@@ -645,38 +716,31 @@ export default function OutletInfo() {
               <div className="p-4 border-b border-gray-100 dark:border-gray-800">
                   <p className="text-xs text-gray-400 font-medium mb-1">GST Number</p>
                   <p className="text-sm font-bold text-gray-800 dark:text-gray-200">{restaurantData?.gstNumber || "Not provided"}</p>
+                  {pendingUpdateStatus === "pending" && pendingUpdates?.gstNumber ? (
+                    <p className="text-xs text-orange-600 mt-1 font-medium">
+                      Pending approval: {pendingUpdates.gstNumber}
+                    </p>
+                  ) : null}
               </div>
 
               <div className="p-4">
                   <p className="text-xs text-gray-400 font-medium mb-1">PAN Number</p>
                   <p className="text-sm font-bold text-gray-800 dark:text-gray-200">{restaurantData?.panNumber || "Not provided"}</p>
+                  {pendingUpdateStatus === "pending" && pendingUpdates?.panNumber ? (
+                    <p className="text-xs text-orange-600 mt-1 font-medium">
+                      Pending approval: {pendingUpdates.panNumber}
+                    </p>
+                  ) : null}
               </div>
             </div>
           </section>
 
-          {/* Operational Settings */}
+          {/* Service Zone */}
           <section className="space-y-3">
-            <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider ml-1">Operational</h3>
+            <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider ml-1">Service Zone</h3>
             <div className="bg-white dark:bg-[#111] border border-gray-100 dark:border-gray-800 rounded-2xl overflow-hidden">
-              <div className="p-4 border-b border-gray-100 flex justify-between items-center">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Clock className="w-3.5 h-3.5 text-gray-400" />
-                    <p className="text-xs text-gray-400 font-medium">Outlet Timings</p>
-                  </div>
-                  <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">
-                    {restaurantData?.openingTime && restaurantData?.closingTime 
-                      ? `${restaurantData.openingTime} - ${restaurantData.closingTime}` 
-                      : "Timings not set"}
-                  </p>
-                </div>
-                <button onClick={() => navigate("/food/restaurant/outlet-timings")} className="p-2 hover:bg-gray-50 rounded-full transition-colors">
-                  <Pencil className="w-4 h-4 text-[#FF6A00]" />
-                </button>
-              </div>
-
               <div className="p-4">
-                <p className="text-xs text-gray-400 font-medium mb-1">Service Zone</p>
+                <p className="text-xs text-gray-400 font-medium mb-1">Assigned Zone</p>
                 <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">{restaurantData?.zoneName || "Not assigned"}</p>
               </div>
             </div>
@@ -690,6 +754,11 @@ export default function OutletInfo() {
                 <div className="flex-1 min-w-0">
                   <p className="text-xs text-gray-400 font-medium mb-1">Account Number</p>
                   <p className="text-sm font-bold text-gray-800 dark:text-gray-200">{restaurantData?.accountNumber || "Not provided"}</p>
+                  {pendingUpdateStatus === "pending" && pendingUpdates?.accountNumber ? (
+                    <p className="text-xs text-orange-600 mt-1 font-medium">
+                      Pending approval: {pendingUpdates.accountNumber}
+                    </p>
+                  ) : null}
                 </div>
                 <button onClick={() => navigate("/food/restaurant/update-bank-details")} className="p-2 hover:bg-gray-50 rounded-full transition-colors">
                   <Pencil className="w-4 h-4 text-[#FF6A00]" />
@@ -799,6 +868,68 @@ export default function OutletInfo() {
               Remind me later
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* Edit Food Type Dialog */}
+      <Dialog open={showEditFoodTypeDialog} onOpenChange={setShowEditFoodTypeDialog}>
+        <DialogContent className="sm:max-w-md w-[90%] rounded-2xl mx-auto border-0 shadow-2xl p-0 overflow-hidden bg-white">
+          <div className="px-6 pt-6 pb-4 border-b border-gray-100">
+            <DialogTitle className="text-xl font-bold text-gray-900">Food Type</DialogTitle>
+            <DialogDescription className="text-sm text-gray-500 mt-1">
+              Select the type of food served at your restaurant.
+            </DialogDescription>
+          </div>
+          
+          <div className="p-6">
+            <div className="space-y-4">
+              <label className={`flex items-center p-4 border rounded-xl cursor-pointer transition-colors ${editFoodTypeValue === true ? 'border-green-500 bg-green-50' : 'border-gray-200 hover:border-green-200'}`}>
+                <div className="flex-1 flex items-center gap-3">
+                  <div className="w-4 h-4 border-2 border-green-600 flex items-center justify-center p-0.5">
+                    <div className="w-full h-full rounded-full bg-green-600" />
+                  </div>
+                  <span className="font-semibold text-gray-900">Pure Veg</span>
+                </div>
+                <input 
+                  type="radio" 
+                  name="foodType" 
+                  checked={editFoodTypeValue === true} 
+                  onChange={() => setEditFoodTypeValue(true)}
+                  className="w-4 h-4 text-green-600 focus:ring-green-500 border-gray-300"
+                />
+              </label>
+
+              <label className={`flex items-center p-4 border rounded-xl cursor-pointer transition-colors ${editFoodTypeValue === false ? 'border-red-500 bg-red-50' : 'border-gray-200 hover:border-red-200'}`}>
+                <div className="flex-1 flex items-center gap-3">
+                  <div className="w-4 h-4 border-2 border-red-600 flex items-center justify-center p-0.5">
+                    <div className="w-full h-full rounded-full bg-red-600" />
+                  </div>
+                  <span className="font-semibold text-gray-900">Veg & Non-Veg</span>
+                </div>
+                <input 
+                  type="radio" 
+                  name="foodType" 
+                  checked={editFoodTypeValue === false} 
+                  onChange={() => setEditFoodTypeValue(false)}
+                  className="w-4 h-4 text-[#FF6A00] focus:ring-[#FF6A00] border-gray-300"
+                />
+              </label>
+            </div>
+            
+            <div className="flex gap-3 mt-8">
+              <button
+                onClick={() => setShowEditFoodTypeDialog(false)}
+                className="flex-1 px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold rounded-xl transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveFoodType}
+                className="flex-1 px-4 py-3 bg-black hover:bg-gray-900 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-black/20"
+              >
+                Save Changes
+              </button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </>

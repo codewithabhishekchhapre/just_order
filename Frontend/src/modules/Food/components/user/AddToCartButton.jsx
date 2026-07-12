@@ -12,7 +12,7 @@ export default function AddToCartButton({ item, className = "" }) {
   const navigate = useNavigate()
   const location = useLocation()
 
-  const handleAddToCart = (e) => {
+  const handleAddToCart = async (e) => {
     e.preventDefault()
     e.stopPropagation()
 
@@ -22,7 +22,10 @@ export default function AddToCartButton({ item, className = "" }) {
       return
     }
 
-    addToCart(item)
+    const result = await addToCart(item)
+    if (result?.ok === false) {
+      toast.error(result.error || "Cannot add item to cart")
+    }
   }
 
   const handleIncrease = (e) => {

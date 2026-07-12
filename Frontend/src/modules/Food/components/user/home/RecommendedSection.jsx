@@ -188,8 +188,8 @@ const RecommendedSection = memo(({ recommendedForYouRestaurants }) => {
 
   if (!products || products.length === 0) return null;
 
-  const handleAddToCart = (product, quantity) => {
-    addToCart({
+  const handleAddToCart = async (product, quantity) => {
+    const result = await addToCart({
       ...product,
       quantity,
       price: product.price,
@@ -197,6 +197,10 @@ const RecommendedSection = memo(({ recommendedForYouRestaurants }) => {
       restaurantId: product.restaurantId,
       restaurant: product.restaurant
     });
+    if (result?.ok === false) {
+      // keep modal open on mismatch so user can decide
+      return;
+    }
     setSelectedProduct(null);
   };
 

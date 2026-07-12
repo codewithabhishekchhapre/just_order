@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useLocation, useNavigate } from "react-router-dom"
 import { CheckCircle2, Clock, Mail, Phone, ShieldCheck, Store, ChevronRight } from "lucide-react"
 import { Button } from "@food/components/ui/button"
@@ -6,8 +6,11 @@ import { useCompanyName } from "@food/hooks/useCompanyName"
 import apiClient, { restaurantAPI } from "@food/api"
 import {
   clearRestaurantPendingPhone,
+  clearRestaurantSessionClaimToken,
   getModuleToken,
   getRestaurantPendingPhone,
+  getRestaurantSessionClaimToken,
+  setAuthData,
 } from "@food/utils/auth"
 
 const steps = [
@@ -32,18 +35,21 @@ const steps = [
   },
 ]
 
+const POLL_INTERVAL_MS = 8000
+
 export default function VerificationPending() {
   const companyName = useCompanyName()
   const navigate = useNavigate()
   const location = useLocation()
   const [checkingStatus, setCheckingStatus] = useState(true)
+  const [activating, setActivating] = useState(false)
   const [dotCount, setDotCount] = useState(1)
+  const activatingRef = useRef(false)
 
   const pendingPhone = useMemo(() => {
     return location.state?.phone || getRestaurantPendingPhone() || ""
   }, [location.state?.phone])
 
-  /* Animated dots for "checking status" */
   useEffect(() => {
     if (!checkingStatus) return
     const id = setInterval(() => setDotCount((d) => (d % 3) + 1), 600)
@@ -53,17 +59,103 @@ export default function VerificationPending() {
   useEffect(() => {
     let cancelled = false
 
+    const enterDashboard = (restaurant, accessToken, refreshToken) => {
+      if (accessToken && restaurant) {
+        setAuthData("restaurant", accessToken, restaurant, refreshToken || null)
+        try {
+          window.dispatchEvent(new Event("restaurantAuthChanged"))
+        } catch { }
+      } else if (restaurant) {
+        // Refresh stored profile status when a pending session token already exists.
+        try {
+          const existing = localStorage.getItem("restaurant_user")
+          const parsed = existing ? JSON.parse(existing) : {}
+          localStorage.setItem(
+            "restaurant_user",
+            JSON.stringify({ ...parsed, ...restaurant, status: "approved" }),
+          )
+          window.dispatchEvent(new Event("restaurantAuthChanged"))
+        } catch { }
+      }
+
+      clearRestaurantPendingPhone()
+      clearRestaurantSessionClaimToken()
+      navigate("/food/restaurant", { replace: true })
+    }
+
+    const activateApprovedSession = async (restaurantHint = null) => {
+      if (activatingRef.current) return
+      activatingRef.current = true
+      if (!cancelled) setActivating(true)
+
+      try {
+        const token = getModuleToken("restaurant")
+        if (token) {
+          // Pending JWT is already valid after approval — refresh profile and open dashboard.
+          let restaurant = restaurantHint
+          try {
+            const response = await restaurantAPI.getCurrentRestaurant()
+            restaurant =
+              response?.data?.data?.restaurant ||
+              response?.data?.restaurant ||
+              restaurantHint
+          } catch { }
+          if (!cancelled) {
+            enterDashboard(restaurant || { status: "approved" }, token, localStorage.getItem("restaurant_refreshToken"))
+          }
+          return
+        }
+
+        const phone = pendingPhone || getRestaurantPendingPhone()
+        if (!phone) {
+          // No phone / claim available — stay on page; user can use Back to login.
+          return
+        }
+
+        const response = await restaurantAPI.activateSessionAfterApproval({
+          phone,
+          sessionClaimToken: getRestaurantSessionClaimToken(),
+        })
+        const payload = response?.data?.data || response?.data || {}
+        const restaurant =
+          payload.restaurant ||
+          payload.user ||
+          restaurantHint ||
+          { status: "approved" }
+        const accessToken = payload.accessToken
+        const refreshToken = payload.refreshToken || null
+
+        if (!accessToken) {
+          throw new Error("Failed to activate restaurant session")
+        }
+
+        if (!cancelled) {
+          enterDashboard(restaurant, accessToken, refreshToken)
+        }
+      } catch (_) {
+        // Keep waiting UI visible; next poll retries.
+      } finally {
+        activatingRef.current = false
+        if (!cancelled) {
+          setActivating(false)
+          setCheckingStatus(false)
+        }
+      }
+    }
+
     const checkApprovalStatus = async () => {
       const token = getModuleToken("restaurant")
-      const pendingPhoneStr = pendingPhone // from useMemo
-      
+      const pendingPhoneStr = pendingPhone || getRestaurantPendingPhone() || ""
+
       if (!token && !pendingPhoneStr) {
         if (!cancelled) setCheckingStatus(false)
         return
       }
 
+      if (!cancelled) setCheckingStatus(true)
+
       try {
-        let restaurant = null;
+        let restaurant = null
         if (token) {
           const response = await restaurantAPI.getCurrentRestaurant()
           restaurant =
@@ -72,7 +164,9 @@ export default function VerificationPending() {
             response?.data?.data?.user ||
             response?.data?.user
         } else {
-          const response = await apiClient.get(`/food/restaurant/onboarding/draft?phone=${encodeURIComponent(pendingPhoneStr)}`)
+          const response = await apiClient.get(
+            `/food/restaurant/onboarding/draft?phone=${encodeURIComponent(pendingPhoneStr)}`,
+          )
           restaurant =
             response?.data?.data?.restaurant ||
             response?.data?.restaurant ||
@@ -83,12 +177,16 @@ export default function VerificationPending() {
         if (cancelled) return
 
         if (String(restaurant?.status || "").toLowerCase() === "approved") {
+          await activateApprovedSession(restaurant)
+          return
+        }
+
+        if (String(restaurant?.status || "").toLowerCase() === "rejected") {
           clearRestaurantPendingPhone()
-          if (!token) {
-            navigate("/food/restaurant/auth/login", { replace: true })
-          } else {
-            navigate("/food/restaurant", { replace: true })
-          }
+          navigate("/food/restaurant/login", {
+            replace: true,
+            state: { rejectedWhileWaiting: true },
+          })
           return
         }
       } catch (_) {
@@ -99,6 +197,7 @@ export default function VerificationPending() {
     }
 
     checkApprovalStatus()
+    const pollId = setInterval(checkApprovalStatus, POLL_INTERVAL_MS)
 
     const handleVisibilityOrFocus = () => {
       if (document.visibilityState === "visible") checkApprovalStatus()
@@ -109,18 +208,15 @@ export default function VerificationPending() {
 
     return () => {
       cancelled = true
+      clearInterval(pollId)
       window.removeEventListener("focus", handleVisibilityOrFocus)
       document.removeEventListener("visibilitychange", handleVisibilityOrFocus)
     }
-  }, [navigate])
+  }, [navigate, pendingPhone])
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] flex flex-col items-center justify-center px-4 py-12">
-
-      {/* Card */}
       <div className="w-full max-w-md">
-
-        {/* Top badge */}
         <div className="flex justify-center mb-6">
           <div className="inline-flex items-center gap-2 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 text-amber-700 dark:text-amber-400 text-xs font-semibold px-4 py-1.5 rounded-full">
             <span className="relative flex h-2 w-2">
@@ -131,7 +227,6 @@ export default function VerificationPending() {
           </div>
         </div>
 
-        {/* Heading */}
         <div className="text-center mb-8">
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white leading-tight mb-3">
             Your application is<br />being verified
@@ -139,14 +234,15 @@ export default function VerificationPending() {
           <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed max-w-sm mx-auto">
             {companyName} received your onboarding details. Our team will verify your documents and activate your dashboard once approved.
           </p>
-          {checkingStatus && (
+          {(checkingStatus || activating) && (
             <p className="mt-3 text-xs font-medium text-gray-400 dark:text-gray-500">
-              Checking approval status{".".repeat(dotCount)}
+              {activating
+                ? `Opening your dashboard${".".repeat(dotCount)}`
+                : `Checking approval status${".".repeat(dotCount)}`}
             </p>
           )}
         </div>
 
-        {/* Timeline */}
         <div className="bg-white dark:bg-[#111] rounded-2xl border border-gray-100 dark:border-gray-800 p-5 mb-4">
           <div className="space-y-0">
             {steps.map((s, i) => {
@@ -154,7 +250,6 @@ export default function VerificationPending() {
               const isLast = i === steps.length - 1
               return (
                 <div key={i} className="flex gap-4">
-                  {/* Icon column */}
                   <div className="flex flex-col items-center">
                     <div
                       className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${
@@ -186,7 +281,6 @@ export default function VerificationPending() {
                     )}
                   </div>
 
-                  {/* Text */}
                   <div className={`pb-5 ${isLast ? "pb-0" : ""}`}>
                     <p
                       className={`text-sm font-semibold leading-tight ${
@@ -214,7 +308,6 @@ export default function VerificationPending() {
           </div>
         </div>
 
-        {/* Info box */}
         <div className="bg-white dark:bg-[#111] rounded-2xl border border-gray-100 dark:border-gray-800 p-4 mb-4 space-y-3">
           <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-widest">
             You will be notified via
@@ -241,19 +334,16 @@ export default function VerificationPending() {
           </div>
         </div>
 
-        {/* Estimated time note */}
         <div className="flex items-center gap-2.5 bg-gray-100 dark:bg-gray-800/60 rounded-xl px-4 py-3 mb-6">
           <Clock className="h-4 w-4 text-gray-400 dark:text-gray-500 flex-shrink-0" strokeWidth={1.5} />
           <p className="text-xs text-gray-500 dark:text-gray-400">
-            Verification typically takes <span className="font-semibold text-gray-700 dark:text-gray-300">24–48 hours</span> on business days.
+            Keep this page open — when approved, you will be taken to the dashboard automatically (no re-login needed).
           </p>
         </div>
 
-        {/* CTA */}
         <Button
           className="w-full h-12 rounded-xl bg-[#FF6A00] hover:bg-[#e05e00] text-white font-semibold text-sm flex items-center justify-center gap-2 shadow-lg shadow-[#FF6A00]/20 border-0"
           onClick={() => {
-            clearRestaurantPendingPhone()
             navigate("/food/restaurant/login", { replace: true })
           }}
         >

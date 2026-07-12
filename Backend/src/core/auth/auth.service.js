@@ -447,13 +447,6 @@ export const verifyRestaurantOtpAndLogin = async (phone, otp, fcmToken, platform
     }
   }
 
-  // Block login for deleted or deactivated restaurants
-  if (restaurant.isDeleted === true || restaurant.accountStatus === 'deleted' || restaurant.isActive === false) {
-    throw new AuthError(
-      "Your account has been deleted/deactivated. Please contact support.",
-    );
-  }
-
   // Block login for pending restaurants
   if (restaurant.status === "pending") {
     throw new AuthError("Your restaurant registration is pending approval.");
@@ -467,6 +460,13 @@ export const verifyRestaurantOtpAndLogin = async (phone, otp, fcmToken, platform
       phone,
       needsRegistration: false,
     };
+  }
+
+  // Block login for deleted or deactivated restaurants (after pending/rejected checks)
+  if (restaurant.isDeleted === true || restaurant.accountStatus === 'deleted' || restaurant.isActive === false) {
+    throw new AuthError(
+      "Your account has been deleted/deactivated. Please contact support.",
+    );
   }
 
   const payload = { userId: restaurant._id.toString(), role: ROLES.RESTAURANT };
@@ -486,6 +486,34 @@ export const verifyRestaurantOtpAndLogin = async (phone, otp, fcmToken, platform
     refreshToken,
     user: restaurant,
     needsRegistration: false,
+  };
+};
+
+/**
+ * Issue restaurant access/refresh tokens for an already-loaded restaurant document.
+ * Used after onboarding submit (pending session) and after approval activation.
+ */
+export const createRestaurantAuthSession = async (restaurant) => {
+  if (!restaurant?._id) {
+    throw new ValidationError("Restaurant is required");
+  }
+
+  const payload = { userId: restaurant._id.toString(), role: ROLES.RESTAURANT };
+  const accessToken = signAccessToken(payload);
+  const refreshToken = signRefreshToken(payload);
+  const ttlMs = ms(config.jwtRefreshExpiresIn || "7d");
+  const expiresAt = new Date(Date.now() + ttlMs);
+
+  await FoodRefreshToken.create({
+    userId: restaurant._id,
+    token: refreshToken,
+    expiresAt,
+  });
+
+  return {
+    accessToken,
+    refreshToken,
+    user: restaurant,
   };
 };
 

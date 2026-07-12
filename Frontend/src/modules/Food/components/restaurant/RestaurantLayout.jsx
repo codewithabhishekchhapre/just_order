@@ -142,6 +142,19 @@ export default function RestaurantLayout() {
 
   const { unreadCount } = useNotificationInbox("restaurant", { limit: 20, pollMs: 5 * 60 * 1000 })
 
+  /* Pending onboarding sessions must stay on the waiting page until approved. */
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("restaurant_user")
+      const user = raw ? JSON.parse(raw) : null
+      if (String(user?.status || "").toLowerCase() === "pending") {
+        navigate("/food/restaurant/pending-verification", { replace: true })
+      }
+    } catch {
+      // ignore
+    }
+  }, [navigate])
+
   /* Close mobile menu/drawer on route change */
   useEffect(() => {
     setMobileMenuOpen(false)
@@ -446,7 +459,7 @@ export default function RestaurantLayout() {
             Main content column
         ════════════════════════════════════════════ */}
         <div
-          className="flex-1 flex flex-col h-screen overflow-hidden transition-[margin] duration-200"
+          className="flex-1 flex flex-col h-screen min-h-0 overflow-hidden transition-[margin] duration-200"
           style={{ marginLeft: isDesktop ? sidebarW : 0 }}
         >
           {/* ── Header ── */}
@@ -506,7 +519,7 @@ export default function RestaurantLayout() {
           </header>
 
           {/* ── Page content ── */}
-          <main className="flex-1 overflow-y-auto overflow-x-hidden pb-20 lg:pb-0 bg-gray-50 dark:bg-[#0a0a0a]">
+          <main className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden pb-20 lg:pb-0 bg-gray-50 dark:bg-[#0a0a0a]">
             <Outlet />
           </main>
         </div>

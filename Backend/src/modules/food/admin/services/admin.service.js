@@ -1,6 +1,9 @@
 import mongoose from 'mongoose';
 import { ValidationError } from '../../../../core/auth/errors.js';
 import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
+import { serializeRestaurantOnboardingForAdmin } from '../../shared/restaurantOnboardingWorkflow.js';
+import { serializeOutletUpdateForAdmin } from '../../shared/outletUpdateWorkflow.js';
+import { buildRestaurantSubmissionSnapshot } from '../../shared/restaurantOnboardingWorkflow.js';
 import { FoodRestaurantWallet } from '../../restaurant/models/restaurantWallet.model.js';
 import { FoodDeliveryPartner } from '../../delivery/models/deliveryPartner.model.js';
 import { DeliverySupportTicket } from '../../delivery/models/supportTicket.model.js';
@@ -839,10 +842,16 @@ export async function getTransactionReport(query = {}) {
             restaurant: tx.restaurantId?.restaurantName || 'N/A',
             customerName: tx.userId?.name || 'Guest',
             totalItemAmount: subtotal,
-            itemDiscount: pricing.discount || 0,
-            couponDiscount: 0, // Placeholder if you add coupon logic
+            itemDiscount: Number(pricing.itemDiscount || 0) || 0,
+            couponDiscount: Number(pricing.couponDiscount || pricing.discount || 0) || 0,
+            couponCode: pricing.couponCode || '',
             referralDiscount: 0, // Placeholder
-            discountedAmount: Math.max(0, (pricing.subtotal || 0) - (pricing.discount || 0)),
+            discountedAmount: Math.max(
+              0,
+              (pricing.subtotal || 0) -
+                (Number(pricing.itemDiscount || 0) || 0) -
+                (Number(pricing.couponDiscount || pricing.discount || 0) || 0)
+            ),
             vatTax: tx.amounts?.taxAmount || pricing.tax || 0,
             deliveryCharge: pricing.deliveryFee || 0,
             platformFee,
@@ -2387,15 +2396,36 @@ export async function updateRestaurantMenuById(id, menu) {
 }
 
 export async function getPendingRestaurants() {
-    const restaurants = await FoodRestaurant.find({ status: { $in: ['pending', 'rejected'] } })
+    const restaurants = await FoodRestaurant.find({
+        $or: [
+            { status: { $in: ['pending', 'rejected'] } },
+            { pendingUpdateStatus: { $in: ['pending', 'rejected'] } },
+        ],
+    })
         .populate('zoneId', 'name zoneName serviceLocation')
-        .sort({ createdAt: -1 })
+        .sort({ pendingUpdateRequestedAt: -1, createdAt: -1 })
         .lean();
-    return restaurants.map((r, i) => ({
-        ...r,
-        sl: i + 1,
-        zone: r.zoneId?.serviceLocation || r.zoneId?.zoneName || r.zoneId?.name || null,
-    }));
+
+    return restaurants.map((r, i) => {
+        const onboarding = serializeRestaurantOnboardingForAdmin(r);
+        const outlet = serializeOutletUpdateForAdmin(onboarding);
+        const isOutletOnly =
+            outlet.isOutletUpdate &&
+            !['pending', 'rejected'].includes(String(r.status || '').trim());
+
+        return {
+            ...outlet,
+            sl: i + 1,
+            zone: r.zoneId?.serviceLocation || r.zoneId?.zoneName || r.zoneId?.name || null,
+            // Display status for outlet-only updates while keeping account operational.
+            displayStatus: isOutletOnly
+                ? (outlet.pendingUpdateStatus === 'rejected' ? 'rejected' : 'pending')
+                : r.status,
+            requestType: isOutletOnly
+                ? 'outlet_update'
+                : (r.reVerification ? 're_verification' : 'joining'),
+        };
+    });
 }
 
 export async function updateRestaurantById(id, body = {}) {
@@ -3766,19 +3796,49 @@ export async function discardRestaurantDraftByAdmin(id) {
 
 export async function approveRestaurant(id, performer = null) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
-    const updated = await FoodRestaurant.findByIdAndUpdate(
-        id,
-        {
-            $set: {
-                status: 'approved',
-                isVisibleToUsers: true,
-                approvedAt: new Date(),
-                approvedBy: performer
-            },
-            $unset: { reVerification: "", rejectedAt: "", rejectionReason: "" }
-        },
-        { new: true, runValidators: false }
-    ).lean();
+    const existing = await FoodRestaurant.findById(id);
+    if (!existing) return null;
+
+    existing.status = 'approved';
+    existing.isVisibleToUsers = true;
+    existing.approvedAt = new Date();
+    existing.approvedBy = performer;
+    existing.rejectedAt = undefined;
+    existing.rejectionReason = undefined;
+    existing.rejectedBy = undefined;
+    existing.previousSubmission = undefined;
+    existing.reVerification = undefined;
+
+    // If outlet-info updates were also queued, apply them on joining approval.
+    if (existing.pendingUpdateStatus === 'pending' && existing.pendingUpdates && typeof existing.pendingUpdates === 'object') {
+        const pending = existing.pendingUpdates;
+        const previousPureVeg = Boolean(existing.pureVegRestaurant);
+        Object.assign(existing, pending);
+        existing.pendingUpdateStatus = 'none';
+        existing.pendingUpdateReason = '';
+        existing.pendingUpdates = undefined;
+        existing.pendingUpdateRequestedAt = undefined;
+        if (Object.prototype.hasOwnProperty.call(pending, 'pureVegRestaurant')) {
+            try {
+                const { enforcePureVegMenuVisibility } = await import('./foodApproval.service.js');
+                await enforcePureVegMenuVisibility(existing._id, Boolean(pending.pureVegRestaurant));
+            } catch (e) {
+                console.error('Failed to enforce pure-veg visibility on joining approve:', e);
+            }
+            // silence unused previousPureVeg for lint if needed
+            void previousPureVeg;
+        }
+    }
+
+    if (!Array.isArray(existing.statusHistory)) existing.statusHistory = [];
+    existing.statusHistory.push({
+        action: 'approved',
+        note: 'Restaurant onboarding approved',
+        changedAt: new Date(),
+        changedBy: performer || null,
+    });
+    await existing.save();
+    const updated = existing.toObject();
 
     if (updated) {
         // --- Referral Reward Crediting ---
@@ -3856,19 +3916,30 @@ export async function approveRestaurant(id, performer = null) {
 
 export async function rejectRestaurant(id, reason, performer = null) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
-    const updated = await FoodRestaurant.findByIdAndUpdate(
-        id,
-        {
-            $set: {
-                status: 'rejected',
-                rejectedAt: new Date(),
-                rejectionReason: typeof reason === 'string' ? reason.trim() : undefined,
-                approvedAt: null,
-                rejectedBy: performer
-            }
-        },
-        { new: true, runValidators: false }
-    ).lean();
+    const trimmedReason = typeof reason === 'string' ? reason.trim() : '';
+    if (!trimmedReason) {
+        throw new ValidationError('Rejection reason is required');
+    }
+
+    const existing = await FoodRestaurant.findById(id);
+    if (!existing) return null;
+
+    // Freeze the submission being rejected so the next Edit & Resubmit can show diffs.
+    existing.previousSubmission = buildRestaurantSubmissionSnapshot(existing);
+    existing.status = 'rejected';
+    existing.rejectedAt = new Date();
+    existing.rejectionReason = trimmedReason;
+    existing.approvedAt = null;
+    existing.rejectedBy = performer;
+    if (!Array.isArray(existing.statusHistory)) existing.statusHistory = [];
+    existing.statusHistory.push({
+        action: 'rejected',
+        note: trimmedReason,
+        changedAt: new Date(),
+        changedBy: performer || null,
+    });
+    await existing.save();
+    const updated = existing.toObject();
 
     if (updated) {
         try {
@@ -3877,12 +3948,12 @@ export async function rejectRestaurant(id, reason, performer = null) {
                 [{ ownerType: 'RESTAURANT', ownerId: updated._id }],
                 {
                     title: 'Update on Registration 📋',
-                    body: `Your restaurant registration for "${updated.restaurantName}" has been rejected. Reason: ${reason || 'Incomplete documents'}.`,
+                    body: `Your restaurant registration for "${updated.restaurantName}" has been rejected. Reason: ${trimmedReason}.`,
                     image: 'https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png',
                     data: {
                         type: 'restaurant_rejected',
                         restaurantId: String(updated._id),
-                        reason: reason || ''
+                        reason: trimmedReason
                     }
                 }
             );

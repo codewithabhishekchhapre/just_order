@@ -109,6 +109,8 @@ router.delete('/foods/:id', checkPermission('food::food_management::foods::list'
 router.get('/foods/pending-approvals', checkPermission('food::food_management::food_approval', 'view'), foodApprovalController.getPendingFoodApprovals);
 router.patch('/foods/:id/approve', checkPermission('food::food_management::food_approval', 'edit'), foodApprovalController.approveFoodItemController);
 router.patch('/foods/:id/reject', checkPermission('food::food_management::food_approval', 'edit'), foodApprovalController.rejectFoodItemController);
+router.patch('/restaurants/updates/:id/approve', checkPermission('food::food_management::food_approval', 'edit'), foodApprovalController.approveRestaurantUpdateController);
+router.patch('/restaurants/updates/:id/reject', checkPermission('food::food_management::food_approval', 'edit'), foodApprovalController.rejectRestaurantUpdateController);
 
 // ----- Offers & Coupons -----
 router.get('/offers', adminController.getAllOffers);

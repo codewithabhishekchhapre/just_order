@@ -25,6 +25,8 @@ export default function UpdateBankDetails() {
   const [saving, setSaving] = useState(false)
   const [uploadingQr, setUploadingQr] = useState(false)
   const [lastUpdated, setLastUpdated] = useState("")
+  const [pendingUpdateStatus, setPendingUpdateStatus] = useState("none")
+  const [pendingUpdateReason, setPendingUpdateReason] = useState("")
 
   const [form, setForm] = useState(EMPTY_FORM)
   const [errors, setErrors] = useState({})
@@ -89,23 +91,36 @@ export default function UpdateBankDetails() {
       const doc = response?.data?.data?.restaurant || response?.data?.restaurant || null
       if (!doc) return
 
-      const accountNumber = String(doc.accountNumber || "").replace(/\s|-/g, "")
+      const status = doc.pendingUpdateStatus || "none"
+      const pending = doc.pendingUpdates || null
+      setPendingUpdateStatus(status)
+      setPendingUpdateReason(doc.pendingUpdateReason || "")
+
+      const bankKeys = ["accountHolderName", "accountNumber", "ifscCode", "upiId", "upiQrImage", "accountType"]
+      const usePending =
+        (status === "pending" || status === "rejected") &&
+        pending &&
+        bankKeys.some((key) => Object.prototype.hasOwnProperty.call(pending, key))
+
+      const source = usePending ? { ...doc, ...pending } : doc
+
+      const accountNumber = String(source.accountNumber || "").replace(/\s|-/g, "")
       const upiQrImage =
-        typeof doc.upiQrImage === "string"
-          ? doc.upiQrImage
-          : String(doc.upiQrImage?.url || "")
+        typeof source.upiQrImage === "string"
+          ? source.upiQrImage
+          : String(source.upiQrImage?.url || "")
 
       setForm({
-        accountHolderName: String(doc.accountHolderName || ""),
+        accountHolderName: String(source.accountHolderName || ""),
         accountNumber,
         confirmAccountNumber: accountNumber,
-        ifscCode: String(doc.ifscCode || "").toUpperCase(),
-        upiId: String(doc.upiId || ""),
+        ifscCode: String(source.ifscCode || "").toUpperCase(),
+        upiId: String(source.upiId || ""),
         upiQrImage,
       })
       setLastUpdated(doc.updatedAt || "")
     } catch (error) {
-      alert(error?.response?.data?.message || "Failed to load bank details")
+      toast.error(error?.response?.data?.message || "Failed to load bank details")
     } finally {
       setLoading(false)
     }
@@ -161,11 +176,14 @@ export default function UpdateBankDetails() {
     try {
       setSaving(true)
       await restaurantAPI.updateProfile(payload)
-      await loadProfile()
-      setErrors({})
-      alert("Bank details updated successfully")
+      toast.success(
+        pendingUpdateStatus === "rejected"
+          ? "Bank details resubmitted for admin approval"
+          : "Bank details sent for admin approval"
+      )
+      goBack()
     } catch (error) {
-      alert(error?.response?.data?.message || "Failed to update bank details")
+      toast.error(error?.response?.data?.message || "Failed to update bank details")
     } finally {
       setSaving(false)
     }
@@ -191,6 +209,18 @@ export default function UpdateBankDetails() {
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-5">
+            {pendingUpdateStatus === "pending" && (
+              <div className="rounded-xl border border-orange-200 bg-orange-50 p-3 text-sm text-orange-800">
+                Your bank update is <span className="font-semibold">Pending Approval</span>. Saving will update the same request.
+              </div>
+            )}
+            {pendingUpdateStatus === "rejected" && (
+              <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                <p className="font-semibold">Update rejected</p>
+                <p className="mt-1">{pendingUpdateReason || "Please edit and resubmit."}</p>
+              </div>
+            )}
+
             <div className="mb-2">
               <h2 className="text-base font-bold text-gray-900 dark:text-white">Account details</h2>
               {formattedUpdatedAt ? (
@@ -328,7 +358,11 @@ export default function UpdateBankDetails() {
               disabled={saving || uploadingQr}
               className="w-full bg-[#FF6A00] hover:bg-[#e05e00] disabled:bg-[#FF6A00]/50 disabled:cursor-not-allowed text-white font-bold py-4 rounded-xl text-base transition-colors"
             >
-              {saving ? "Saving..." : "Submit"}
+              {saving
+                ? "Submitting..."
+                : pendingUpdateStatus === "rejected"
+                  ? "Edit & Resubmit"
+                  : "Submit for Approval"}
             </button>
           </form>
         )}

@@ -151,7 +151,7 @@ export default function Cart() {
 
   // Defensive check: Ensure CartProvider is available
   const cartContext = useCart() || {};
-  const { cart = [], updateQuantity, addToCart, getCartCount = () => 0, clearCart, cleanCartForRestaurant } = cartContext;
+  const { cart = [], updateQuantity, addToCart, getCartCount = () => 0, clearCart, cleanCartForRestaurant, setCartCoupon, cartReady = true } = cartContext;
   const hasQuickItems = cart.some((item) => (item?.orderType || "food") === "quick")
   const hasFoodItems = cart.some((item) => (item?.orderType || "food") === "food")
   const isQuickCart = cart.length > 0 && cart.every((item) => (item?.orderType || "food") === "quick")
@@ -931,30 +931,33 @@ export default function Cart() {
     fetchCouponsForCartItems()
   }, [cart, restaurantId, isQuickCart])
 
-  // Calculate pricing from backend whenever cart, address, or coupon changes
+  // Calculate pricing from backend whenever cart, address, or coupon changes.
+  // Debounced + aborted to avoid rapid-click / StrictMode duplicate storms.
   useEffect(() => {
-    const calculatePricing = async () => {
-      // Don't calculate here if it's a mixed or quick cart - those components handle their own pricing
+    if (!cartReady) return undefined
+
+    let cancelled = false
+    const timer = setTimeout(async () => {
       if (cart.length === 0 || !hasSavedAddress || (hasQuickItems && hasFoodItems) || isQuickCart) {
-        setPricing(null)
+        if (!cancelled) setPricing(null)
         return
       }
 
       try {
-        setLoadingPricing(true)
-        const items = cart.map(mapOrderItem)
+        if (!cancelled) setLoadingPricing(true)
 
-        const resolvedRestaurantId = restaurantData?.restaurantId || restaurantData?._id || restaurantId || undefined
         const resolvedCouponCode = appliedCoupon?.code || couponCode || undefined
 
         const response = await orderAPI.calculateOrder({
           orderType: "food",
-          items,
-          restaurantId: resolvedRestaurantId,
+          useCart: true,
+          restaurantId: restaurantData?.restaurantId || restaurantData?._id || restaurantId || undefined,
           address: defaultAddress,
           couponCode: resolvedCouponCode,
           deliveryFleet: selectedDeliveryFleet || undefined,
         })
+
+        if (cancelled) return
 
         if (response?.data?.success && response?.data?.data?.pricing) {
           const nextPricing = response.data.data.pricing
@@ -966,28 +969,43 @@ export default function Cart() {
             }))
           }
 
-          // Update applied coupon if backend returns one
-          if (response.data.data.pricing.appliedCoupon && !appliedCoupon) {
-            const coupon = availableCoupons.find(c => c.code === response.data.data.pricing.appliedCoupon.code)
-            if (coupon) {
-              setAppliedCoupon(coupon)
-            }
+          const backendApplied = response.data.data.pricing.appliedCoupon
+          if (backendApplied) {
+            setAppliedCoupon((prev) => {
+              if (prev?.code === backendApplied.code) {
+                return prev
+              }
+              const coupon = availableCoupons.find(c => c.code === backendApplied.code)
+              return coupon || {
+                code: backendApplied.code,
+                discount: backendApplied.discount || 0,
+                freeDelivery: Boolean(backendApplied.freeDelivery),
+              }
+            })
+            setCouponCode((prev) =>
+              prev === (backendApplied.code || "") ? prev : (backendApplied.code || ""),
+            )
+          } else if (appliedCoupon || couponCode) {
+            setAppliedCoupon(null)
+            setCouponCode("")
           }
         }
       } catch (error) {
-        // Network errors or 404 errors - silently handle, fallback to frontend calculation
+        if (cancelled) return
         if (error.code !== 'ERR_NETWORK' && error.response?.status !== 404) {
           debugError("Error calculating pricing:", error)
         }
-        // Fallback to frontend calculation if backend fails
         setPricing(null)
       } finally {
-        setLoadingPricing(false)
+        if (!cancelled) setLoadingPricing(false)
       }
-    }
+    }, 280)
 
-    calculatePricing()
-  }, [cart, defaultAddress, appliedCoupon, couponCode, restaurantId, selectedDeliveryFleet, applyDeliverySpeedOptions])
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [cart, cartReady, defaultAddress, appliedCoupon, couponCode, restaurantId, selectedDeliveryFleet, applyDeliverySpeedOptions, hasSavedAddress, hasQuickItems, hasFoodItems, isQuickCart, restaurantData, availableCoupons])
 
   // Fetch wallet balance
   useEffect(() => {
@@ -1391,10 +1409,9 @@ export default function Cart() {
     // Validate with backend first; only set applied if backend accepts
     if (cart.length > 0 && hasSavedAddress) {
       try {
-        const items = cart.map(mapOrderItem)
-
         const response = await orderAPI.calculateOrder({
-          items,
+          orderType: "food",
+          useCart: true,
           restaurantId: restaurantData?.restaurantId || restaurantData?._id || restaurantId || null,
           address: defaultAddress,
           couponCode: coupon.code
@@ -1410,6 +1427,9 @@ export default function Cart() {
         setAppliedCoupon(coupon)
         setCouponCode(coupon.code)
         setManualCouponCode(coupon.code)
+        if (typeof setCartCoupon === "function") {
+          await setCartCoupon(coupon.code)
+        }
       } catch (error) {
         debugError("Error recalculating pricing:", error)
         toast.error("Failed to apply coupon")
@@ -1440,10 +1460,9 @@ export default function Cart() {
     }
 
     try {
-      const items = cart.map(mapOrderItem)
-
       const response = await orderAPI.calculateOrder({
-        items,
+        orderType: "food",
+        useCart: true,
         restaurantId: restaurantData?.restaurantId || restaurantData?._id || restaurantId || null,
         address: defaultAddress,
         couponCode: inputCode
@@ -1471,6 +1490,9 @@ export default function Cart() {
           customerGroup: "all",
         },
       )
+      if (typeof setCartCoupon === "function") {
+        await setCartCoupon(inputCode)
+      }
       toast.success("Coupon applied")
     } catch (error) {
       debugError("Error applying coupon code:", error)
@@ -1483,17 +1505,19 @@ export default function Cart() {
     setAppliedCoupon(null)
     setCouponCode("")
     setManualCouponCode("")
+    if (typeof setCartCoupon === "function") {
+      await setCartCoupon("")
+    }
 
     // Recalculate pricing without coupon
     if (cart.length > 0 && hasSavedAddress) {
       try {
-        const items = cart.map(mapOrderItem)
-
         const response = await orderAPI.calculateOrder({
-          items,
+          orderType: "food",
+          useCart: true,
           restaurantId: restaurantData?.restaurantId || restaurantData?._id || restaurantId || null,
           address: defaultAddress,
-          couponCode: null
+          couponCode: ""
         })
 
         if (response?.data?.success && response?.data?.data?.pricing) {
@@ -1554,7 +1578,7 @@ export default function Cart() {
       if (!resolvedPricing) {
         const pricingResponse = await orderAPI.calculateOrder({
           orderType: "food",
-          items: cart.map(mapOrderItem),
+          useCart: true,
           restaurantId: restaurantData?.restaurantId || restaurantData?._id || restaurantId || undefined,
           address: defaultAddress,
           couponCode: appliedCoupon?.code || couponCode || undefined,
@@ -1589,6 +1613,7 @@ export default function Cart() {
 
       // Include all cart items (main items + addons)
       // Note: Addons are added as separate cart items when user clicks the + button
+      // Checkout items come from DB cart on the server — client items are not trusted.
       const orderItems = cart.map(mapOrderItem)
 
       debugLog("?? Order items to send:", orderItems)
@@ -1763,7 +1788,10 @@ export default function Cart() {
       })
 
       const orderPayload = {
-        items: orderItems,
+        orderType: "food",
+        useCart: true,
+        // Server loads items from DB food cart; do not trust client cart lines.
+        items: [],
         address: normalizedAddress,
         customerName: recipientName,
         customerPhone: normalizedAddress?.phone || "",

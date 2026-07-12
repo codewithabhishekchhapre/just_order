@@ -32,6 +32,8 @@ const foodCategorySchema = new mongoose.Schema(
          */
         zoneId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodZone', index: true, default: undefined },
         isActive: { type: Boolean, default: true, index: true },
+        /** Set when restaurant type becomes Pure Veg — hides Non-Veg categories from customers without deleting. */
+        hiddenByRestaurantType: { type: Boolean, default: false, index: true },
         sortOrder: { type: Number, default: 0, index: true },
         /**
          * Snapshot of the last-approved values, captured the moment a restaurant edit

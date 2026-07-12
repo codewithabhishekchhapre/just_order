@@ -197,6 +197,7 @@ export default function QuickSharedCart({ initialAddress = null, addressMode = "
       const deliveryAddress = buildOrderAddress(selectedAddress, userProfile);
       const orderPayload = {
         orderType: "quick",
+        useCart: false,
         items: mapCartItemsToPayload(quickCart),
         address: deliveryAddress,
         customerName: userProfile?.name || "Customer",

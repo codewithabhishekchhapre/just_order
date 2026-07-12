@@ -4,9 +4,9 @@ import { motion, AnimatePresence } from "framer-motion"
 import {
   User, UserPen, ShieldCheck, Gift,
   Edit, Trash2, Phone, Mail, LogOut,
-  Eye, FileImage, Calendar, Hash, AlertCircle, X,
+  Eye, X,
   Settings, HelpCircle, FileText, Lock, Globe,
-  Share2, Users, Wallet, CircleCheck, Clock3, CircleX, Loader2, ChevronRight,
+  Share2, Users, Wallet, CircleCheck, Clock3, CircleX, Loader2, ChevronRight, Upload,
 } from "lucide-react"
 import { Button } from "@food/components/ui/button"
 import { Input } from "@food/components/ui/input"
@@ -352,82 +352,287 @@ function EditOwnerTab({ onHasChanges }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   TAB 3 — FSSAI
+   TAB 3 — FSSAI (editable; changes go for admin approval)
 ═══════════════════════════════════════════════════════════════════ */
 function FssaiTab() {
-  const navigate = useNavigate()
-  const [restaurantData, setRestaurantData] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [uploading, setUploading] = useState(false)
   const [showViewer, setShowViewer] = useState(false)
+  const [isPhotoPickerOpen, setIsPhotoPickerOpen] = useState(false)
+  const [pendingUpdateStatus, setPendingUpdateStatus] = useState("none")
+  const [pendingUpdateReason, setPendingUpdateReason] = useState("")
+  const [fssaiNumber, setFssaiNumber] = useState("")
+  const [fssaiExpiry, setFssaiExpiry] = useState("")
+  const [existingImageUrl, setExistingImageUrl] = useState("")
+  const [uploadedFile, setUploadedFile] = useState(null)
+  const [previewUrl, setPreviewUrl] = useState("")
+  const fileInputRef = useRef(null)
+
+  const formatExpiryInput = (value) => {
+    if (!value) return ""
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return ""
+    const y = date.getFullYear()
+    const m = String(date.getMonth() + 1).padStart(2, "0")
+    const d = String(date.getDate()).padStart(2, "0")
+    return `${y}-${m}-${d}`
+  }
+
+  const imageUrlFrom = (value) => {
+    if (!value) return ""
+    return typeof value === "string" ? value : String(value?.url || "")
+  }
+
+  const loadFssai = async () => {
+    try {
+      setLoading(true)
+      const res = await restaurantAPI.getCurrentRestaurant()
+      const data = res?.data?.data?.restaurant || res?.data?.restaurant
+      if (!data) return
+
+      const status = data.pendingUpdateStatus || "none"
+      const pending = data.pendingUpdates || null
+      setPendingUpdateStatus(status)
+      setPendingUpdateReason(data.pendingUpdateReason || "")
+
+      const usePending =
+        (status === "pending" || status === "rejected") &&
+        pending &&
+        (pending.fssaiNumber !== undefined ||
+          pending.fssaiExpiry !== undefined ||
+          pending.fssaiImage !== undefined)
+
+      const number = usePending && pending.fssaiNumber !== undefined
+        ? pending.fssaiNumber
+        : data.fssaiNumber
+      const expiry = usePending && pending.fssaiExpiry !== undefined
+        ? pending.fssaiExpiry
+        : data.fssaiExpiry
+      const image = usePending && pending.fssaiImage !== undefined
+        ? pending.fssaiImage
+        : data.fssaiImage
+
+      setFssaiNumber(String(number || ""))
+      setFssaiExpiry(formatExpiryInput(expiry))
+      setExistingImageUrl(imageUrlFrom(image))
+      setUploadedFile(null)
+      setPreviewUrl("")
+    } catch {
+      toast.error("Failed to load FSSAI details")
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
-    let mounted = true
-    ;(async () => {
-      try {
-        setLoading(true)
-        const res = await restaurantAPI.getCurrentRestaurant()
-        const data = res?.data?.data?.restaurant || res?.data?.restaurant
-        if (data && mounted) setRestaurantData(data)
-      } catch { toast.error("Failed to load FSSAI details") }
-      finally { if (mounted) setLoading(false) }
-    })()
-    return () => { mounted = false }
+    loadFssai()
   }, [])
 
-  const fmt = (d) => { try { return d ? new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" }) : "Not available" } catch { return d } }
-  const hasFssai = restaurantData?.fssaiNumber?.trim()
-  const imgSrc = restaurantData?.fssaiImage ? (typeof restaurantData.fssaiImage === "string" ? restaurantData.fssaiImage : restaurantData.fssaiImage?.url) : null
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl)
+    }
+  }, [previewUrl])
 
-  if (loading) return <div className="py-20 flex items-center justify-center"><Loader2 className="w-7 h-7 text-gray-300 animate-spin" /></div>
+  const handleFileSelect = (file) => {
+    if (!file) return
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Image size too large. Max 5MB allowed.")
+      return
+    }
+    if (previewUrl) URL.revokeObjectURL(previewUrl)
+    setUploadedFile(file)
+    setPreviewUrl(URL.createObjectURL(file))
+    toast.success("FSSAI license selected")
+  }
+
+  const handleFileClick = () => {
+    if (isFlutterBridgeAvailable()) {
+      setIsPhotoPickerOpen(true)
+    } else {
+      fileInputRef.current?.click()
+    }
+  }
+
+  const displayImage = previewUrl || existingImageUrl
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+
+    if (!fssaiNumber.trim()) {
+      toast.error("FSSAI number is required")
+      return
+    }
+    if (!/^\d{14}$/.test(fssaiNumber.trim())) {
+      toast.error("FSSAI number must be exactly 14 digits")
+      return
+    }
+    if (!fssaiExpiry) {
+      toast.error("Expiry date is required")
+      return
+    }
+
+    const expiryDate = new Date(fssaiExpiry)
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    if (Number.isNaN(expiryDate.getTime()) || expiryDate < today) {
+      toast.error("Expiry date must be today or in the future")
+      return
+    }
+    if (!uploadedFile && !existingImageUrl) {
+      toast.error("FSSAI license document is required")
+      return
+    }
+
+    try {
+      setSaving(true)
+      let imageUrl = existingImageUrl
+
+      if (uploadedFile) {
+        setUploading(true)
+        const uploadRes = await restaurantAPI.uploadMenuImage(uploadedFile)
+        imageUrl = uploadRes?.data?.data?.menuImage?.url || uploadRes?.data?.menuImage?.url || ""
+        if (!imageUrl) throw new Error("Failed to upload FSSAI document")
+      }
+
+      await restaurantAPI.updateProfile({
+        fssaiNumber: fssaiNumber.trim(),
+        fssaiExpiry,
+        fssaiImage: imageUrl,
+      })
+
+      toast.success(
+        pendingUpdateStatus === "rejected"
+          ? "FSSAI changes resubmitted for admin approval"
+          : "FSSAI changes sent for admin approval"
+      )
+      await loadFssai()
+    } catch (error) {
+      toast.error(error?.response?.data?.message || error?.message || "Failed to update FSSAI details")
+    } finally {
+      setUploading(false)
+      setSaving(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="py-20 flex items-center justify-center">
+        <Loader2 className="w-7 h-7 text-gray-300 animate-spin" />
+      </div>
+    )
+  }
+
+  const todayStr = new Date().toISOString().split("T")[0]
 
   return (
     <div className="py-5 space-y-4">
-      {!hasFssai && (
-        <div className="bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/30 rounded-2xl p-4 flex items-start gap-3">
-          <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" strokeWidth={2} />
-          <div>
-            <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">FSSAI details not added</p>
-            <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">Upload your license to complete compliance.</p>
-          </div>
+      {pendingUpdateStatus === "pending" && (
+        <div className="rounded-2xl border border-orange-200 bg-orange-50 dark:bg-orange-900/10 p-4 text-sm text-orange-800 dark:text-orange-300">
+          Your FSSAI update is <span className="font-semibold">Pending Approval</span>. Edit and save to update the same request. Live approved values stay active until then.
+        </div>
+      )}
+      {pendingUpdateStatus === "rejected" && (
+        <div className="rounded-2xl border border-red-200 bg-red-50 dark:bg-red-900/10 p-4 text-sm text-red-800 dark:text-red-300">
+          <p className="font-semibold">Update rejected</p>
+          <p className="mt-1">{pendingUpdateReason || "Please edit and resubmit."}</p>
         </div>
       )}
 
-      <div className="bg-white dark:bg-[#111] rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
-        {[
-          { icon: Hash, iconBg: "bg-[#FF6A00]/10", iconColor: "text-[#FF6A00]", label: "Registration number", value: restaurantData?.fssaiNumber || "Not available", hasValue: !!hasFssai },
-          { icon: FileImage, iconBg: "bg-blue-50 dark:bg-blue-900/20", iconColor: "text-blue-600 dark:text-blue-400", label: "License document", value: imgSrc ? "FSSAI License Document" : "No document uploaded", hasValue: !!imgSrc, extra: imgSrc },
-          { icon: Calendar, iconBg: "bg-green-50 dark:bg-green-900/20", iconColor: "text-green-600 dark:text-green-400", label: "Valid until", value: fmt(restaurantData?.fssaiExpiry), hasValue: !!restaurantData?.fssaiExpiry },
-        ].map(({ icon: Icon, iconBg, iconColor, label, value, hasValue, extra }, i, arr) => (
-          <div key={label} className={`px-4 py-4 flex items-center gap-3 ${i < arr.length - 1 ? "border-b border-gray-50 dark:border-gray-800/60" : ""}`}>
-            <div className={`w-9 h-9 ${iconBg} rounded-xl flex items-center justify-center flex-shrink-0`}>
-              <Icon className={`${iconColor}`} style={{ width: 18, height: 18 }} strokeWidth={2} />
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="bg-white dark:bg-[#111] rounded-2xl border border-gray-100 dark:border-gray-800 p-4 space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1.5">Registration number</label>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={fssaiNumber}
+              onChange={(e) => setFssaiNumber(e.target.value.replace(/\D/g, "").slice(0, 14))}
+              placeholder="14-digit FSSAI number"
+              className="w-full border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#0a0a0a] text-gray-900 dark:text-white rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#FF6A00]/30 focus:border-[#FF6A00]"
+            />
+            <p className="text-[10px] text-gray-400 mt-1">Exactly 14 digits required</p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1.5">Valid until</label>
+            <input
+              type="date"
+              value={fssaiExpiry}
+              min={todayStr}
+              onChange={(e) => setFssaiExpiry(e.target.value)}
+              className="w-full border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#0a0a0a] text-gray-900 dark:text-white rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#FF6A00]/30 focus:border-[#FF6A00]"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1.5">License document</label>
+            <div
+              onClick={handleFileClick}
+              className="w-full rounded-xl border border-dashed border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#0a0a0a] px-4 py-6 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-900 transition-colors"
+            >
+              {displayImage ? (
+                <div className="space-y-2 w-full">
+                  <img
+                    src={displayImage}
+                    alt="FSSAI license"
+                    className="h-28 w-auto mx-auto object-contain rounded-lg border border-gray-200 dark:border-gray-700 bg-white"
+                  />
+                  <p className="text-xs text-gray-500">
+                    {uploadedFile ? uploadedFile.name : "Current license document"}
+                  </p>
+                  <p className="text-[10px] text-[#FF6A00] font-medium">Tap to change document</p>
+                </div>
+              ) : (
+                <>
+                  <Upload className="w-5 h-5 text-gray-400 mb-2" />
+                  <p className="text-sm font-medium text-gray-900 dark:text-white">Upload FSSAI license</p>
+                  <p className="text-xs text-gray-500 mt-1">jpeg, png, or pdf (up to 5MB)</p>
+                </>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="hidden"
+                accept="image/*,application/pdf"
+                onChange={(e) => handleFileSelect(e.target.files?.[0])}
+              />
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs text-gray-400 dark:text-gray-500">{label}</p>
-              <p className={`text-sm font-bold mt-0.5 ${hasValue ? "text-gray-900 dark:text-white" : "text-gray-400 dark:text-gray-600"}`}>{value}</p>
-            </div>
-            {extra && (
-              <button onClick={() => setShowViewer(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-gray-200 dark:border-gray-700 text-xs font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors flex-shrink-0">
-                <Eye className="w-3 h-3" /> View
+            {displayImage && (
+              <button
+                type="button"
+                onClick={() => setShowViewer(true)}
+                className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-gray-600 dark:text-gray-300"
+              >
+                <Eye className="w-3 h-3" /> View document
               </button>
             )}
           </div>
-        ))}
-      </div>
+        </div>
 
-      <div className="bg-white dark:bg-[#111] rounded-2xl border border-gray-100 dark:border-gray-800 p-4 flex items-start gap-3">
-        <ShieldCheck className="w-5 h-5 text-[#FF6A00] flex-shrink-0 mt-0.5" strokeWidth={2} />
-        <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">FSSAI registration is mandatory for all food businesses in India. Keep your license up to date to continue receiving orders.</p>
-      </div>
+        <div className="bg-white dark:bg-[#111] rounded-2xl border border-gray-100 dark:border-gray-800 p-4 flex items-start gap-3">
+          <ShieldCheck className="w-5 h-5 text-[#FF6A00] flex-shrink-0 mt-0.5" strokeWidth={2} />
+          <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+            FSSAI changes require admin approval. Your current approved license stays live until the new details are approved.
+          </p>
+        </div>
 
-      <button
-        onClick={() => navigate("/food/restaurant/fssai/update")}
-        className="w-full h-12 bg-[#FF6A00] hover:bg-[#e05e00] text-white font-semibold text-sm rounded-2xl active:scale-[0.98] transition-all"
-      >
-        {hasFssai ? "Update FSSAI license" : "Add FSSAI license"}
-      </button>
+        <button
+          type="submit"
+          disabled={saving || uploading}
+          className="w-full h-12 bg-[#FF6A00] hover:bg-[#e05e00] disabled:opacity-50 text-white font-semibold text-sm rounded-2xl active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+        >
+          {(saving || uploading) && <Loader2 className="w-4 h-4 animate-spin" />}
+          {saving || uploading
+            ? "Submitting..."
+            : pendingUpdateStatus === "rejected"
+              ? "Edit & Resubmit"
+              : "Save for Approval"}
+        </button>
+      </form>
 
-      {showViewer && imgSrc && (
+      {showViewer && displayImage && (
         <div className="fixed inset-0 z-[100] bg-black flex flex-col">
           <div className="px-4 py-4 flex items-center justify-between border-b border-white/10">
             <h3 className="text-sm font-semibold text-white">FSSAI License Document</h3>
@@ -436,10 +641,20 @@ function FssaiTab() {
             </button>
           </div>
           <div className="flex-1 flex items-center justify-center p-4 overflow-auto">
-            <img src={imgSrc} alt="FSSAI License" className="max-w-full max-h-full object-contain rounded-xl" />
+            <img src={displayImage} alt="FSSAI License" className="max-w-full max-h-full object-contain rounded-xl" />
           </div>
         </div>
       )}
+
+      <ImageSourcePicker
+        isOpen={isPhotoPickerOpen}
+        onClose={() => setIsPhotoPickerOpen(false)}
+        onFileSelect={handleFileSelect}
+        title="Upload FSSAI License"
+        description="Choose how to upload your FSSAI license"
+        fileNamePrefix="fssai-license"
+        galleryInputRef={fileInputRef}
+      />
     </div>
   )
 }

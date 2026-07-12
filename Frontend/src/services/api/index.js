@@ -578,6 +578,18 @@ export const adminAPI = {
       { reason: String(reason || "").trim() },
       { contextModule: "admin" },
     ),
+  approveRestaurantUpdate: (id) =>
+    apiClient.patch(
+      `/food/admin/restaurants/updates/${String(id)}/approve`,
+      {},
+      { contextModule: "admin" },
+    ),
+  rejectRestaurantUpdate: (id, reason) =>
+    apiClient.patch(
+      `/food/admin/restaurants/updates/${String(id)}/reject`,
+      { reason: String(reason || "").trim() },
+      { contextModule: "admin" },
+    ),
   /** Customers (admin) */
   getCustomers: (params = {}, config = {}) =>
     apiClient.get("/food/admin/customers", { params, contextModule: "admin", ...config }),
@@ -1580,6 +1592,14 @@ export const restaurantAPI = {
       params: { phone: digits },
     });
   },
+  /** After admin approval: exchange phone + claim token for a dashboard session (no re-login). */
+  activateSessionAfterApproval: ({ phone, sessionClaimToken } = {}) => {
+    if (!phone) return Promise.reject(new Error("Phone is required"));
+    return apiClient.post("/food/restaurant/onboarding/activate-session", {
+      phone: String(phone).replace(/\D/g, "").slice(-15),
+      sessionClaimToken: sessionClaimToken || undefined,
+    });
+  },
   /** Public: list approved restaurants for user app */
   getRestaurants: (params = {}, config = {}) =>
     getPublicRestaurantsOnce(params, config),
@@ -2519,6 +2539,30 @@ export const uploadAPI = {
     });
   },
 };
+/** Food cart API (DB-backed; authenticated USER). Mutations return updated cart. */
+export const foodCartAPI = {
+  getCart: () =>
+    apiClient.get("/food/cart", { contextModule: "user" }),
+  addItem: (payload) =>
+    apiClient.post("/food/cart/items", payload ?? {}, { contextModule: "user" }),
+  updateItem: (lineId, payload) =>
+    apiClient.patch(`/food/cart/items/${encodeURIComponent(String(lineId))}`, payload ?? {}, {
+      contextModule: "user",
+    }),
+  removeItem: (lineId) =>
+    apiClient.delete(`/food/cart/items/${encodeURIComponent(String(lineId))}`, {
+      contextModule: "user",
+    }),
+  clearCart: () =>
+    apiClient.delete("/food/cart/clear", { contextModule: "user" }),
+  setCoupon: (couponCode) =>
+    apiClient.put(
+      "/food/cart/coupon",
+      { couponCode: couponCode || "" },
+      { contextModule: "user" },
+    ),
+};
+
 /** Order API (user app – Bearer USER token). Minimal calls: single create/verify, list/details cached by caller. */
 export const orderAPI = {
   calculateOrder: (payload) =>

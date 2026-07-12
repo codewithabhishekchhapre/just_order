@@ -322,6 +322,33 @@ const restaurantSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+    /** One-time token so waiting-page clients can claim JWT after admin approval without re-login. */
+    sessionClaimToken: {
+      type: String,
+      trim: true,
+      default: null,
+      index: true,
+    },
+    /** Snapshot of previous rejected/pending submission for admin diff review on resubmit. */
+    previousSubmission: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
+    statusHistory: {
+      type: [
+        {
+          action: {
+            type: String,
+            enum: ['submitted', 'approved', 'rejected', 'resubmitted'],
+            required: true,
+          },
+          note: { type: String, trim: true, default: '' },
+          changedAt: { type: Date, default: Date.now },
+          changedBy: { type: actionPerformerSchema, default: null },
+        },
+      ],
+      default: [],
+    },
     reVerification: {
       isZoneUpdate: { type: Boolean, default: false },
       previousAddress: { type: String },
@@ -348,6 +375,22 @@ const restaurantSchema = new mongoose.Schema(
       type: String,
       enum: ['active', 'deleted'],
       default: 'active'
+    },
+    pendingUpdateStatus: {
+      type: String,
+      enum: ['none', 'pending', 'rejected'],
+      default: 'none'
+    },
+    pendingUpdateReason: {
+      type: String,
+      trim: true
+    },
+    pendingUpdateRequestedAt: {
+      type: Date
+    },
+    pendingUpdates: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null
     },
   },
   {

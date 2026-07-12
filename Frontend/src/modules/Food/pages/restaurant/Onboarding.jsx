@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams, useLocation } from "react-router-dom"
 import { Input } from "@food/components/ui/input"
 import { Button } from "@food/components/ui/button"
 import { Label } from "@food/components/ui/label"
-import { Image as ImageIcon, Upload, Clock, Calendar as CalendarIcon, Sparkles, X, LogOut, ChevronLeft } from "lucide-react"
+import { Image as ImageIcon, Upload, Clock, Calendar as CalendarIcon, Sparkles, X, LogOut, ChevronLeft, AlertCircle } from "lucide-react"
 import { Popover, PopoverContent, PopoverTrigger } from "@food/components/ui/popover"
 import { Calendar } from "@food/components/ui/calendar"
 import {
@@ -22,7 +22,7 @@ import { determineStepToShow } from "@food/utils/onboardingUtils"
 import { toast } from "sonner"
 import { useCompanyName } from "@food/hooks/useCompanyName"
 import { getGoogleMapsApiKey } from "@food/utils/googleMapsApiKey"
-import { clearModuleAuth, clearAuthData, getRestaurantPendingPhone } from "@food/utils/auth"
+import { clearModuleAuth, clearAuthData, getRestaurantPendingPhone, setAuthData, setRestaurantSessionClaimToken } from "@food/utils/auth"
 import { ImageSourcePicker } from "@food/components/ImageSourcePicker"
 import { convertBase64ToFile, isFlutterBridgeAvailable, openCamera } from "@food/utils/imageUploadUtils"
 import {
@@ -33,6 +33,25 @@ import {
 const debugLog = (...args) => { }
 const debugWarn = (...args) => { }
 const debugError = (...args) => { }
+
+const persistPendingRestaurantSession = (registerResponse) => {
+  const payload = registerResponse?.data?.data || registerResponse?.data || {}
+  const restaurant = payload.restaurant || payload.user || null
+  const accessToken = payload.accessToken
+  const refreshToken = payload.refreshToken || null
+  const claimToken = restaurant?.sessionClaimToken || payload.sessionClaimToken || null
+
+  if (claimToken) {
+    setRestaurantSessionClaimToken(claimToken)
+  }
+
+  if (accessToken && restaurant) {
+    setAuthData("restaurant", accessToken, restaurant, refreshToken)
+    try {
+      window.dispatchEvent(new Event("restaurantAuthChanged"))
+    } catch { }
+  }
+}
 
 
 const daysOfWeek = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
@@ -707,6 +726,7 @@ export default function RestaurantOnboarding() {
   const [feeConfig, setFeeConfig] = useState(undefined)
   const [fetchingFees, setFetchingFees] = useState(false)
   const [isReonboardBypass, setIsReonboardBypass] = useState(false)
+  const [rejectionBannerReason, setRejectionBannerReason] = useState("")
 
   useEffect(() => {
     const fetchFees = async () => {
@@ -958,11 +978,37 @@ export default function RestaurantOnboarding() {
         setLoading(true)
 
         let serverData = null
-        let isReonboard = sessionStorage.getItem("restaurantReonboard") === "true"
+        const isResubmit =
+          sessionStorage.getItem("restaurantResubmit") === "true" ||
+          location.state?.isResubmit === true
+        const isCreateNew = sessionStorage.getItem("restaurantCreateNew") === "true"
+        // Legacy flag kept for backward compatibility — treat as create-new wipe.
+        const isLegacyReonboard = sessionStorage.getItem("restaurantReonboard") === "true"
 
-        if (isReonboard) {
+        if (isCreateNew || isLegacyReonboard) {
           setIsEditing(true)
-          setIsReonboardBypass(true) // bypass payment for re-applying
+          setIsReonboardBypass(false)
+          sessionStorage.removeItem("restaurantCreateNew")
+          sessionStorage.removeItem("restaurantReonboard")
+        } else if (isResubmit) {
+          setIsEditing(true)
+          setIsReonboardBypass(true) // already paid / prior attempt
+          if (location.state?.rejectionReason) {
+            setRejectionBannerReason(location.state.rejectionReason)
+          }
+          // Prefill from rejected draft for the same phone.
+          try {
+            const verifiedForDraft = resolveVerifiedOwnerPhone(
+              location.state?.verifiedPhone,
+              getVerifiedPhoneFromStoredRestaurant(),
+            ) || localStorage.getItem("restaurant_pendingPhone")
+            if (verifiedForDraft) {
+              const draftRes = await restaurantAPI.getOnboardingDraft(verifiedForDraft)
+              serverData = draftRes?.data?.data?.restaurant || draftRes?.data?.restaurant || null
+            }
+          } catch (err) {
+            debugError("Error fetching rejected onboarding draft for resubmit:", err)
+          }
         } else {
           try {
             const res = await restaurantAPI.getCurrentRestaurant()
@@ -983,11 +1029,11 @@ export default function RestaurantOnboarding() {
         )
 
         // Fetch server-side draft for in-progress onboarding (resume after tab close)
-        if (!serverData && !isReonboard && verifiedPhone) {
+        if (!serverData && !(isCreateNew || isLegacyReonboard) && verifiedPhone) {
           try {
             const draftRes = await restaurantAPI.getOnboardingDraft(verifiedPhone)
             const draftData = draftRes?.data?.data?.restaurant || draftRes?.data?.restaurant
-            if (draftData?.status === "onboarding") {
+            if (draftData?.status === "onboarding" || draftData?.status === "rejected") {
               serverData = draftData
               onboardingDraftRef.current = draftData
             }
@@ -1066,12 +1112,16 @@ export default function RestaurantOnboarding() {
 
           if (serverData.status === "rejected") {
             setIsReonboardBypass(true)
+            const reason = serverData.rejectionReason || location.state?.rejectionReason || ""
+            setRejectionBannerReason(reason)
             setTimeout(() => {
-              toast.error(`Previous application rejected: ${serverData.rejectionReason || 'Please update your details'}`)
+              toast.error(`Previous application rejected: ${reason || "Please update your details"}`)
             }, 500)
           } else if (serverData.status !== "onboarding") {
             // Pending/approved profiles — not a fresh onboarding payment flow
             setIsReonboardBypass(true)
+          } else if (location.state?.rejectionReason) {
+            setRejectionBannerReason(location.state.rejectionReason)
           }
 
           initialStep1 = {
@@ -1135,7 +1185,7 @@ export default function RestaurantOnboarding() {
             featuredPrice: serverData.featuredPrice || "",
             offer: serverData.offer || "",
           }
-        } else if (!isReonboard) {
+        } else if (!(isCreateNew || isLegacyReonboard)) {
           setIsEditing(true)
         }
 
@@ -2168,9 +2218,12 @@ export default function RestaurantOnboarding() {
             formData.append("razorpayPaymentId", `mock_pay_${Date.now()}`);
             formData.append("razorpaySignature", `mock_sig_${Date.now()}`);
 
-            await restaurantAPI.register(formData);
+            const registerRes = await restaurantAPI.register(formData);
+            persistPendingRestaurantSession(registerRes);
 
             sessionStorage.removeItem("restaurantReonboard");
+            sessionStorage.removeItem("restaurantResubmit");
+            sessionStorage.removeItem("restaurantCreateNew");
             clearOnboardingFromLocalStorage();
             clearOnboardingFileCache();
             try {
@@ -2206,9 +2259,12 @@ export default function RestaurantOnboarding() {
                   formData.append("razorpayPaymentId", response.razorpay_payment_id);
                   formData.append("razorpaySignature", response.razorpay_signature);
 
-                  await restaurantAPI.register(formData);
+                  const registerRes = await restaurantAPI.register(formData);
+                  persistPendingRestaurantSession(registerRes);
 
                   sessionStorage.removeItem("restaurantReonboard");
+                  sessionStorage.removeItem("restaurantResubmit");
+                  sessionStorage.removeItem("restaurantCreateNew");
                   clearOnboardingFromLocalStorage();
                   clearOnboardingFileCache();
                   try {
@@ -2247,9 +2303,12 @@ export default function RestaurantOnboarding() {
             await initRazorpayPayment(rzpOptions);
           }
         } else {
-          await restaurantAPI.register(formData);
+          const registerRes = await restaurantAPI.register(formData);
+          persistPendingRestaurantSession(registerRes);
 
           sessionStorage.removeItem("restaurantReonboard");
+          sessionStorage.removeItem("restaurantResubmit");
+          sessionStorage.removeItem("restaurantCreateNew");
           clearOnboardingFromLocalStorage();
           clearOnboardingFileCache();
           try {
@@ -3976,6 +4035,22 @@ export default function RestaurantOnboarding() {
             </div>
           </div>
         </header>
+
+        {rejectionBannerReason ? (
+          <div className="bg-rose-50 dark:bg-rose-950/30 border-b border-rose-200 dark:border-rose-900/50 px-4 sm:px-6 py-3">
+            <div className="max-w-4xl mx-auto flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-bold text-rose-800 dark:text-rose-200">
+                  Application rejected — update the required fields and resubmit
+                </p>
+                <p className="mt-1 text-sm text-rose-700 dark:text-rose-300 whitespace-pre-wrap">
+                  {rejectionBannerReason}
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         {/* Visual Progress Stepper */}
         <div className="bg-white dark:bg-[#121212] border-b border-gray-100 dark:border-gray-900 py-5 px-4 sm:px-6">

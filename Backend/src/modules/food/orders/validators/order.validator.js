@@ -67,7 +67,8 @@ const pricingSchema = z.object({
 export function validateCalculateOrderDto(body) {
     const schema = z.object({
         orderType: z.enum(['food', 'quick', 'mixed']).optional(),
-        items: z.array(orderItemSchema).min(1, 'At least one item required'),
+        items: z.array(orderItemSchema).optional().default([]),
+        useCart: z.boolean().optional().default(true),
         address: addressSchema.optional(),
         restaurantId: z.string().optional(),
         deliveryAddressId: z.string().optional(),
@@ -76,10 +77,11 @@ export function validateCalculateOrderDto(body) {
         deliveryFleet: z.string().optional(),
         scheduledAt: z.string().optional()
     }).superRefine((data, ctx) => {
-        const hasFoodItems = data.items.some((item) => item.type === 'food');
-        const hasQuickItems = data.items.some((item) => item.type === 'quick');
+        const items = Array.isArray(data.items) ? data.items : [];
+        const hasFoodItems = items.some((item) => item.type === 'food');
+        const hasQuickItems = items.some((item) => item.type === 'quick');
+        const useCart = data.useCart !== false && data.orderType !== 'quick';
 
-        // Auto-correct orderType if it's missing or inconsistent
         let effectiveType = data.orderType;
         if (!effectiveType) {
             if (hasFoodItems && hasQuickItems) effectiveType = 'mixed';
@@ -87,7 +89,19 @@ export function validateCalculateOrderDto(body) {
             else effectiveType = 'food';
         }
 
-        if (effectiveType === 'mixed' && (!hasFoodItems || !hasQuickItems)) {
+        // Food/mixed checkout uses DB cart; client items optional.
+        if (!useCart && items.length < 1) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ['items'],
+                message: 'At least one item required'
+            });
+            return;
+        }
+
+        if (items.length < 1) return;
+
+        if (effectiveType === 'mixed' && (!hasFoodItems || !hasQuickItems) && !useCart) {
             ctx.addIssue({
                 code: z.ZodIssueCode.custom,
                 path: ['items'],
@@ -108,7 +122,7 @@ export function validateCalculateOrderDto(body) {
                 message: 'Quick orders cannot include food items. Use mixed order type.'
             });
         }
-        if (effectiveType === 'food' && !data.restaurantId) {
+        if (effectiveType === 'food' && !data.restaurantId && !useCart) {
             ctx.addIssue({
                 code: z.ZodIssueCode.custom,
                 path: ['restaurantId'],
@@ -129,7 +143,8 @@ export function validateCalculateOrderDto(body) {
 export function validateCreateOrderDto(body) {
     const schema = z.object({
         orderType: z.enum(['food', 'quick', 'mixed']).optional(),
-        items: z.array(orderItemSchema).min(1, 'At least one item required'),
+        items: z.array(orderItemSchema).optional().default([]),
+        useCart: z.boolean().optional().default(true),
         address: addressSchema.optional(),
         restaurantId: z.string().optional(),
         restaurantName: z.string().optional(),
@@ -145,10 +160,11 @@ export function validateCreateOrderDto(body) {
         zoneId: z.string().nullable().optional(),
         scheduledAt: z.string().optional()
     }).superRefine((data, ctx) => {
-        const hasFoodItems = data.items.some((item) => item.type === 'food');
-        const hasQuickItems = data.items.some((item) => item.type === 'quick');
+        const items = Array.isArray(data.items) ? data.items : [];
+        const hasFoodItems = items.some((item) => item.type === 'food');
+        const hasQuickItems = items.some((item) => item.type === 'quick');
+        const useCart = data.useCart !== false && data.orderType !== 'quick';
 
-        // Auto-correct orderType if it's missing or inconsistent
         let effectiveType = data.orderType;
         if (!effectiveType) {
             if (hasFoodItems && hasQuickItems) effectiveType = 'mixed';
@@ -156,28 +172,39 @@ export function validateCreateOrderDto(body) {
             else effectiveType = 'food';
         }
 
-        if (effectiveType === 'mixed' && (!hasFoodItems || !hasQuickItems)) {
+        if (!useCart && items.length < 1) {
             ctx.addIssue({
                 code: z.ZodIssueCode.custom,
                 path: ['items'],
-                message: 'Mixed orders must include both food and quick items'
+                message: 'At least one item required'
             });
         }
-        if (effectiveType === 'food' && hasQuickItems) {
-            ctx.addIssue({
-                code: z.ZodIssueCode.custom,
-                path: ['items'],
-                message: 'Food orders cannot include quick items. Use mixed order type.'
-            });
+
+        if (items.length > 0) {
+            if (effectiveType === 'mixed' && (!hasFoodItems || !hasQuickItems) && !useCart) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    path: ['items'],
+                    message: 'Mixed orders must include both food and quick items'
+                });
+            }
+            if (effectiveType === 'food' && hasQuickItems) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    path: ['items'],
+                    message: 'Food orders cannot include quick items. Use mixed order type.'
+                });
+            }
+            if (effectiveType === 'quick' && hasFoodItems) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    path: ['items'],
+                    message: 'Quick orders cannot include food items. Use mixed order type.'
+                });
+            }
         }
-        if (effectiveType === 'quick' && hasFoodItems) {
-            ctx.addIssue({
-                code: z.ZodIssueCode.custom,
-                path: ['items'],
-                message: 'Quick orders cannot include food items. Use mixed order type.'
-            });
-        }
-        if (effectiveType === 'food' && !data.restaurantId) {
+
+        if (effectiveType === 'food' && !data.restaurantId && !useCart) {
             ctx.addIssue({
                 code: z.ZodIssueCode.custom,
                 path: ['restaurantId'],

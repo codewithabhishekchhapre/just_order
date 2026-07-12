@@ -16,7 +16,8 @@ import {
     getRestaurantCODDeposits,
     processRestaurantCODDeposit,
     saveOnboardingStep,
-    getOnboardingDraftByPhone
+    getOnboardingDraftByPhone,
+    activateRestaurantSessionAfterApproval,
 } from '../services/restaurant.service.js';
 import { 
     getRestaurantReferralStats, 
@@ -43,8 +44,13 @@ export const registerRestaurantController = async (req, res, next) => {
             }
         }
 
-        const restaurant = await registerRestaurant(validated, req.files, authUserId);
-        return sendResponse(res, 201, 'Restaurant registered successfully', { restaurant });
+        const result = await registerRestaurant(validated, req.files, authUserId);
+        const restaurant = result?.restaurant || result;
+        return sendResponse(res, 201, 'Restaurant registered successfully', {
+            restaurant,
+            accessToken: result?.accessToken || null,
+            refreshToken: result?.refreshToken || null,
+        });
     } catch (error) {
         next(error);
     }
@@ -72,6 +78,20 @@ export const getOnboardingDraftController = async (req, res, next) => {
             return res.status(404).json({ success: false, message: 'No onboarding draft found' });
         }
         return sendResponse(res, 200, 'Onboarding draft fetched successfully', { restaurant });
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const activateRestaurantSessionController = async (req, res, next) => {
+    try {
+        const phone = req.body?.phone;
+        const sessionClaimToken = req.body?.sessionClaimToken;
+        if (!phone) {
+            return res.status(400).json({ success: false, message: 'Phone is required' });
+        }
+        const result = await activateRestaurantSessionAfterApproval({ phone, sessionClaimToken });
+        return sendResponse(res, 200, 'Restaurant session activated successfully', result);
     } catch (error) {
         next(error);
     }

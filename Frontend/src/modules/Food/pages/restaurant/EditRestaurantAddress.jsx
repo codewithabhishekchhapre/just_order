@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation"
-import Lenis from "lenis"
 import { Loader2 } from "lucide-react"
 import { restaurantAPI, zoneAPI } from "@food/api"
 import { getGoogleMapsApiKey } from "@food/utils/googleMapsApiKey"
@@ -77,25 +76,36 @@ export default function EditRestaurantAddress() {
         const response = await restaurantAPI.getCurrentRestaurant()
         const data = response?.data?.data?.restaurant || response?.data?.restaurant
         let zoneObj = null
+        let pendingLoc = null
         
         if (data) {
           setRestaurantName(data.restaurantName || data.name || "")
           setRestaurantData(data)
-          if (data.location) {
-            setLocation(data.location)
-            const formatted = formatAddress(data.location)
+
+          const pendingStatus = data.pendingUpdateStatus || "none"
+          pendingLoc =
+            (pendingStatus === "pending" || pendingStatus === "rejected") &&
+            data.pendingUpdates?.location
+              ? data.pendingUpdates.location
+              : null
+          const locationSource = pendingLoc || data.location
+
+          if (locationSource) {
+            setLocation(locationSource)
+            const formatted = formatAddress(locationSource)
             setAddress(formatted)
-            if (data.location.latitude && data.location.longitude) {
-              setLat(data.location.latitude)
-              setLng(data.location.longitude)
+            if (locationSource.latitude && locationSource.longitude) {
+              setLat(locationSource.latitude)
+              setLng(locationSource.longitude)
             }
           }
 
           // Fetch zone data
-          if (data.zoneId) {
+          const zoneSourceId = data.pendingUpdates?.zoneId || data.zoneId
+          if (zoneSourceId) {
             const zonesRes = await zoneAPI.getPublicZones()
             const allZones = zonesRes?.data?.data?.zones || zonesRes?.data?.zones || []
-            zoneObj = allZones.find(z => String(z._id || z.id) === String(data.zoneId))
+            zoneObj = allZones.find(z => String(z._id || z.id) === String(zoneSourceId))
             if (zoneObj) {
               setCurrentZone(zoneObj)
             }
@@ -132,8 +142,8 @@ export default function EditRestaurantAddress() {
 
         debugLog("? Google Maps loaded, initializing map...")
         if (!isMapInitializedRef.current) {
-          const startLat = data?.location?.latitude || lat || DEFAULT_LAT
-          const startLng = data?.location?.longitude || lng || DEFAULT_LNG
+          const startLat = pendingLoc?.latitude || data?.location?.latitude || lat || DEFAULT_LAT
+          const startLng = pendingLoc?.longitude || data?.location?.longitude || lng || DEFAULT_LNG
           initializeMap(window.google, zoneObj, startLat, startLng)
         }
       } catch (error) {
@@ -354,26 +364,6 @@ export default function EditRestaurantAddress() {
 
 
 
-  // Lenis smooth scrolling
-  useEffect(() => {
-    const lenis = new Lenis({
-      duration: 1.2,
-      easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
-      smoothWheel: true,
-    })
-
-    function raf(time) {
-      lenis.raf(time)
-      requestAnimationFrame(raf)
-    }
-
-    requestAnimationFrame(raf)
-
-    return () => {
-      lenis.destroy()
-    }
-  }, [])
-
   // Handle opening Google Maps app
   const handleViewOnMap = () => {
     // Create Google Maps URL for the restaurant location
@@ -422,7 +412,7 @@ export default function EditRestaurantAddress() {
                        response?.data?.data?.restaurant
       
       if (isSuccess) {
-        toast.success("Location updated successfully!")
+        toast.success("Address change sent for admin approval")
         
         // Dispatch event to notify other components
         window.dispatchEvent(new Event("addressUpdated"))
@@ -505,9 +495,12 @@ export default function EditRestaurantAddress() {
           </h2>
           
           {/* Informational Banner */}
-          <div className="bg-amber-50 dark:bg-amber-900/10 border border-amber-100 dark:border-amber-900/20 rounded-xl px-4 py-3 mb-4">
+          <div className="bg-amber-50 dark:bg-amber-900/10 border border-amber-100 dark:border-amber-900/20 rounded-xl px-4 py-3 mb-4 flex flex-col gap-2">
             <p className="text-xs text-amber-800 dark:text-amber-300 leading-tight">
               Customers and delivery partners will use this pin to locate your outlet. Please ensure it's accurate.
+            </p>
+            <p className="text-xs text-amber-800 dark:text-amber-300 leading-tight font-medium">
+              Note: Updating your address requires admin approval and may affect your visibility until verified. Your request will remain in Pending status.
             </p>
           </div>
 

@@ -13,6 +13,12 @@ import {
   getRiderEarning as getQuickRiderEarning,
   getActiveFeeSettings,
 } from '../admin/services/billing.service.js';
+import { getQuickCoupons } from '../services/content.service.js';
+import {
+  isQuickCouponCurrentlyValid,
+  isQuickCouponExpired,
+  isQuickCouponNotStarted,
+} from '../utils/coupon.helpers.js';
 import * as foodTransactionService from '../../food/orders/services/foodTransaction.service.js';
 import { FoodTransaction } from '../../food/orders/models/foodTransaction.model.js';
 import { emitQuickCommerceStatusUpdate } from '../services/quickStatusRealtime.service.js';
@@ -403,7 +409,59 @@ export const placeOrder = async (req, res) => {
     }
 
     const subtotal = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-    const discount = Math.max(0, Number(req.body?.discountTotal || 0));
+
+    // Server-side coupon validation — never trust client discountTotal.
+    let discount = 0;
+    let appliedCouponCode = '';
+    const couponCodeRaw = String(req.body?.couponCode || req.body?.coupon || '').trim().toUpperCase();
+    if (couponCodeRaw) {
+      const adminCoupons = await getQuickCoupons();
+      let coupon = adminCoupons.find(
+        (c) => String(c.code || '').toUpperCase() === couponCodeRaw
+      );
+
+      if (!coupon) {
+        const firstItem = items.find((item) => item.sellerId);
+        const sellerId = firstItem?.sellerId;
+        if (sellerId && mongoose.Types.ObjectId.isValid(sellerId)) {
+          const { SellerCoupon } = await import('../models/sellerCoupon.model.js');
+          const now = new Date();
+          const sellerCoupon = await SellerCoupon.findOne({
+            sellerId: new mongoose.Types.ObjectId(sellerId),
+            couponCode: couponCodeRaw,
+            status: 'Approved',
+            expiryDate: { $gt: now },
+          }).lean();
+          if (sellerCoupon) {
+            coupon = {
+              ...sellerCoupon,
+              code: sellerCoupon.couponCode,
+              minOrderValue: sellerCoupon.minOrderAmount,
+            };
+          }
+        }
+      }
+
+      if (coupon && isQuickCouponCurrentlyValid(coupon)) {
+        const minOrder = Number(coupon.minOrderValue || coupon.minOrder || 0);
+        if (!(minOrder > 0 && subtotal < minOrder)) {
+          const discountType = String(coupon.discountType || 'flat').toLowerCase();
+          const discountValue = Number(coupon.discountValue || coupon.discount || 0);
+          const maxDiscount = Number(coupon.maxDiscount || coupon.maxDiscountValue || 0);
+          if (discountType === 'percent' || discountType === 'percentage') {
+            discount = Math.round((subtotal * discountValue) / 100);
+            if (maxDiscount > 0) discount = Math.min(discount, maxDiscount);
+          } else {
+            discount = discountValue;
+          }
+          discount = Math.max(0, Math.min(discount, subtotal));
+          appliedCouponCode = String(coupon.code || couponCodeRaw).toUpperCase();
+        }
+      } else if (coupon && (isQuickCouponExpired(coupon) || isQuickCouponNotStarted(coupon))) {
+        discount = 0;
+      }
+    }
+
     let deliveryAddress = normalizeDeliveryAddress(req.body?.address);
 
     if (idQuery.userId) {
@@ -441,16 +499,15 @@ export const placeOrder = async (req, res) => {
       distanceKm,
     });
 
-    // --- SYNC FIX: Trust the frontend calculated exact fees if provided ---
-    if (typeof req.body?.deliveryFee === 'number') pricing.deliveryFee = Math.max(0, req.body.deliveryFee);
-    if (typeof req.body?.taxTotal === 'number') pricing.gst = Math.max(0, req.body.taxTotal);
-    if (typeof req.body?.platformFee === 'number') pricing.platformFee = Math.max(0, req.body.platformFee);
-
-    // Mongoose pricingSchema only has 'tax', not 'gst'. Map gst to tax so it gets saved.
+    // Never trust client delivery/tax/platform fees — pricing is server-computed.
     pricing.tax = pricing.gst;
-
-    // Recalculate total with these synced values
-    pricing.total = Math.max(0, subtotal + pricing.deliveryFee + pricing.platformFee + pricing.tax - discount);
+    pricing.couponCode = appliedCouponCode || '';
+    pricing.couponDiscount = discount;
+    pricing.discount = discount;
+    pricing.total = Math.max(
+      0,
+      subtotal + Number(pricing.deliveryFee || 0) + Number(pricing.platformFee || 0) + Number(pricing.tax || 0) - discount
+    );
 
     const deliveryFee = Number(pricing.deliveryFee || 0);
     const total = Number(pricing.total || 0);

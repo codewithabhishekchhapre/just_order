@@ -207,7 +207,22 @@ export async function getPublicApprovedRestaurantMenu(restaurantIdOrSlug) {
     if (!restaurant?._id) {
         return null;
     }
-    const foods = await FoodItem.find({ restaurantId: restaurant._id, approvalStatus: 'approved' })
+
+    const restaurantDoc = await FoodRestaurant.findById(restaurant._id)
+        .select('pureVegRestaurant')
+        .lean();
+
+    const foodFilter = {
+        restaurantId: restaurant._id,
+        approvalStatus: 'approved',
+        isAvailable: { $ne: false },
+        hiddenByRestaurantType: { $ne: true },
+    };
+    if (restaurantDoc?.pureVegRestaurant) {
+        foodFilter.foodType = 'Veg';
+    }
+
+    const foods = await FoodItem.find(foodFilter)
         .sort({ createdAt: -1 })
         .limit(2000)
         .lean();

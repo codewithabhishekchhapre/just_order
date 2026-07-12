@@ -312,13 +312,15 @@ export async function calculateQuickPricing({ subtotal = 0, discount = 0, produc
   const deliveryFee = await getRiderEarning(distanceKm);
 
   const gstRate = Number(feeSettings.gstRate || 0);
+  const taxableAmount = Math.max(0, safeSubtotal - safeDiscount);
   const gst =
     Number.isFinite(gstRate) && gstRate > 0
-      ? Math.round(safeSubtotal * (gstRate / 100))
+      ? Math.round(taxableAmount * (gstRate / 100))
       : 0;
 
   // Grand Total = Items + Delivery + Platform Fee + GST − Discount
   // NOTE: handlingFee intentionally excluded from customer-facing total (admin requirement)
+  // GST is calculated on the discounted taxable amount.
   const total = Math.max(0, safeSubtotal + deliveryFee + platformFee + gst - safeDiscount);
 
   return {

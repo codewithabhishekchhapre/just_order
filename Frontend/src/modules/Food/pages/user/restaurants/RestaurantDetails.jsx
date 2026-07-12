@@ -1125,7 +1125,7 @@ function RestaurantDetailsContent() {
   }, [selectedItem])
 
   // Helper function to update item quantity in both local state and cart
-  const updateItemQuantity = (item, newQuantity, event = null, preferredVariant = null) => {
+  const updateItemQuantity = async (item, newQuantity, event = null, preferredVariant = null) => {
     // Check authentication
     if (!isModuleAuthenticated('user')) {
       toast.error("Please login to add items to cart")
@@ -1255,16 +1255,9 @@ function RestaurantDetailsContent() {
           imageUrl: item.image,
         }
 
-        // If incrementing quantity, trigger add animation with sourcePosition
+        // Existing line: set absolute quantity via PATCH (avoids add+update races).
         if (newQuantity > existingCartItem.quantity && sourcePosition) {
-          const result = addToCart(cartItem, sourcePosition)
-          if (result?.ok === false) {
-            toast.error(result.error || 'Cannot add item from different restaurant. Please clear cart first.')
-            return
-          }
-          if (newQuantity > existingCartItem.quantity + 1) {
-            updateQuantity(lineItemId, newQuantity)
-          }
+          updateQuantity(lineItemId, newQuantity, sourcePosition, productInfo)
         }
         // If decreasing quantity, trigger removal animation with sourcePosition
         else if (newQuantity < existingCartItem.quantity && sourcePosition) {
@@ -1277,13 +1270,13 @@ function RestaurantDetailsContent() {
       } else {
         // Add to cart first (adds with quantity 1), then update to desired quantity
         // Pass sourcePosition when adding a new item
-        const result = addToCart(cartItem, sourcePosition)
+        const result = await addToCart(
+          { ...cartItem, quantity: newQuantity > 0 ? newQuantity : 1 },
+          sourcePosition,
+        )
         if (result?.ok === false) {
           toast.error(result.error || 'Cannot add item from different restaurant. Please clear cart first.')
           return
-        }
-        if (newQuantity > 1) {
-          updateQuantity(lineItemId, newQuantity)
         }
       }
     }

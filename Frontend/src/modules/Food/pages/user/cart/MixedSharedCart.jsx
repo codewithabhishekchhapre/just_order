@@ -171,7 +171,9 @@ export default function MixedSharedCart({ initialAddress = null, addressMode = "
         setIsPricingLoading(true);
         const response = await orderAPI.calculateOrder({
           orderType: "mixed",
-          items: mappedItems,
+          useCart: true,
+          // Food lines come from DB cart; only send quick lines from client.
+          items: mappedItems.filter((item) => item.type === "quick"),
           address: deliveryAddress,
         });
 
@@ -242,7 +244,9 @@ export default function MixedSharedCart({ initialAddress = null, addressMode = "
       setIsPlacingOrder(true);
       const orderPayload = {
         orderType: "mixed",
-        items: mappedItems,
+        useCart: true,
+        // Food lines come from DB cart; only send quick lines from client.
+        items: mappedItems.filter((item) => item.type === "quick"),
         address: deliveryAddress,
         restaurantId: foodItems[0]?.restaurantId,
         restaurantName: foodItems[0]?.restaurant || undefined,

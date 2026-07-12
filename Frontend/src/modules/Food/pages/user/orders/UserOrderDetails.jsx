@@ -604,6 +604,16 @@ export default function UserOrderDetails() {
                 </span>
               </div>
             </div>
+            {(Number(pricing.couponDiscount || pricing.discount || 0) > 0 || pricing.couponCode) && (
+              <div className="flex justify-between">
+                <span className="text-gray-500">
+                  Coupon{pricing.couponCode ? ` (${pricing.couponCode})` : ""}
+                </span>
+                <span className="text-green-600 font-medium">
+                  -₹{Number(pricing.couponDiscount || pricing.discount || 0).toFixed(2)}
+                </span>
+              </div>
+            )}
             <div className="flex justify-between">
               <span className="text-gray-500">GST (govt. taxes)</span>
               <span className="text-gray-800">

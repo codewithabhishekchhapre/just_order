@@ -40,9 +40,16 @@ export async function listPendingFoodApprovals(query = {}) {
         .select('restaurantId draft isAvailable requestedAt createdAt')
         .lean();
 
+    const restaurantUpdateList = await FoodRestaurant.find({ pendingUpdateStatus: 'pending' })
+        .sort({ pendingUpdateRequestedAt: -1, createdAt: -1 })
+        .limit(limit)
+        .select('restaurantName pendingUpdates pendingUpdateStatus pendingUpdateRequestedAt')
+        .lean();
+
     const restaurantIds = Array.from(new Set([
         ...foodList.map((f) => String(f.restaurantId)),
-        ...addonList.map((a) => String(a.restaurantId))
+        ...addonList.map((a) => String(a.restaurantId)),
+        ...restaurantUpdateList.map((r) => String(r._id))
     ].filter(Boolean)));
 
     const restaurants = restaurantIds.length
@@ -97,7 +104,29 @@ export async function listPendingFoodApprovals(query = {}) {
         description: a.draft?.description || ''
     }));
 
-    const allRequests = [...foodRequests, ...addonRequests].sort((a, b) => 
+    const restaurantUpdateRequests = restaurantUpdateList.map((r) => ({
+        _id: r._id,
+        id: r._id,
+        entityType: 'restaurant_update',
+        type: 'restaurant_update',
+        restaurantName: r.restaurantName || 'Unknown Restaurant',
+        restaurantId: toRestaurantDisplayId(r._id),
+        category: 'Outlet Info',
+        itemName: 'Profile Update',
+        foodType: 'Restaurant',
+        sectionName: 'Profile',
+        subsectionName: '',
+        approvalStatus: 'pending',
+        price: 0,
+        image: '',
+        images: [],
+        requestedAt: r.pendingUpdateRequestedAt || r.createdAt,
+        isActionable: true,
+        description: 'Outlet Info Update (Name/Address)',
+        pendingUpdates: r.pendingUpdates || {}
+    }));
+
+    const allRequests = [...foodRequests, ...addonRequests, ...restaurantUpdateRequests].sort((a, b) => 
         new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime()
     );
 
@@ -184,3 +213,184 @@ export async function rejectFoodItem(id, reason, performer = null) {
     return updated;
 }
 
+export async function approveRestaurantUpdate(id, performer = null) {
+    if (!id || !mongoose.Types.ObjectId.isValid(String(id))) {
+        throw new ValidationError('Invalid restaurant id');
+    }
+    
+    const restaurant = await FoodRestaurant.findOne({ _id: id, pendingUpdateStatus: 'pending' }).lean();
+    if (!restaurant || !restaurant.pendingUpdates) {
+        throw new ValidationError('No pending update found for this restaurant');
+    }
+
+    const updatesToApply = { ...restaurant.pendingUpdates };
+    const previousPureVeg = Boolean(restaurant.pureVegRestaurant);
+    const nextPureVeg = Object.prototype.hasOwnProperty.call(updatesToApply, 'pureVegRestaurant')
+        ? Boolean(updatesToApply.pureVegRestaurant)
+        : previousPureVeg;
+    
+    const updated = await FoodRestaurant.findOneAndUpdate(
+        { _id: id, pendingUpdateStatus: 'pending' },
+        { 
+            $set: { 
+                ...updatesToApply,
+                pendingUpdateStatus: 'none', 
+                pendingUpdateReason: '',
+                status: restaurant.status === 'approved' || !restaurant.status ? 'approved' : restaurant.status,
+            }, 
+            $unset: { 
+                pendingUpdates: 1,
+                pendingUpdateRequestedAt: 1
+            } 
+        },
+        { new: true }
+    ).lean();
+
+    // Enforce veg visibility after restaurant type becomes Pure Veg (or restore when leaving Pure Veg).
+    if (previousPureVeg !== nextPureVeg) {
+        try {
+            await enforcePureVegMenuVisibility(id, nextPureVeg);
+        } catch (e) {
+            console.error('Failed to enforce pure-veg menu visibility:', e);
+        }
+    }
+
+    try {
+        const { notifyOwnersSafely } = await import('../../../core/notifications/firebase.service.js');
+        await notifyOwnersSafely(
+            [{ ownerType: 'RESTAURANT', ownerId: updated._id }],
+            {
+                title: 'Profile Update Approved ✅',
+                body: `Your restaurant profile updates have been approved.`,
+                data: {
+                    type: 'restaurant_update_approved',
+                    restaurantId: String(updated._id)
+                }
+            }
+        );
+    } catch (e) {
+        console.error('Failed to send restaurant update approval notification:', e);
+    }
+
+    return updated;
+}
+
+/**
+ * Hide Non-Veg categories/items from customers when restaurant is Pure Veg.
+ * Data stays in DB; only customer visibility/availability flags change.
+ */
+export async function enforcePureVegMenuVisibility(restaurantId, isPureVeg) {
+    if (!restaurantId || !mongoose.Types.ObjectId.isValid(String(restaurantId))) return;
+
+    const { FoodCategory } = await import('../models/category.model.js');
+    const { invalidatePublicRestaurantMenuCache } = await import('../../restaurant/services/restaurantMenu.service.js');
+
+    if (isPureVeg) {
+        await FoodItem.updateMany(
+            {
+                restaurantId,
+                foodType: 'Non-Veg',
+                isAvailable: { $ne: false },
+            },
+            {
+                $set: {
+                    isAvailable: false,
+                    hiddenByRestaurantType: true,
+                },
+            }
+        );
+
+        await FoodCategory.updateMany(
+            {
+                $or: [
+                    { restaurantId },
+                    { createdByRestaurantId: restaurantId },
+                ],
+                foodTypeScope: 'Non-Veg',
+                isActive: { $ne: false },
+            },
+            {
+                $set: {
+                    isActive: false,
+                    hiddenByRestaurantType: true,
+                },
+            }
+        );
+    } else {
+        await FoodItem.updateMany(
+            {
+                restaurantId,
+                hiddenByRestaurantType: true,
+            },
+            {
+                $set: {
+                    isAvailable: true,
+                },
+                $unset: {
+                    hiddenByRestaurantType: 1,
+                },
+            }
+        );
+
+        await FoodCategory.updateMany(
+            {
+                $or: [
+                    { restaurantId },
+                    { createdByRestaurantId: restaurantId },
+                ],
+                hiddenByRestaurantType: true,
+            },
+            {
+                $set: {
+                    isActive: true,
+                },
+                $unset: {
+                    hiddenByRestaurantType: 1,
+                },
+            }
+        );
+    }
+
+    await invalidatePublicRestaurantMenuCache();
+}
+
+export async function rejectRestaurantUpdate(id, reason, performer = null) {
+    if (!id || !mongoose.Types.ObjectId.isValid(String(id))) {
+        throw new ValidationError('Invalid restaurant id');
+    }
+    const r = typeof reason === 'string' ? reason.trim() : '';
+    if (!r) throw new ValidationError('Rejection reason is required');
+    if (r.length > 500) throw new ValidationError('Rejection reason is too long');
+
+    const updated = await FoodRestaurant.findOneAndUpdate(
+        { _id: id, pendingUpdateStatus: 'pending' },
+        { 
+            $set: { 
+                pendingUpdateStatus: 'rejected', 
+                pendingUpdateReason: r
+            } 
+        },
+        { new: true }
+    ).lean();
+
+    if (updated) {
+        try {
+            const { notifyOwnersSafely } = await import('../../../core/notifications/firebase.service.js');
+            await notifyOwnersSafely(
+                [{ ownerType: 'RESTAURANT', ownerId: updated._id }],
+                {
+                    title: 'Profile Update Rejected ❌',
+                    body: `Your restaurant profile updates were rejected. Reason: ${r}`,
+                    data: {
+                        type: 'restaurant_update_rejected',
+                        restaurantId: String(updated._id),
+                        reason: r
+                    }
+                }
+            );
+        } catch (e) {
+            console.error('Failed to send restaurant update rejection notification:', e);
+        }
+    }
+    return updated;
+}

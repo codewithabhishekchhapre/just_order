@@ -229,6 +229,7 @@ export function clearRestaurantSessionCache() {
     "restaurant_name",
     "restaurantName",
     "restaurant_pendingPhone",
+    "restaurant_sessionClaimToken",
   ];
 
   keys.forEach((key) => localStorage.removeItem(key));
@@ -252,6 +253,25 @@ export function getRestaurantPendingPhone() {
 export function clearRestaurantPendingPhone() {
   if (typeof localStorage === "undefined") return;
   localStorage.removeItem("restaurant_pendingPhone");
+}
+
+export function setRestaurantSessionClaimToken(token) {
+  if (typeof localStorage === "undefined") return;
+  if (!token) {
+    localStorage.removeItem("restaurant_sessionClaimToken");
+    return;
+  }
+  localStorage.setItem("restaurant_sessionClaimToken", String(token));
+}
+
+export function getRestaurantSessionClaimToken() {
+  if (typeof localStorage === "undefined") return null;
+  return localStorage.getItem("restaurant_sessionClaimToken");
+}
+
+export function clearRestaurantSessionClaimToken() {
+  if (typeof localStorage === "undefined") return;
+  localStorage.removeItem("restaurant_sessionClaimToken");
 }
 
 /**
