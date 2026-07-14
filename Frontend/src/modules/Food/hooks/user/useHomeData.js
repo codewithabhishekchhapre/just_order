@@ -1,6 +1,47 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { restaurantAPI } from "@food/api";
+import { restaurantAPI, locationAPI } from "@food/api";
 import { normalizeImageUrl, extractImages, calculateDistance, slugify } from "@food/utils/common";
+
+/**
+ * Refine haversine list distances into ROAD distances with one batched
+ * backend call (Distance Matrix, server-cached per ~100m grid pair).
+ * Only the nearest destinations are sent (haversine pre-filter) to keep
+ * the request cheap; the rest keep their air-distance estimate.
+ */
+const MATRIX_LIMIT = 25;
+const refineRoadDistances = async (restaurants, userLat, userLng, apply) => {
+  if (!Number.isFinite(userLat) || !Number.isFinite(userLng)) return;
+
+  const candidates = restaurants
+    .filter((r) => Number.isFinite(Number(r.rLat)) && Number.isFinite(Number(r.rLng)))
+    .sort((a, b) => (a.distanceInKm ?? Infinity) - (b.distanceInKm ?? Infinity))
+    .slice(0, MATRIX_LIMIT);
+  if (candidates.length === 0) return;
+
+  try {
+    const res = await locationAPI.roadDistanceMatrix(
+      { lat: userLat, lng: userLng },
+      candidates.map((r) => ({ lat: Number(r.rLat), lng: Number(r.rLng) }))
+    );
+    const distances = res?.data?.data?.distances;
+    if (!Array.isArray(distances)) return;
+
+    const byId = new Map();
+    candidates.forEach((r, i) => {
+      const d = distances[i];
+      if (d && Number.isFinite(Number(d.distanceKm))) {
+        byId.set(r.id, {
+          distanceInKm: Number(d.distanceKm),
+          roadDurationMinutes: d.durationMinutes ?? null,
+          distanceSource: d.source || "google_routes",
+        });
+      }
+    });
+    if (byId.size > 0) apply(byId);
+  } catch {
+    // Backend/matrix unavailable — haversine estimates stay in place.
+  }
+};
 
 export const useHomeData = (location, zoneId) => {
   const [loadingConfig, setLoadingConfig] = useState(true);
@@ -57,7 +98,7 @@ export const useHomeData = (location, zoneId) => {
           const rLoc = r.location;
           const rLat = rLoc?.latitude || (rLoc?.coordinates?.[1]);
           const rLng = rLoc?.longitude || (rLoc?.coordinates?.[0]);
-          
+
           let distInKm = calculateDistance(userLat, userLng, rLat, rLng);
           const coverImgs = extractImages(r.coverImages);
           const menuImgs = extractImages(r.menuImages);
@@ -68,7 +109,10 @@ export const useHomeData = (location, zoneId) => {
             ...r,
             id: r.restaurantId || r._id,
             mongoId: r._id,
+            rLat,
+            rLng,
             distanceInKm: distInKm,
+            distanceSource: distInKm != null ? "haversine" : null,
             image: allImgs[0] || "",
             images: allImgs,
             rating: r.rating || 4.5,
@@ -76,6 +120,15 @@ export const useHomeData = (location, zoneId) => {
           };
         });
         setRestaurantsData(transformed);
+
+        // Upgrade the nearest restaurants to road distance (one batched,
+        // server-cached call). List renders instantly with the estimate,
+        // then re-renders with real road km + ETA when this resolves.
+        refineRoadDistances(transformed, Number(userLat), Number(userLng), (byId) => {
+          setRestaurantsData((prev) =>
+            prev.map((r) => (byId.has(r.id) ? { ...r, ...byId.get(r.id) } : r))
+          );
+        });
       }
     } finally {
       setLoadingRestaurants(false);

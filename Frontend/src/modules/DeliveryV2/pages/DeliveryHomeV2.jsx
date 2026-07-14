@@ -10,6 +10,8 @@ import { toast } from 'sonner';
 // Components
 import LiveMap from '@/modules/DeliveryV2/components/map/LiveMap';
 import { NewOrderModal } from '@/modules/DeliveryV2/components/modals/NewOrderModal';
+import LocationPermissionModal from '@/modules/DeliveryV2/components/modals/LocationPermissionModal';
+import { useGeoPermission } from '@core/location/useGeoPermission';
 import { PickupActionModal } from '@/modules/DeliveryV2/components/modals/PickupActionModal';
 import { DeliveryVerificationModal } from '@/modules/DeliveryV2/components/modals/DeliveryVerificationModal';
 import { isReturnPickupTrip, getReturnPickupStopLabels, enrichReturnDeliveryOrder } from '@/modules/DeliveryV2/utils/orderRouting';
@@ -226,6 +228,10 @@ const CashLimitBlockingModal = ({ isOpen, onClose }) => {
 export default function DeliveryHomeV2({ tab = 'feed' }) {
   const navigate = useNavigate();
   const { isOnline, setOnline, toggleOnline, activeOrder, tripStatus, setRiderLocation, setActiveOrder, updateTripStatus, clearActiveOrder } = useDeliveryStore();
+  const riderLocation = useDeliveryStore((s) => s.riderLocation);
+  // Reactive browser geolocation permission — drives the blocking popup and
+  // re-registers the GPS watch when the driver enables location later.
+  const { permission: geoPermission } = useGeoPermission();
   const getActiveVehicle = useDeliveryStore(state => state.getActiveVehicle);
   const activeVehicle = getActiveVehicle();
   const [showVehicleSwitcher, setShowVehicleSwitcher] = useState(false);
@@ -653,7 +659,9 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
       });
       
       return () => navigator.geolocation.clearWatch(watchId);
-  }, [isOnline, setRiderLocation, isSimMode, activeOrder, activePolyline, emitLocation, eta, tripStatus, distanceToTarget, reachPickup, reachDrop, handleGeolocationError]);
+  // geoPermission dep: when the driver enables location later (from the popup
+  // or browser settings) the watch re-registers and tracking resumes.
+  }, [isOnline, setRiderLocation, isSimMode, activeOrder, activePolyline, emitLocation, eta, tripStatus, distanceToTarget, reachPickup, reachDrop, handleGeolocationError, geoPermission]);
 
   // 3.5. Background Ping / Heartbeat
   // If watchPosition stops firing (e.g. app in background or device stationary),
@@ -815,6 +823,16 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
 
   return (
     <div className="relative h-screen w-full bg-white text-gray-900 overflow-hidden flex flex-col">
+      {/* Blocking popup: online driver without usable browser location */}
+      <LocationPermissionModal
+        open={isOnline && !isSimMode && (geoPermission === 'denied' || (geoPermission === 'prompt' && !riderLocation))}
+        permission={geoPermission}
+        onEnabled={(pos) => {
+          const { latitude, longitude, heading } = pos.coords;
+          setRiderLocation({ lat: latitude, lng: longitude, heading: heading || 0 });
+          deliveryAPI.updateLocation(latitude, longitude, true, { heading: heading || 0 }).catch(() => {});
+        }}
+      />
       {/* ─── 1. TOP HEADER (Premium Dark Gray) ─── */}
       {currentTab === 'feed' && (
       <div className="absolute top-0 inset-x-0 bg-[#121212]/95 backdrop-blur-2xl shadow-2xl z-[200] safe-top pb-2 border-b border-white/10">

@@ -33,6 +33,26 @@ const userAddressSchema = new mongoose.Schema(
             default: '',
             trim: true
         },
+        area: {
+            type: String,
+            default: '',
+            trim: true
+        },
+        landmark: {
+            type: String,
+            default: '',
+            trim: true
+        },
+        formattedAddress: {
+            type: String,
+            default: '',
+            trim: true
+        },
+        placeId: {
+            type: String,
+            default: '',
+            trim: true
+        },
         phone: {
             type: String,
             default: '',
@@ -149,16 +169,18 @@ const userSchema = new mongoose.Schema(
             default: 0,
             min: 0
         },
+        /**
+         * DEPRECATED legacy single-address field (kept for porter admin text edits).
+         * Coordinates must NOT be stored here — the app has exactly two coordinate
+         * stores per user: `addresses[].location` (saved address pins, GeoJSON)
+         * and `liveLocation.location` (current GPS, GeoJSON, overwritten in place).
+         */
         address: {
             street: { type: String, trim: true },
             city: { type: String, trim: true },
             state: { type: String, trim: true },
             zipCode: { type: String, trim: true },
-            country: { type: String, default: 'India', trim: true },
-            coordinates: {
-                lat: { type: Number },
-                lng: { type: Number }
-            }
+            country: { type: String, default: 'India', trim: true }
         },
         aadhaarNumber: { type: String, trim: true },
         aadhaarFront: { type: String },
@@ -207,6 +229,36 @@ const userSchema = new mongoose.Schema(
         addresses: {
             type: [userAddressSchema],
             default: []
+        },
+
+        /**
+         * Last known live location of the user (device GPS), used for
+         * nearby-restaurant defaults and delivery estimates before an
+         * address is selected. Updated via PATCH /food/user/location.
+         */
+        liveLocation: {
+            location: {
+                type: {
+                    type: String,
+                    enum: ['Point'],
+                    default: 'Point'
+                },
+                coordinates: {
+                    // [lng, lat]
+                    type: [Number],
+                    default: undefined
+                }
+            },
+            accuracy: { type: Number, default: null },
+            street: { type: String, default: '', trim: true },
+            area: { type: String, default: '', trim: true },
+            landmark: { type: String, default: '', trim: true },
+            city: { type: String, default: '', trim: true },
+            state: { type: String, default: '', trim: true },
+            zipCode: { type: String, default: '', trim: true },
+            country: { type: String, default: '', trim: true },
+            formattedAddress: { type: String, default: '', trim: true },
+            updatedAt: { type: Date, default: null }
         },
 
         deletionRequest: {

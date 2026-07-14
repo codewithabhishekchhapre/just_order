@@ -139,11 +139,35 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
     const t = setTimeout(async () => {
       try {
         setIsKeywordSearching(true)
-        // Reference point for "nearest" sorting.
-        // Prefer currently selected map position, fallback to live location, then Indore default.
-        const refLat = Number.isFinite(mapPosition?.[0]) ? Number(mapPosition[0]) : (location?.latitude ?? 22.7196)
-        const refLng = Number.isFinite(mapPosition?.[1]) ? Number(mapPosition[1]) : (location?.longitude ?? 75.8577)
+        // Reference point for "nearest" sorting / search bias:
+        // currently selected map position, else live location, else none.
+        const refLat = Number.isFinite(mapPosition?.[0]) ? Number(mapPosition[0]) : Number(location?.latitude)
+        const refLng = Number.isFinite(mapPosition?.[1]) ? Number(mapPosition[1]) : Number(location?.longitude)
+        const hasRef = Number.isFinite(refLat) && Number.isFinite(refLng)
 
+        // 1) Centralized Places autocomplete (backend key, coordinates
+        // resolved on selection via place-details).
+        try {
+          const acRes = await locationAPI.autocomplete(q, hasRef ? { latitude: refLat, longitude: refLng } : {})
+          const suggestions = acRes?.data?.data?.suggestions || []
+          if (suggestions.length > 0) {
+            setKeywordAddressSuggestions(
+              suggestions.slice(0, 4).map((p) => ({
+                id: p.placeId,
+                placeId: p.placeId,
+                display: p.description || p.mainText || "",
+                lat: null,
+                lng: null,
+                address: { city: p.secondaryText || "" },
+              }))
+            )
+            return
+          }
+        } catch {
+          // backend unavailable — fall through to Nominatim
+        }
+
+        // 2) Nominatim fallback
         const url =
           `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=10&q=${encodeURIComponent(q)}`
         const res = await fetch(url, {
@@ -159,17 +183,15 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
           lat: Number(r.lat),
           lng: Number(r.lon),
           address: r.address || {},
-        }))
-        const withDistance = mapped
-          .filter((x) => Number.isFinite(x.lat) && Number.isFinite(x.lng))
-          .map((x) => ({
-            ...x,
-            distanceMeters: calculateDistance(refLat, refLng, x.lat, x.lng),
-          }))
-          .sort((a, b) => (a.distanceMeters ?? Infinity) - (b.distanceMeters ?? Infinity))
-          .slice(0, 4)
+        })).filter((x) => Number.isFinite(x.lat) && Number.isFinite(x.lng))
+        // Sort by distance only from a real reference point — never a hardcoded city.
+        const sorted = hasRef
+          ? mapped
+            .map((x) => ({ ...x, distanceMeters: calculateDistance(refLat, refLng, x.lat, x.lng) }))
+            .sort((a, b) => (a.distanceMeters ?? Infinity) - (b.distanceMeters ?? Infinity))
+          : mapped
 
-        setKeywordAddressSuggestions(withDistance)
+        setKeywordAddressSuggestions(sorted.slice(0, 4))
       } catch (e) {
         setKeywordAddressSuggestions([])
       } finally {
@@ -1633,8 +1655,19 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
         try {
           const response = await locationAPI.reverseGeocode(roundedLat, roundedLng)
           const backendData = response?.data?.data
+          // Canonical shape from /v1/location/reverse-geocode
+          const canonical = backendData?.address
+          // Legacy OLA-style shape kept for compatibility
           const result = backendData?.results?.[0] || backendData?.result?.[0] || null
-          if (result) {
+          if (canonical) {
+            formattedAddress = canonical.formattedAddress || ""
+            city = canonical.city || ""
+            state = canonical.state || ""
+            area = canonical.area || ""
+            street = canonical.street || ""
+            postalCode = canonical.pincode || ""
+            pointOfInterest = canonical.landmark || ""
+          } else if (result) {
             formattedAddress = result.formatted_address || result.formattedAddress || ""
             const addressComponents = result.address_components || {}
             city = addressComponents.city || ""
@@ -2112,8 +2145,39 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
     try {
       // Get coordinates from address location
       const coordinates = address.location?.coordinates || []
-      const longitude = coordinates[0]
-      const latitude = coordinates[1]
+      let longitude = coordinates[0]
+      let latitude = coordinates[1]
+
+      // Legacy addresses saved without coordinates: geocode the typed address
+      // via the centralized backend so distance/fees/tracking keep working.
+      if (!latitude || !longitude) {
+        try {
+          const text = [address.street, address.city, address.state, address.zipCode]
+            .filter(Boolean)
+            .join(", ")
+          const res = await locationAPI.geocode(text)
+          const geocoded = res?.data?.data?.address
+          if (geocoded?.latitude && geocoded?.longitude) {
+            latitude = geocoded.latitude
+            longitude = geocoded.longitude
+          }
+        } catch (geoErr) {
+          debugError("Geocode fallback for saved address failed:", geoErr)
+        }
+      }
+
+      if (!latitude || !longitude) {
+        // Still no coordinates — select the address for display but skip
+        // map/location updates instead of feeding undefined into the map.
+        toast.error("This address has no map location. Please edit it to set the pin.")
+        const selectedAddressIdNoGeo = getAddressId(address)
+        if (selectedAddressIdNoGeo) setDefaultAddress(selectedAddressIdNoGeo)
+        try {
+          localStorage.setItem("deliveryAddressMode", "saved")
+        } catch {}
+        onClose()
+        return
+      }
 
       if (latitude && longitude) {
         // Update location in backend
@@ -2326,14 +2390,36 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
                         key={p.id}
                         type="button"
                         onClick={async () => {
-                          const latitude = p.lat
-                          const longitude = p.lng
+                          let latitude = p.lat
+                          let longitude = p.lng
+                          let display = p.display || ""
+                          let a = p.address || {}
 
-                          setAddressAutocompleteValue(p.display || "")
+                          // Places suggestions carry a placeId, not coordinates —
+                          // resolve via the centralized backend before using them.
+                          if ((!Number.isFinite(latitude) || !Number.isFinite(longitude)) && p.placeId) {
+                            try {
+                              const detRes = await locationAPI.placeDetails(p.placeId)
+                              const detail = detRes?.data?.data?.address
+                              if (detail?.latitude && detail?.longitude) {
+                                latitude = detail.latitude
+                                longitude = detail.longitude
+                                display = detail.formattedAddress || display
+                                a = {
+                                  city: detail.city,
+                                  state: detail.state,
+                                  postcode: detail.pincode,
+                                  road: detail.street,
+                                  suburb: detail.area,
+                                }
+                              }
+                            } catch {}
+                          }
+
+                          setAddressAutocompleteValue(display)
                           setKeywordAddressSuggestions([])
 
-                          // Pre-fill fields from keyword search response (best-effort)
-                          const a = p.address || {}
+                          // Pre-fill fields from search response (best-effort)
                           const city = a.city || a.town || a.village || a.county || ""
                           const state = a.state || ""
                           const zipCode = a.postcode || ""
@@ -2342,9 +2428,9 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
                             a.neighbourhood ||
                             a.suburb ||
                             a.hamlet ||
-                            (String(p.display || "").split(",")[0] || "").trim()
+                            (String(display || "").split(",")[0] || "").trim()
 
-                          setCurrentAddress(p.display || "")
+                          setCurrentAddress(display)
                           setAddressFormData((prev) => ({
                             ...prev,
                             street: street || prev.street,
@@ -2352,6 +2438,8 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
                             state: state || prev.state,
                             zipCode: zipCode || prev.zipCode,
                           }))
+
+                          if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return
 
                           // Move map + marker, then run reverse-geocode handler for consistency
                           setMapPosition([latitude, longitude])

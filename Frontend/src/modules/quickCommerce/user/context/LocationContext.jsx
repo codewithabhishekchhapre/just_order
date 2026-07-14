@@ -7,7 +7,7 @@ import React, {
 } from "react";
 import { customerApi } from "../services/customerApi";
 import { useAuth } from "@core/context/AuthContext";
-import { userAPI } from "@food/api";
+import { userAPI, locationAPI } from "@food/api";
 
 const LocationContext = createContext(undefined);
 // v2 key to force one-time refresh from Google Maps for users
@@ -77,15 +77,17 @@ const mapSharedAddress = (addr = {}, idx = 0, profile = {}) => {
 
 export const LocationProvider = ({ children }) => {
   const { user, isAuthenticated } = useAuth();
-  // Default location (used until we can resolve a better one)
+  // Default location (in-memory only, never persisted): generic city center
+  // shown until the user grants location access or picks an address.
   const [currentLocation, setCurrentLocation] = useState({
-    name: "214, Rajshri Palace Colony, Pipliyahana, Indore, Madhya Pradesh 452018, India",
+    name: "Indore, Madhya Pradesh",
     time: "12-15 mins",
     city: "Indore",
     state: "Madhya Pradesh",
-    pincode: "452018",
-    latitude: 22.711140989838025,
-    longitude: 75.9001552518043,
+    pincode: "",
+    latitude: 22.7196,
+    longitude: 75.8577,
+    isFallback: true,
   });
 
   // Address list for drawer UI – will be hydrated from profile API.
@@ -182,9 +184,30 @@ export const LocationProvider = ({ children }) => {
             // even if reverse geocoding fails (key missing / quota / restrictions).
             let liveLocation = fallbackFromCoords(latitude, longitude);
 
+            // 1) Centralized backend geocoder (server key, Mongo-cached)
+            let resolvedViaBackend = false;
+            try {
+              const res = await locationAPI.reverseGeocode(latitude, longitude);
+              const addr = res?.data?.data?.address;
+              if (addr && (addr.formattedAddress || addr.city)) {
+                liveLocation = {
+                  name: addr.formattedAddress || [addr.area, addr.city].filter(Boolean).join(", "),
+                  time: "12-15 mins",
+                  city: addr.city || liveLocation.city,
+                  state: addr.state || liveLocation.state,
+                  pincode: addr.pincode || liveLocation.pincode,
+                  latitude,
+                  longitude,
+                };
+                resolvedViaBackend = true;
+              }
+            } catch {
+              // backend unavailable — fall through to direct Google below
+            }
+
             const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 
-            if (apiKey) {
+            if (!resolvedViaBackend && apiKey) {
               const params = new URLSearchParams({
                 latlng: `${latitude},${longitude}`,
                 key: apiKey,
@@ -353,10 +376,15 @@ export const LocationProvider = ({ children }) => {
     if (typeof window === "undefined") return;
 
     try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
+      // Prefer the centralized location cache (shared with the Food module),
+      // then fall back to this module's legacy key.
+      const raw =
+        window.localStorage.getItem("app_user_location") ||
+        window.localStorage.getItem(STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
-        const addressName = parsed.address || parsed.name;
+        const addressName =
+          parsed.formattedAddress || parsed.address || parsed.name;
         if (parsed && addressName) {
           updateLocation(
             {
@@ -364,20 +392,17 @@ export const LocationProvider = ({ children }) => {
               time: parsed.time || "12-15 mins",
               city: parsed.city,
               state: parsed.state,
-              pincode: parsed.pincode,
+              pincode: parsed.pincode || parsed.zipCode || parsed.postalCode,
               latitude: parsed.latitude,
               longitude: parsed.longitude,
             },
             { persist: false, updateSavedHome: false },
           );
         }
-      } else {
-        // If no location is stored, persist the default one immediately
-        updateLocation(currentLocation, {
-          persist: true,
-          updateSavedHome: false,
-        });
       }
+      // NOTE: when nothing is cached we intentionally keep the in-memory
+      // default WITHOUT persisting it — persisting the hardcoded fallback
+      // used to make a fake location look like a real fetched one.
     } catch {
       // ignore parse errors
     }

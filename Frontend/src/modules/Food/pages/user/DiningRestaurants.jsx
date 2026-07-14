@@ -197,9 +197,14 @@ export default function DiningRestaurants() {
   }, [heroSearch, openSearch, setSearchValue])
 
   const handleOpenMap = () => {
-    const lat = location?.latitude || 22.7196
-    const lng = location?.longitude || 75.8577
-    const googleMapsUrl = `https://www.google.com/maps/search/restaurants+near+me/@${lat},${lng},15z`
+    // Only pin the map when we actually know the user's location —
+    // otherwise let Google Maps use its own location detection.
+    const hasCoords =
+      Number.isFinite(Number(location?.latitude)) &&
+      Number.isFinite(Number(location?.longitude))
+    const googleMapsUrl = hasCoords
+      ? `https://www.google.com/maps/search/restaurants+near+me/@${location.latitude},${location.longitude},15z`
+      : `https://www.google.com/maps/search/restaurants+near+me`
     window.open(googleMapsUrl, '_blank', 'fullscreen=yes')
   }
 

@@ -349,13 +349,22 @@ export const getOrderAddressPoint = (order) => {
   // FoodOrder/QuickOrder schema uses deliveryAddress.location.coordinates [lng, lat]
   if (order?.deliveryAddress?.location?.coordinates?.length === 2) {
     const [lng, lat] = order.deliveryAddress.location.coordinates;
-    return { lat, lng };
+    return { lat: Number(lat), lng: Number(lng) };
   }
-  // Fallback for address.location.lat/lng
-  const lat = Number(order?.address?.location?.lat || order?.location?.lat);
-  const lng = Number(order?.address?.location?.lng || order?.location?.lng);
-  if (Number.isFinite(lat) && Number.isFinite(lng)) {
-    return { lat, lng };
+  // Client-supplied deliveryAddress may carry {lat,lng} or latitude/longitude
+  // instead of GeoJSON (quick-commerce checkout sends location: {lat, lng}).
+  const candidates = [
+    [order?.deliveryAddress?.location?.lat, order?.deliveryAddress?.location?.lng],
+    [order?.deliveryAddress?.latitude, order?.deliveryAddress?.longitude],
+    [order?.address?.location?.lat, order?.address?.location?.lng],
+    [order?.location?.lat, order?.location?.lng]
+  ];
+  for (const [rawLat, rawLng] of candidates) {
+    const lat = Number(rawLat);
+    const lng = Number(rawLng);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      return { lat, lng };
+    }
   }
   return null;
 };

@@ -389,10 +389,33 @@ export const updateDeliveryAvailability = async (userId, payload) => {
     if (!partner) {
         throw new ValidationError('Delivery partner not found');
     }
-    const { status, latitude, longitude } = payload || {};
+    const { status } = payload || {};
+    const latitude = Number(payload?.latitude);
+    const longitude = Number(payload?.longitude);
+    const hasCoords =
+        Number.isFinite(latitude) && Number.isFinite(longitude) &&
+        Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180;
     let validStatus = 'offline';
     if (status === 'online' || status === true) validStatus = 'online';
     else if (status === 'offline' || status === false) validStatus = 'offline';
+
+    // Fast path for the frequent location pings (every ~7s while online):
+    // no status transition -> atomic coordinate update, skipping full-document
+    // validation (a legacy field failing validation must not kill live tracking).
+    if (hasCoords && partner.availabilityStatus === validStatus) {
+        await FoodDeliveryPartner.updateOne(
+            { _id: userId },
+            {
+                $set: {
+                    lastLocation: { type: 'Point', coordinates: [longitude, latitude] },
+                    lastLat: latitude,
+                    lastLng: longitude,
+                    lastLocationAt: new Date()
+                }
+            }
+        );
+        return { availabilityStatus: partner.availabilityStatus };
+    }
 
     // PHASE 3C-1: SUBSCRIPTION TRIGGER (OFFLINE -> ONLINE ONLY) (Bypassed)
     /* Comment out the related restriction/check logic in the codebase instead of removing it completely.
@@ -427,7 +450,7 @@ export const updateDeliveryAvailability = async (userId, payload) => {
     }
 
     partner.availabilityStatus = validStatus;
-    if (typeof latitude === 'number' && typeof longitude === 'number') {
+    if (hasCoords) {
         partner.lastLocation = {
             type: 'Point',
             coordinates: [longitude, latitude]

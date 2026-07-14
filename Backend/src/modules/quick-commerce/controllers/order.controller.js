@@ -24,6 +24,7 @@ import { FoodTransaction } from '../../food/orders/models/foodTransaction.model.
 import { emitQuickCommerceStatusUpdate } from '../services/quickStatusRealtime.service.js';
 import { getSellerLocation, getOrderAddressPoint } from '../services/quickOrder.service.js';
 import { haversineKm } from '../../food/orders/services/order.helpers.js';
+import { getRoadDistance } from '../../../core/location/location.service.js';
 import { buildReturnEligibilityMeta } from '../utils/return.helpers.js';
 import {
   buildCartLineKey,
@@ -488,7 +489,11 @@ export const placeOrder = async (req, res) => {
       const sellerCoords = getSellerLocation(seller);
       const deliveryCoords = getOrderAddressPoint({ deliveryAddress });
       if (sellerCoords && deliveryCoords) {
-        distanceKm = haversineKm(sellerCoords.lat, sellerCoords.lng, deliveryCoords.lat, deliveryCoords.lng);
+        // Road distance (Google Routes, cached) with automatic haversine fallback.
+        const road = await getRoadDistance(sellerCoords, deliveryCoords).catch(() => null);
+        distanceKm = road && Number.isFinite(road.distanceKm)
+          ? road.distanceKm
+          : haversineKm(sellerCoords.lat, sellerCoords.lng, deliveryCoords.lat, deliveryCoords.lng);
       }
     }
 

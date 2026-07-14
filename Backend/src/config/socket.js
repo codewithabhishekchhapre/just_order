@@ -38,6 +38,121 @@ const roomNames = {
     tracking: (orderId) => `tracking:${String(orderId)}`
 };
 
+/* ===================== LIVE ROAD-DISTANCE ETA =====================
+ * Authoritative "arriving in X mins" for everyone watching an order.
+ * Recomputed from REAL road distance (central location service, Mongo-cached
+ * per ~100m grid pair) only when the rider moved >250m or 45s passed —
+ * between recomputes the last value is re-attached to every broadcast.
+ * Before pickup: rider->pickup + pickup->customer (+handover buffer).
+ * After pickup:  rider->customer.
+ */
+const ETA_RECOMPUTE_MIN_METERS = 250;
+const ETA_RECOMPUTE_MIN_MS = 45_000;
+const ETA_PHASE_REFRESH_MS = 60_000;
+const ETA_HANDOVER_BUFFER_MIN = 3;
+const _orderEtaState = new Map(); // orderId -> state (module-level: shared across sockets)
+
+async function loadOrderEtaContext(orderId) {
+    const { FoodOrder } = await import('../modules/food/orders/models/order.model.js');
+    const mongoose = (await import('mongoose')).default;
+    const query = mongoose.Types.ObjectId.isValid(String(orderId))
+        ? { _id: orderId }
+        : { orderId: String(orderId) };
+    const order = await FoodOrder.findOne(query)
+        .select('deliveryAddress.location pickupPoints deliveryState.currentPhase deliveryState.pickedUpAt restaurantId')
+        .populate('restaurantId', 'location')
+        .lean();
+    if (!order) return null;
+
+    const toLatLng = (loc) => {
+        const c = loc?.coordinates;
+        if (Array.isArray(c) && c.length === 2 && c.every((n) => Number.isFinite(Number(n)))) {
+            return { lat: Number(c[1]), lng: Number(c[0]) };
+        }
+        const lat = Number(loc?.latitude ?? loc?.lat);
+        const lng = Number(loc?.longitude ?? loc?.lng);
+        return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
+    };
+
+    return {
+        dest: toLatLng(order.deliveryAddress?.location),
+        pickup:
+            toLatLng(order.pickupPoints?.[0]?.location) ||
+            toLatLng(order.restaurantId?.location),
+        pickedUp:
+            Boolean(order.deliveryState?.pickedUpAt) ||
+            ['en_route_to_delivery', 'at_drop', 'delivered', 'completed']
+                .includes(String(order.deliveryState?.currentPhase || ''))
+    };
+}
+
+async function resolveLiveEta(orderId, riderLat, riderLng) {
+    // Lazy eviction so finished orders don't accumulate forever.
+    if (_orderEtaState.size > 500) {
+        const cutoff = Date.now() - 2 * 60 * 60 * 1000;
+        for (const [key, s] of _orderEtaState) {
+            if ((s.lastEtaAt || 0) < cutoff) _orderEtaState.delete(key);
+        }
+    }
+
+    let state = _orderEtaState.get(String(orderId));
+    const now = Date.now();
+
+    try {
+        if (!state) {
+            const ctx = await loadOrderEtaContext(orderId);
+            if (!ctx || !ctx.dest) return null;
+            state = { ...ctx, phaseCheckedAt: now, lastEtaAt: 0, lastEtaLat: null, lastEtaLng: null, etaMinutes: null, roadKm: null };
+            _orderEtaState.set(String(orderId), state);
+        } else if (!state.pickedUp && now - state.phaseCheckedAt > ETA_PHASE_REFRESH_MS) {
+            // Re-check pickup phase so the ETA switches to the drop leg mid-trip.
+            state.phaseCheckedAt = now;
+            const ctx = await loadOrderEtaContext(orderId);
+            if (ctx) state.pickedUp = ctx.pickedUp;
+        }
+
+        const { haversineKm, getRoadDistance } = await import('../core/location/location.service.js');
+        const movedMeters = state.lastEtaLat == null
+            ? Infinity
+            : haversineKm(state.lastEtaLat, state.lastEtaLng, riderLat, riderLng) * 1000;
+
+        if (movedMeters > ETA_RECOMPUTE_MIN_METERS || now - state.lastEtaAt > ETA_RECOMPUTE_MIN_MS) {
+            state.lastEtaAt = now;
+            state.lastEtaLat = riderLat;
+            state.lastEtaLng = riderLng;
+
+            const rider = { lat: riderLat, lng: riderLng };
+            if (state.pickedUp || !state.pickup) {
+                const leg = await getRoadDistance(rider, state.dest);
+                if (leg) {
+                    state.roadKm = leg.distanceKm;
+                    state.etaMinutes = leg.durationMinutes
+                        ?? Math.max(1, Math.round((leg.distanceKm / 25) * 60)); // 25 km/h fallback
+                }
+            } else {
+                // Pre-pickup: to-pickup leg changes as rider moves; pickup->dest is
+                // a fixed pair so it's answered from cache after the first call.
+                const [toPickup, toDest] = await Promise.all([
+                    getRoadDistance(rider, state.pickup),
+                    getRoadDistance(state.pickup, state.dest)
+                ]);
+                if (toPickup && toDest) {
+                    state.roadKm = Math.round((toPickup.distanceKm + toDest.distanceKm) * 100) / 100;
+                    const mins =
+                        (toPickup.durationMinutes ?? Math.round((toPickup.distanceKm / 25) * 60)) +
+                        (toDest.durationMinutes ?? Math.round((toDest.distanceKm / 25) * 60));
+                    state.etaMinutes = Math.max(1, mins + ETA_HANDOVER_BUFFER_MIN);
+                }
+            }
+        }
+
+        return { etaMinutes: state.etaMinutes, roadDistanceKm: state.roadKm };
+    } catch (err) {
+        logger.warn(`[DeliverySocket] live ETA computation failed for order ${orderId}: ${err.message}`);
+        return state ? { etaMinutes: state.etaMinutes, roadDistanceKm: state.roadKm } : null;
+    }
+}
+
 /**
  * Initializes Socket.IO with the provided HTTP server.
  * When REDIS_ENABLED=true and REDIS_URL is set, attaches Redis adapter for horizontal scaling.
@@ -246,6 +361,10 @@ export const initSocket = async (server) => {
             if (now - lastTS < 2000) return;
             _lastLocationBroadcast[data.orderId] = now;
 
+            // Authoritative road-distance ETA (cached + throttled server-side).
+            // Falls back to the driver-device estimate only when unavailable.
+            const liveEta = await resolveLiveEta(data.orderId, lat, lng);
+
             const payload = {
                 orderId: String(data.orderId),
                 deliveryPartnerId: String(userId),
@@ -259,7 +378,10 @@ export const initSocket = async (server) => {
                 accuracy,
                 timestamp: now,
                 polyline: data.polyline || null,
-                eta: data.eta ?? null,
+                eta: liveEta?.etaMinutes ?? data.eta ?? null,
+                etaMinutes: liveEta?.etaMinutes ?? null,
+                roadDistanceKm: liveEta?.roadDistanceKm ?? null,
+                etaSource: liveEta?.etaMinutes != null ? 'road_distance' : 'device_estimate',
                 status: data.status || 'on_the_way',
             };
 
@@ -333,7 +455,9 @@ export const initSocket = async (server) => {
                         speed,
                         accuracy,
                         polyline: data.polyline || null,
-                        eta: data.eta ?? null,
+                        eta: payload.eta ?? null,
+                        etaMinutes: payload.etaMinutes ?? null,
+                        roadDistanceKm: payload.roadDistanceKm ?? null,
                         last_updated: now,
                         status: data.status || 'on_the_way'
                     }).catch(e => logger.error(`Firebase orderRef update error: ${e.message}`));

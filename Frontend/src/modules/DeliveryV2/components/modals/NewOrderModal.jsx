@@ -4,8 +4,9 @@ import { ChevronDown } from 'lucide-react';
 import { ActionSlider } from '@/modules/DeliveryV2/components/ui/ActionSlider';
 import { useDeliveryStore } from '@/modules/DeliveryV2/store/useDeliveryStore';
 import { getHaversineDistance } from '@/modules/DeliveryV2/utils/geo';
-import { normalizePickupPoints, isMixedOrder, isReturnPickupTrip, getReturnPickupStopLabels } from '@/modules/DeliveryV2/utils/orderRouting';
+import { normalizePickupPoints, isMixedOrder, isReturnPickupTrip, getReturnPickupStopLabels, formatDeliveryAddressText } from '@/modules/DeliveryV2/utils/orderRouting';
 import { RenderNewOrder } from './renderers/NewOrderRenderers';
+import { locationAPI } from '@food/api';
 
 /**
  * NewOrderModal - Ported to Original 1:1 Theme with Slider Accept.
@@ -65,6 +66,56 @@ export const NewOrderModal = ({ order, onAccept, onReject, onMinimize }) => {
 
     return { distanceKm: '??', etaMins: order.prepTime || 15 };
   }, [order, primaryPickup, riderLocation]);
+
+  // Stable pickup (restaurant/store) and drop (customer) coordinates.
+  const routeCoords = useMemo(() => {
+    if (!order) return { pickup: null, drop: null };
+    const rest = primaryPickup?.location || order.restaurantLocation || order.restaurantId?.location || {};
+    const pLat = parseFloat(order.restaurant_lat || order.restaurantLat || rest.latitude || rest.lat);
+    const pLng = parseFloat(order.restaurant_lng || order.restaurantLng || rest.longitude || rest.lng);
+    const geo = order?.deliveryAddress?.location?.coordinates;
+    const dropRaw = order.customerLocation || order.deliveryLocation ||
+      (Array.isArray(geo) && geo.length >= 2 ? { lat: geo[1], lng: geo[0] } : null);
+    const dLat = parseFloat(dropRaw?.lat ?? dropRaw?.latitude);
+    const dLng = parseFloat(dropRaw?.lng ?? dropRaw?.longitude);
+    return {
+      pickup: Number.isFinite(pLat) && Number.isFinite(pLng) ? { lat: pLat, lng: pLng } : null,
+      drop: Number.isFinite(dLat) && Number.isFinite(dLng) ? { lat: dLat, lng: dLng } : null,
+    };
+  }, [order, primaryPickup]);
+
+  // Real ROAD distances for both legs (backend Routes API, server-cached):
+  // rider -> pickup, and pickup -> customer drop. Haversine stays as the
+  // instant fallback shown until these resolve (or if the backend is down).
+  const [roadLegs, setRoadLegs] = useState({ pickup: null, drop: null });
+  useEffect(() => {
+    setRoadLegs({ pickup: null, drop: null });
+    if (!order) return undefined;
+    let cancelled = false;
+
+    const fetchLeg = (from, to, key) => {
+      if (!from || !to) return;
+      locationAPI.roadDistance(from.lat, from.lng, to.lat, to.lng)
+        .then((res) => {
+          const d = res?.data?.data;
+          if (!cancelled && d && Number.isFinite(Number(d.distanceKm)) && d.source !== 'haversine') {
+            setRoadLegs((prev) => ({ ...prev, [key]: d }));
+          }
+        })
+        .catch(() => {});
+    };
+
+    fetchLeg(
+      riderLocation ? { lat: riderLocation.lat, lng: riderLocation.lng } : null,
+      routeCoords.pickup,
+      'pickup'
+    );
+    fetchLeg(routeCoords.pickup, routeCoords.drop, 'drop');
+
+    return () => { cancelled = true; };
+    // riderLocation intentionally sampled once per offer — the modal lives ~30s.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order?.orderId, order?._id, routeCoords.pickup?.lat, routeCoords.pickup?.lng, routeCoords.drop?.lat, routeCoords.drop?.lng]);
 
   if (!order) return null;
 
@@ -138,11 +189,13 @@ export const NewOrderModal = ({ order, onAccept, onReject, onMinimize }) => {
           </button>
         </div>
 
-        <RenderNewOrder 
-          order={order} 
-          distanceKm={distanceKm} 
-          etaMins={etaMins} 
-          timeLeft={timeLeft} 
+        <RenderNewOrder
+          order={order}
+          distanceKm={distanceKm}
+          etaMins={etaMins}
+          pickupLeg={roadLegs.pickup}
+          dropLeg={roadLegs.drop}
+          timeLeft={timeLeft}
         />
 
         {/* Action Area (Shared Shell Bottom) */}
