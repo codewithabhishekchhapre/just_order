@@ -1781,7 +1781,7 @@ async function enforceMinimumFoodItemPrices(items, sourceMap) {
 
   const foodDocs = validIds.length
     ? await FoodItem.find({ _id: { $in: validIds } })
-        .select("restaurantId price variants approvalStatus isAvailable name")
+        .select("restaurantId price otherPrice variants approvalStatus isAvailable name")
         .lean()
     : [];
   const foodDocMap = new Map(foodDocs.map((doc) => [String(doc._id), doc]));
@@ -1802,19 +1802,31 @@ async function enforceMinimumFoodItemPrices(items, sourceMap) {
       throw new ValidationError(`"${label}" does not belong to the selected restaurant.`);
     }
 
+    const hasVariantsInDB = doc.variants && doc.variants.length > 0;
+    if (hasVariantsInDB && !item.variantId) {
+      throw new ValidationError(`Please select an option for "${label}" before adding to cart.`);
+    }
+
     let basePrice = Number(doc.price) || 0;
-    if (item.variantId) {
-      const variant = (doc.variants || []).find((v) => String(v._id) === String(item.variantId));
+    let baseOtherPrice = Number(doc.otherPrice) || 0;
+    
+    if (item.variantId && hasVariantsInDB) {
+      const variant = doc.variants.find((v) => String(v._id) === String(item.variantId));
       if (!variant) {
         throw new ValidationError(`Selected option for "${label}" is no longer available. Please refresh your cart.`);
       }
       basePrice = Number(variant.price) || 0;
+      baseOtherPrice = Number(variant.otherPrice) || 0;
     }
 
     const submittedPrice = Number(item.price);
     if (!Number.isFinite(submittedPrice) || submittedPrice < basePrice - 0.01) {
       throw new ValidationError(`Price for "${label}" has changed. Please refresh your cart and try again.`);
     }
+
+    // Force DB authoritative pricing on the item object directly
+    item.price = basePrice;
+    item.otherPrice = baseOtherPrice;
   }
 }
 

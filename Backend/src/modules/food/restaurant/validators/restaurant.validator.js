@@ -86,7 +86,11 @@ const restaurantRegisterSchema = z.object({
     ownerName: z.string().optional().or(z.literal('')),
     ownerEmail: emailSchema,
     ownerPhone: phoneSchema.optional(),
-    primaryContactNumber: phoneSchema.optional(),
+    primaryContactNumber: z
+        .string()
+        .regex(/^\d{10}$/, 'Primary contact number must be exactly 10 digits')
+        .optional()
+        .or(z.literal('')),
     pureVegRestaurant: requiredBooleanSchema,
     addressLine1: z.string().optional(),
     addressLine2: z.string().optional(),
@@ -198,12 +202,22 @@ export const validateRestaurantRegisterDto = (body) => {
     };
 };
 
+const tenDigitPhoneSchema = z
+    .string()
+    .regex(/^\d{10}$/, 'Phone number must be exactly 10 digits');
+
+const loginPhoneSchema = z
+    .string()
+    .min(1, 'Primary contact number is required')
+    .transform((value) => String(value || '').replace(/\D/g, '').slice(-10))
+    .refine((value) => /^\d{10}$/.test(value), 'Primary contact number must be exactly 10 digits');
+
 const onboardingStep1Schema = z.object({
     restaurantName: z.string().min(1, 'Restaurant name is required'),
     ownerName: z.string().min(1, 'Owner name is required'),
     ownerEmail: requiredEmailSchema,
-    ownerPhone: phoneSchema,
-    primaryContactNumber: z.string().regex(/^\d{10}$/, 'Primary contact number must be exactly 10 digits'),
+    ownerPhone: tenDigitPhoneSchema.optional().or(z.literal('')),
+    primaryContactNumber: loginPhoneSchema,
     pureVegRestaurant: requiredBooleanSchema,
     addressLine1: z.string().min(1, 'Address line 1 is required'),
     addressLine2: z.string().optional(),
@@ -219,7 +233,8 @@ const onboardingStep1Schema = z.object({
 });
 
 const onboardingStep2Schema = z.object({
-    ownerPhone: phoneSchema,
+    ownerPhone: phoneSchema.optional(),
+    primaryContactNumber: loginPhoneSchema.optional(),
     cuisines: z
         .union([z.string(), z.array(z.string())])
         .optional()
@@ -240,10 +255,14 @@ const onboardingStep2Schema = z.object({
         })
         .refine((value) => value.length > 0, 'At least one open day is required'),
     showRestaurantToUsersWithoutItems: optionalBooleanSchema,
-});
+}).refine(
+    (data) => Boolean(data.primaryContactNumber || data.ownerPhone),
+    { message: 'Primary contact number is required', path: ['primaryContactNumber'] }
+);
 
 const onboardingStep3Schema = z.object({
-    ownerPhone: phoneSchema,
+    ownerPhone: phoneSchema.optional(),
+    primaryContactNumber: loginPhoneSchema.optional(),
     panNumber: z
         .string()
         .regex(panRegex, 'Invalid PAN format'),
@@ -261,7 +280,10 @@ const onboardingStep3Schema = z.object({
     ifscCode: z.string().regex(/^[A-Z0-9]{11}$/, 'IFSC code must be 11 characters'),
     accountHolderName: z.string().min(1, 'Account holder name is required'),
     accountType: z.string().min(1, 'Account type is required'),
-});
+}).refine(
+    (data) => Boolean(data.primaryContactNumber || data.ownerPhone),
+    { message: 'Primary contact number is required', path: ['primaryContactNumber'] }
+);
 
 export const validateOnboardingStepDto = (stepNum, body) => {
     const step = Number(stepNum);

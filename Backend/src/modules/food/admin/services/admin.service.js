@@ -1,6 +1,14 @@
 import mongoose from 'mongoose';
 import { ValidationError } from '../../../../core/auth/errors.js';
 import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
+import {
+    prepareRestaurantPhoneFields,
+    stripLegacyRestaurantPhoneFields,
+    unsetLegacyRestaurantPhoneFields,
+    assertRestaurantPhoneUnique,
+    assertRestaurantPhonesUnique,
+    findRestaurantByLoginPhone,
+} from '../../restaurant/utils/restaurantPhone.utils.js';
 import { serializeRestaurantOnboardingForAdmin } from '../../shared/restaurantOnboardingWorkflow.js';
 import { serializeOutletUpdateForAdmin } from '../../shared/outletUpdateWorkflow.js';
 import { buildRestaurantSubmissionSnapshot } from '../../shared/restaurantOnboardingWorkflow.js';
@@ -2447,8 +2455,34 @@ export async function updateRestaurantById(id, body = {}) {
 
     if (body.ownerName !== undefined) doc.ownerName = toStr(body.ownerName);
     if (body.ownerEmail !== undefined) doc.ownerEmail = toStr(body.ownerEmail).toLowerCase();
-    if (body.ownerPhone !== undefined) doc.ownerPhone = toStr(body.ownerPhone);
-    if (body.primaryContactNumber !== undefined) doc.primaryContactNumber = toStr(body.primaryContactNumber);
+    if (body.ownerPhone !== undefined || body.ownerPhoneNumber !== undefined) {
+        const phones = prepareRestaurantPhoneFields({
+            primaryContactNumber: doc.primaryContactNumber,
+            ownerPhone: body.ownerPhone ?? body.ownerPhoneNumber,
+        });
+        if (phones.ownerPhone) {
+            await assertRestaurantPhoneUnique(phones.ownerPhone, {
+                excludeRestaurantId: doc._id,
+                label: 'Owner phone number',
+            });
+        }
+        doc.ownerPhone = phones.ownerPhone;
+    }
+    if (body.primaryContactNumber !== undefined) {
+        const phones = prepareRestaurantPhoneFields({
+            primaryContactNumber: body.primaryContactNumber,
+            ownerPhone: doc.ownerPhone,
+        });
+        if (!phones.primaryContactNumber) {
+            throw new ValidationError('Primary contact number must be exactly 10 digits');
+        }
+        await assertRestaurantPhoneUnique(phones.primaryContactNumber, {
+            excludeRestaurantId: doc._id,
+            label: 'Primary contact number',
+        });
+        doc.primaryContactNumber = phones.primaryContactNumber;
+    }
+    stripLegacyRestaurantPhoneFields(doc);
 
     if (body.pureVegRestaurant !== undefined) {
         doc.pureVegRestaurant = parseBooleanLike(body.pureVegRestaurant, 'pureVegRestaurant');
@@ -2572,8 +2606,21 @@ export async function updateRestaurantById(id, body = {}) {
         }
     }
 
-    await doc.save();
-    return FoodRestaurant.findById(id).select('-__v').populate('zoneId', 'name zoneName serviceLocation isActive').lean();
+    try {
+        await doc.save();
+        await unsetLegacyRestaurantPhoneFields(doc._id);
+    } catch (err) {
+        if (err && (err.code === 11000 || err?.name === 'MongoServerError')) {
+            throw new ValidationError(
+                'Phone number is already registered with another restaurant',
+                'PHONE_EXISTS'
+            );
+        }
+        throw err;
+    }
+    const updated = await FoodRestaurant.findById(id).select('-__v').populate('zoneId', 'name zoneName serviceLocation isActive').lean();
+    stripLegacyRestaurantPhoneFields(updated);
+    return updated;
 }
 
 export async function updateRestaurantStatus(id, body = {}) {
@@ -3505,12 +3552,20 @@ export async function createRestaurantByAdmin(body) {
     const normalizedClosingTime = normalizeRestaurantTime(body.closingTime) || '22:00';
     validateOpeningClosingTimes(normalizedOpeningTime, normalizedClosingTime);
 
+    const phones = prepareRestaurantPhoneFields(
+        {
+            primaryContactNumber: body.primaryContactNumber,
+            ownerPhone: body.ownerPhone ?? body.ownerPhoneNumber,
+        },
+        { requireBoth: false }
+    );
+
     const doc = {
         restaurantName: toStr(body.restaurantName) || toStr(body.name),
         ownerName: toStr(body.ownerName),
         ownerEmail: toStr(body.ownerEmail),
-        ownerPhone: toStr(body.ownerPhone),
-        primaryContactNumber: toStr(body.primaryContactNumber) || toStr(body.ownerPhone),
+        ownerPhone: phones.ownerPhone,
+        primaryContactNumber: phones.primaryContactNumber,
         pureVegRestaurant: body.pureVegRestaurant !== undefined
             ? parseBooleanLike(body.pureVegRestaurant, 'pureVegRestaurant')
             : false,
@@ -3596,12 +3651,32 @@ export async function createRestaurantByAdmin(body) {
     if (!doc.restaurantName || !doc.ownerName) {
         throw new ValidationError('Restaurant name and owner name are required');
     }
-    if (!doc.ownerPhone && !doc.primaryContactNumber) {
-        throw new ValidationError('Owner phone or primary contact number is required');
+    if (!doc.primaryContactNumber) {
+        throw new ValidationError('Primary contact number is required');
     }
+    if (!doc.ownerPhone) {
+        throw new ValidationError('Owner phone number is required');
+    }
+    await assertRestaurantPhonesUnique({
+        primaryContactNumber: doc.primaryContactNumber,
+        ownerPhone: doc.ownerPhone,
+    });
 
-    const restaurant = await FoodRestaurant.create(doc);
-    return restaurant.toObject();
+    try {
+        const restaurant = await FoodRestaurant.create(doc);
+        await unsetLegacyRestaurantPhoneFields(restaurant._id);
+        const cleaned = restaurant.toObject();
+        stripLegacyRestaurantPhoneFields(cleaned);
+        return cleaned;
+    } catch (err) {
+        if (err && (err.code === 11000 || err?.name === 'MongoServerError')) {
+            throw new ValidationError(
+                'Phone number is already registered with another restaurant',
+                'PHONE_EXISTS'
+            );
+        }
+        throw err;
+    }
 }
 
 const normalizeAdminDraftBody = (body = {}, performer = null) => {
@@ -3619,12 +3694,17 @@ const normalizeAdminDraftBody = (body = {}, performer = null) => {
         validateOpeningClosingTimes(normalizedOpeningTime, normalizedClosingTime);
     }
 
+    const phones = prepareRestaurantPhoneFields({
+        primaryContactNumber: body.primaryContactNumber,
+        ownerPhone: body.ownerPhone ?? body.ownerPhoneNumber,
+    });
+
     const doc = {
         restaurantName: toStr(body.restaurantName || body.name),
         ownerName: toStr(body.ownerName),
         ownerEmail: toStr(body.ownerEmail),
-        ownerPhone: toStr(body.ownerPhone),
-        primaryContactNumber: toStr(body.primaryContactNumber || body.ownerPhone),
+        ownerPhone: phones.ownerPhone,
+        primaryContactNumber: phones.primaryContactNumber,
         pureVegRestaurant: body.pureVegRestaurant !== undefined
             ? parseBooleanLike(body.pureVegRestaurant, 'pureVegRestaurant')
             : false,
@@ -3701,21 +3781,15 @@ const normalizeAdminDraftBody = (body = {}, performer = null) => {
     return doc;
 };
 
-const normalizeDraftPhone = (value) => {
-    const digits = String(value || '').replace(/\D/g, '').slice(-15);
-    return {
-        digits,
-        last10: digits.length >= 10 ? digits.slice(-10) : ''
-    };
-};
-
 export async function saveRestaurantDraftByAdmin(body = {}, performer = null) {
     const draftId = String(body.draftId || body._id || body.id || '').trim();
-    const ownerPhone = String(body.ownerPhone || '').replace(/\D/g, '').slice(-15);
     const draftData = normalizeAdminDraftBody(body, performer);
+    const loginPhone =
+        draftData.primaryContactNumber ||
+        String(body.primaryContactNumber || body.ownerPhone || '').replace(/\D/g, '').slice(-15);
 
-    if (!draftData.restaurantName || !draftData.ownerName || !ownerPhone) {
-        throw new ValidationError('Restaurant name, owner name and owner phone are required to save a draft');
+    if (!draftData.restaurantName || !draftData.ownerName || !loginPhone) {
+        throw new ValidationError('Restaurant name, owner name and primary contact number are required to save a draft');
     }
 
     let draft = null;
@@ -3723,43 +3797,83 @@ export async function saveRestaurantDraftByAdmin(body = {}, performer = null) {
         draft = await FoodRestaurant.findOne({ _id: draftId, status: 'onboarding', onboardingSource: 'admin' });
     }
     if (!draft) {
-        const { last10 } = normalizeDraftPhone(ownerPhone);
-        draft = await FoodRestaurant.findOne({
-            status: 'onboarding',
-            onboardingSource: 'admin',
-            $or: [
-                { ownerPhoneDigits: ownerPhone },
-                ...(last10 ? [{ ownerPhoneLast10: last10 }] : [])
-            ]
-        });
+        // Match either primary or owner phone to an existing restaurant/draft.
+        const byPrimary = draftData.primaryContactNumber
+            ? await findRestaurantByLoginPhone(draftData.primaryContactNumber)
+            : null;
+        const byOwner =
+            draftData.ownerPhone && draftData.ownerPhone !== draftData.primaryContactNumber
+                ? await findRestaurantByLoginPhone(draftData.ownerPhone)
+                : null;
+        draft = byPrimary || byOwner;
+        if (draft && !(draft.status === 'onboarding' && draft.onboardingSource === 'admin')) {
+            throw new ValidationError(
+                'Phone number is already registered with another restaurant',
+                'PHONE_EXISTS'
+            );
+        }
     }
+
+    await assertRestaurantPhonesUnique(
+        {
+            primaryContactNumber: draftData.primaryContactNumber,
+            ownerPhone: draftData.ownerPhone,
+        },
+        { excludeRestaurantId: draft?._id || null }
+    );
 
     if (draft) {
         Object.assign(draft, draftData);
-        await draft.save();
-        return draft.toObject();
+        stripLegacyRestaurantPhoneFields(draft);
+        try {
+            await draft.save();
+            await unsetLegacyRestaurantPhoneFields(draft._id);
+        } catch (err) {
+            if (err && (err.code === 11000 || err?.name === 'MongoServerError')) {
+                throw new ValidationError(
+                    'Phone number is already registered with another restaurant',
+                    'PHONE_EXISTS'
+                );
+            }
+            throw err;
+        }
+        const cleaned = draft.toObject();
+        stripLegacyRestaurantPhoneFields(cleaned);
+        return cleaned;
     }
 
-    const created = await FoodRestaurant.create(draftData);
-    return created.toObject();
+    try {
+        const created = await FoodRestaurant.create(draftData);
+        await unsetLegacyRestaurantPhoneFields(created._id);
+        const cleaned = created.toObject();
+        stripLegacyRestaurantPhoneFields(cleaned);
+        return cleaned;
+    } catch (err) {
+        if (err && (err.code === 11000 || err?.name === 'MongoServerError')) {
+            throw new ValidationError(
+                'Phone number is already registered with another restaurant',
+                'PHONE_EXISTS'
+            );
+        }
+        throw err;
+    }
 }
 
 export async function getRestaurantDraftByAdmin(query = {}, performer = null) {
     const draftId = String(query.draftId || query.id || '').trim();
-    const ownerPhone = String(query.ownerPhone || query.phone || '').replace(/\D/g, '').slice(-15);
+    const loginPhone = String(query.primaryContactNumber || query.ownerPhone || query.phone || '')
+        .replace(/\D/g, '')
+        .slice(-15);
     const base = { status: 'onboarding', onboardingSource: 'admin' };
     if (draftId && mongoose.Types.ObjectId.isValid(draftId)) {
         return FoodRestaurant.findOne({ ...base, _id: draftId }).lean();
     }
-    if (ownerPhone) {
-        const { last10 } = normalizeDraftPhone(ownerPhone);
-        return FoodRestaurant.findOne({
-            ...base,
-            $or: [
-                { ownerPhoneDigits: ownerPhone },
-                ...(last10 ? [{ ownerPhoneLast10: last10 }] : [])
-            ]
-        }).sort({ updatedAt: -1 }).lean();
+    if (loginPhone) {
+        const found = await findRestaurantByLoginPhone(loginPhone, { lean: true });
+        if (found && found.status === 'onboarding' && found.onboardingSource === 'admin') {
+            return found;
+        }
+        return null;
     }
     return FoodRestaurant.findOne({
         ...base,
@@ -3771,7 +3885,30 @@ export async function finalizeRestaurantDraftByAdmin(id, performer = null) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) throw new ValidationError('Invalid draft id');
     const draft = await FoodRestaurant.findOne({ _id: id, status: 'onboarding', onboardingSource: 'admin' });
     if (!draft) return null;
-    if (!draft.restaurantName || !draft.ownerName || !draft.ownerPhone) throw new ValidationError('Restaurant identity fields are required');
+    if (!draft.restaurantName || !draft.ownerName) throw new ValidationError('Restaurant identity fields are required');
+    if (!draft.primaryContactNumber) {
+        throw new ValidationError('Primary contact number is required');
+    }
+    if (!draft.ownerPhone) {
+        throw new ValidationError('Owner phone number is required');
+    }
+    const phones = prepareRestaurantPhoneFields(
+        {
+            primaryContactNumber: draft.primaryContactNumber,
+            ownerPhone: draft.ownerPhone,
+        },
+        { requireBoth: true }
+    );
+    draft.primaryContactNumber = phones.primaryContactNumber;
+    draft.ownerPhone = phones.ownerPhone;
+    stripLegacyRestaurantPhoneFields(draft);
+    await assertRestaurantPhonesUnique(
+        {
+            primaryContactNumber: draft.primaryContactNumber,
+            ownerPhone: draft.ownerPhone,
+        },
+        { excludeRestaurantId: draft._id }
+    );
     if (!draft.zoneId || !draft.location?.coordinates?.length) throw new ValidationError('Restaurant zone and location are required');
     if (!Array.isArray(draft.menuImages) || draft.menuImages.length === 0) throw new ValidationError('At least one menu image is required');
     if (!draft.profileImage) throw new ValidationError('Restaurant profile image is required');
@@ -3785,8 +3922,21 @@ export async function finalizeRestaurantDraftByAdmin(id, performer = null) {
     draft.approvedBy = performer;
     draft.onboardingStep = 5;
     draft.isVisibleToUsers = draft.isVisibleToUsers !== false;
-    await draft.save();
-    return draft.toObject();
+    try {
+        await draft.save();
+        await unsetLegacyRestaurantPhoneFields(draft._id);
+    } catch (err) {
+        if (err && (err.code === 11000 || err?.name === 'MongoServerError')) {
+            throw new ValidationError(
+                'Phone number is already registered with another restaurant',
+                'PHONE_EXISTS'
+            );
+        }
+        throw err;
+    }
+    const cleaned = draft.toObject();
+    stripLegacyRestaurantPhoneFields(cleaned);
+    return cleaned;
 }
 
 export async function discardRestaurantDraftByAdmin(id) {

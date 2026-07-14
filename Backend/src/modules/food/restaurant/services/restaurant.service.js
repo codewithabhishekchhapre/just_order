@@ -25,6 +25,16 @@ import {
 } from '../../shared/restaurantOnboardingWorkflow.js';
 import crypto from 'crypto';
 import { createRestaurantAuthSession } from '../../../../core/auth/auth.service.js';
+import {
+    normalizeRestaurantPhone,
+    prepareRestaurantPhoneFields,
+    stripLegacyRestaurantPhoneFields,
+    unsetLegacyRestaurantPhoneFields,
+    LEGACY_RESTAURANT_PHONE_UNSET,
+    assertRestaurantPhoneUnique,
+    assertRestaurantPhonesUnique,
+    findRestaurantByLoginPhone,
+} from '../utils/restaurantPhone.utils.js';
 
 
 const normalizeName = (value) =>
@@ -34,13 +44,7 @@ const normalizeName = (value) =>
         .replace(/-/g, ' ')
         .replace(/\s+/g, ' ');
 
-const normalizePhone = (value) => {
-    const digits = String(value || '').replace(/\D/g, '').slice(-15);
-    return {
-        digits: digits || '',
-        last10: digits ? digits.slice(-10) : ''
-    };
-};
+const normalizePhone = (value) => normalizeRestaurantPhone(value);
 
 const pickNonEmptyStr = (...values) => {
     for (const value of values) {
@@ -735,16 +739,7 @@ const notifyAdminsAboutRestaurantProfileReview = async (restaurantId, restaurant
 // };
 
 export const getOnboardingDraftByPhone = async (phone) => {
-    const { digits: ownerPhoneDigits, last10: ownerPhoneLast10 } = normalizePhone(phone);
-    if (!ownerPhoneLast10) return null;
-
-    const doc = await FoodRestaurant.findOne({
-        $or: [
-            { ownerPhoneDigits },
-            ...(ownerPhoneLast10 ? [{ ownerPhoneLast10 }] : [])
-        ]
-    }).lean();
-
+    const doc = await findRestaurantByLoginPhone(phone, { lean: true });
     if (!doc) return null;
     return toRestaurantProfile(doc);
 };
@@ -757,7 +752,7 @@ export const activateRestaurantSessionAfterApproval = async ({ phone, sessionCla
         throw new ValidationError('Phone is required');
     }
 
-    const restaurant = await findRestaurantByOwnerPhone(phone);
+    const restaurant = await findRestaurantByLoginPhone(phone);
     if (!restaurant) {
         throw new ValidationError('Restaurant not found');
     }
@@ -792,17 +787,8 @@ export const activateRestaurantSessionAfterApproval = async ({ phone, sessionCla
     };
 };
 
-const findRestaurantByOwnerPhone = async (ownerPhone) => {
-    const { digits: ownerPhoneDigits, last10: ownerPhoneLast10 } = normalizePhone(ownerPhone);
-    if (!ownerPhoneLast10) return null;
-
-    return FoodRestaurant.findOne({
-        $or: [
-            { ownerPhoneDigits },
-            ...(ownerPhoneLast10 ? [{ ownerPhoneLast10 }] : [])
-        ]
-    });
-};
+const findRestaurantByOwnerPhone = async (ownerPhone) =>
+    findRestaurantByLoginPhone(ownerPhone);
 
 const buildStep1Data = (payload) => {
     const {
@@ -825,8 +811,13 @@ const buildStep1Data = (payload) => {
         zoneId
     } = payload;
 
-    if (!ownerPhone) {
-        throw new ValidationError('Owner phone is required');
+    // Both phones are login-capable. OTP-verified phone may arrive as primaryContactNumber or ownerPhone.
+    const loginPhoneRaw = primaryContactNumber || ownerPhone;
+    if (!loginPhoneRaw) {
+        throw new ValidationError('Primary contact number is required');
+    }
+    if (!String(ownerPhone || '').trim()) {
+        throw new ValidationError('Owner phone number is required');
     }
     if (!restaurantName?.trim()) {
         throw new ValidationError('Restaurant name is required');
@@ -838,7 +829,13 @@ const buildStep1Data = (payload) => {
         throw new ValidationError('Please select whether the restaurant is pure veg');
     }
 
-    const { digits: ownerPhoneDigits, last10: ownerPhoneLast10 } = normalizePhone(ownerPhone);
+    const phones = prepareRestaurantPhoneFields(
+        {
+            primaryContactNumber: loginPhoneRaw,
+            ownerPhone,
+        },
+        { requireBoth: true }
+    );
     const restaurantNameNormalized = normalizeName(restaurantName);
     const latNum = toFiniteNumber(latitude);
     const lngNum = toFiniteNumber(longitude);
@@ -855,10 +852,9 @@ const buildStep1Data = (payload) => {
         restaurantNameNormalized,
         ownerName: ownerName.trim(),
         ownerEmail: ownerEmail?.trim() || '',
-        ownerPhone: ownerPhoneDigits,
-        ownerPhoneDigits,
-        ownerPhoneLast10,
-        primaryContactNumber: primaryContactNumber || ownerPhoneLast10,
+        // Owner phone + primary contact (both login-capable; store last-10 only)
+        ownerPhone: phones.ownerPhone,
+        primaryContactNumber: phones.primaryContactNumber,
         pureVegRestaurant,
         zoneId: mongoose.Types.ObjectId.isValid(String(zoneId).trim())
             ? new mongoose.Types.ObjectId(String(zoneId).trim())
@@ -895,12 +891,13 @@ export const saveOnboardingStep = async (stepNum, payload, files) => {
         throw new ValidationError('Invalid onboarding step');
     }
 
-    const ownerPhone = payload.ownerPhone;
-    if (!ownerPhone) {
-        throw new ValidationError('Owner phone is required');
+    // Identity / login phone = Primary Contact (OTP-verified phone may arrive as ownerPhone).
+    const loginPhone = payload.primaryContactNumber || payload.ownerPhone;
+    if (!loginPhone) {
+        throw new ValidationError('Primary contact number is required');
     }
 
-    let existingRestaurant = await findRestaurantByOwnerPhone(ownerPhone);
+    let existingRestaurant = await findRestaurantByLoginPhone(loginPhone);
 
     if (existingRestaurant) {
         if (existingRestaurant.status === 'rejected') {
@@ -917,6 +914,14 @@ export const saveOnboardingStep = async (stepNum, payload, files) => {
 
     if (step === 1) {
         const step1Data = buildStep1Data(payload);
+
+        await assertRestaurantPhonesUnique(
+            {
+                primaryContactNumber: step1Data.primaryContactNumber,
+                ownerPhone: step1Data.ownerPhone,
+            },
+            { excludeRestaurantId: existingRestaurant?._id || null }
+        );
 
         const zone = await FoodZone.findById(step1Data.zoneId).lean();
         if (!zone || !Array.isArray(zone.coordinates) || zone.coordinates.length < 3) {
@@ -938,13 +943,36 @@ export const saveOnboardingStep = async (stepNum, payload, files) => {
         };
 
         if (!existingRestaurant) {
-            restaurant = await FoodRestaurant.create(restaurantData);
+            try {
+                restaurant = await FoodRestaurant.create(restaurantData);
+                await unsetLegacyRestaurantPhoneFields(restaurant._id);
+            } catch (err) {
+                if (err && (err.code === 11000 || err?.name === 'MongoServerError')) {
+                    throw new ValidationError(
+                        'Phone number is already registered with another restaurant',
+                        'PHONE_EXISTS'
+                    );
+                }
+                throw err;
+            }
         } else {
             if (keepRejectedStatus) {
                 ensureRestaurantResubmitBaseline(existingRestaurant);
             }
             Object.assign(existingRestaurant, restaurantData);
-            await existingRestaurant.save();
+            stripLegacyRestaurantPhoneFields(existingRestaurant);
+            try {
+                await existingRestaurant.save();
+                await unsetLegacyRestaurantPhoneFields(existingRestaurant._id);
+            } catch (err) {
+                if (err && (err.code === 11000 || err?.name === 'MongoServerError')) {
+                    throw new ValidationError(
+                        'Phone number is already registered with another restaurant',
+                        'PHONE_EXISTS'
+                    );
+                }
+                throw err;
+            }
             restaurant = existingRestaurant;
         }
     } else {
@@ -1118,14 +1146,21 @@ export const registerRestaurant = async (payload, files, authUserId) => {
         finalizeOnboarding === 'true' ||
         finalizeOnboarding === '1';
 
-    if (!ownerPhone) {
-        throw new ValidationError('Owner phone is required to register a restaurant');
+    if (!ownerPhone && !primaryContactNumber) {
+        throw new ValidationError('Primary contact number is required to register a restaurant');
     }
 
-    const { digits: ownerPhoneDigits, last10: ownerPhoneLast10 } = normalizePhone(ownerPhone);
-    if (!ownerPhoneLast10) {
-        throw new ValidationError('Owner phone is invalid');
-    }
+    const loginPhone = primaryContactNumber || ownerPhone;
+    const phones = prepareRestaurantPhoneFields(
+        {
+            primaryContactNumber: loginPhone,
+            ownerPhone: ownerPhone || loginPhone,
+        },
+        { requireBoth: true }
+    );
+    const loginLast10 = phones.primaryContactNumber;
+    const ownerPhoneLast10 = phones.ownerPhone;
+    const ownerPhoneDigits = normalizePhone(ownerPhone || loginPhone).digits || loginLast10;
 
     const restaurantNameNormalized = normalizeName(restaurantName);
     if (!restaurantNameNormalized) {
@@ -1199,10 +1234,8 @@ export const registerRestaurant = async (payload, files, authUserId) => {
             restaurantNameNormalized,
             ownerName,
             ownerEmail,
-            ownerPhone: ownerPhoneDigits,
-            ownerPhoneDigits,
-            ownerPhoneLast10,
-            primaryContactNumber,
+            ownerPhone: ownerPhoneLast10,
+            primaryContactNumber: loginLast10,
             pureVegRestaurant: pureVegRestaurant === true,
             zoneId: zoneId && mongoose.Types.ObjectId.isValid(String(zoneId).trim())
                 ? new mongoose.Types.ObjectId(String(zoneId).trim())
@@ -1254,21 +1287,23 @@ export const registerRestaurant = async (payload, files, authUserId) => {
             restaurantData.menuImages = menuImages;
         }
 
-        console.log("Looking for existing restaurant with:", { ownerPhoneDigits, ownerPhoneLast10, authUserId });
+        console.log("Looking for existing restaurant with:", { loginLast10, authUserId });
 
-        // FIX: Search by phone first so a previously-rejected restaurant is always
-        // found, regardless of whether authUserId resolves to a different document.
-        let existingRestaurant = await FoodRestaurant.findOne({
-            $or: [
-                { ownerPhoneDigits },
-                ...(ownerPhoneLast10 ? [{ ownerPhoneLast10 }] : [])
-            ]
-        });
+        // Search by login phone (primary contact) so a previously-rejected restaurant is found.
+        let existingRestaurant = await findRestaurantByLoginPhone(loginLast10);
 
         // Only fall back to authUserId when there is no phone match at all.
         if (!existingRestaurant && authUserId) {
             existingRestaurant = await FoodRestaurant.findById(authUserId);
         }
+
+        await assertRestaurantPhonesUnique(
+            {
+                primaryContactNumber: loginLast10,
+                ownerPhone: ownerPhoneLast10,
+            },
+            { excludeRestaurantId: existingRestaurant?._id || null }
+        );
 
         console.log("Found existingRestaurant?", !!existingRestaurant, existingRestaurant?.status);
         let restaurant;
@@ -1306,7 +1341,9 @@ export const registerRestaurant = async (payload, files, authUserId) => {
                 existingRestaurant.onboardingStep = 5;
                 existingRestaurant.isActive = false;
                 existingRestaurant.sessionClaimToken = crypto.randomBytes(32).toString('hex');
+                stripLegacyRestaurantPhoneFields(existingRestaurant);
                 await existingRestaurant.save();
+                await unsetLegacyRestaurantPhoneFields(existingRestaurant._id);
                 restaurant = existingRestaurant;
             } else if (existingRestaurant.status === 'onboarding') {
                 const finalRestaurantName = pickNonEmptyStr(restaurantName, existingRestaurant.restaurantName);
@@ -1354,10 +1391,12 @@ export const registerRestaurant = async (payload, files, authUserId) => {
                     action: 'submitted',
                     note: 'Initial onboarding submitted for approval',
                 });
+                stripLegacyRestaurantPhoneFields(existingRestaurant);
                 await existingRestaurant.save();
+                await unsetLegacyRestaurantPhoneFields(existingRestaurant._id);
                 restaurant = existingRestaurant;
             } else {
-                throw new ValidationError('Restaurant with this owner phone already exists');
+                throw new ValidationError('Restaurant with this primary contact number already exists');
             }
         } else {
             // Brand-new registration – must not collide with an existing owner email.
@@ -1393,6 +1432,7 @@ export const registerRestaurant = async (payload, files, authUserId) => {
                     changedAt: new Date(),
                 }],
             });
+            await unsetLegacyRestaurantPhoneFields(restaurant._id);
 
             // Associate created restaurant ID with payment log if paid
             if (razorpayOrderId) {
@@ -1516,7 +1556,10 @@ export const registerRestaurant = async (payload, files, authUserId) => {
     } catch (err) {
         // Handle uniqueness conflicts deterministically (race-safe).
         if (err && (err.code === 11000 || err?.name === 'MongoServerError')) {
-            throw new ValidationError('Restaurant with this name and owner phone already exists');
+            throw new ValidationError(
+                'Phone number is already registered with another restaurant',
+                'PHONE_EXISTS'
+            );
         }
         throw err;
     }
@@ -1717,8 +1760,6 @@ export const updateRestaurantProfile = async (restaurantId, body = {}) => {
             'restaurantName',
             'restaurantNameNormalized',
             'ownerPhone',
-            'ownerPhoneDigits',
-            'ownerPhoneLast10',
             'primaryContactNumber',
             'status',
             'pureVegRestaurant',
@@ -1781,36 +1822,46 @@ export const updateRestaurantProfile = async (restaurantId, body = {}) => {
         }
     }
 
-    // Note: UI keeps phone read-only, but we accept it safely and normalize if sent.
+    // Owner phone is also a login number — keep globally unique across both phone fields.
     if (body.ownerPhone !== undefined) {
-        const { digits, last10 } = normalizePhone(body.ownerPhone);
-        if (!digits || digits.length < 8) {
+        const { last10, digits, isValid10 } = normalizePhone(body.ownerPhone);
+        if (digits && !isValid10 && digits.length < 8) {
             throw new ValidationError('Owner phone is invalid');
         }
 
-        const currentOwnerPhoneDigits =
-            currentRestaurant.ownerPhoneDigits ||
-            normalizePhone(currentRestaurant.ownerPhone).digits ||
-            '';
+        const nextOwnerPhone = last10 || digits || '';
+        const currentOwnerPhone =
+            normalizePhone(currentRestaurant.ownerPhone).last10 ||
+            String(currentRestaurant.ownerPhone || '').trim();
 
-        if (digits !== currentOwnerPhoneDigits) {
-            update.ownerPhone = digits;
-            update.ownerPhoneDigits = digits;
-            update.ownerPhoneLast10 = last10 || undefined;
+        if (nextOwnerPhone !== currentOwnerPhone) {
+            if (nextOwnerPhone) {
+                await assertRestaurantPhoneUnique(nextOwnerPhone, {
+                    excludeRestaurantId: currentRestaurant._id,
+                    label: 'Owner phone number',
+                });
+            }
+            update.ownerPhone = nextOwnerPhone;
         }
     }
 
     if (body.primaryContactNumber !== undefined) {
-        const { digits } = normalizePhone(body.primaryContactNumber);
-        const normalizedPrimaryContact =
-            digits || String(body.primaryContactNumber || '').trim();
-        const currentPrimaryContact =
-            currentRestaurant.primaryContactNumber != null
-                ? String(currentRestaurant.primaryContactNumber).trim()
-                : '';
+        const { last10, isValid10 } = normalizePhone(body.primaryContactNumber);
+        if (!isValid10) {
+            throw new ValidationError('Primary contact number must be exactly 10 digits');
+        }
 
-        if (normalizedPrimaryContact !== currentPrimaryContact) {
-            update.primaryContactNumber = normalizedPrimaryContact;
+        const currentPrimary =
+            normalizePhone(
+                currentRestaurant.primaryContactNumber || currentRestaurant.ownerPhone
+            ).last10 || '';
+
+        if (last10 !== currentPrimary) {
+            await assertRestaurantPhoneUnique(last10, {
+                excludeRestaurantId: currentRestaurant._id,
+                label: 'Primary contact number',
+            });
+            update.primaryContactNumber = last10;
         }
     }
 
@@ -2150,8 +2201,11 @@ export const updateRestaurantProfile = async (restaurantId, body = {}) => {
             updateOps.$unset = {
                 approvedAt: 1,
                 rejectedAt: 1,
-                rejectionReason: 1
+                rejectionReason: 1,
+                ...LEGACY_RESTAURANT_PHONE_UNSET,
             };
+        } else if (update.ownerPhone !== undefined || update.primaryContactNumber !== undefined) {
+            updateOps.$unset = { ...LEGACY_RESTAURANT_PHONE_UNSET };
         }
 
         const doc = await FoodRestaurant.findByIdAndUpdate(
@@ -2238,7 +2292,10 @@ export const updateRestaurantProfile = async (restaurantId, body = {}) => {
         return toRestaurantProfile(doc);
     } catch (err) {
         if (err && err.code === 11000) {
-            throw new ValidationError('A restaurant with this name and phone already exists');
+            throw new ValidationError(
+                'Phone number is already registered with another restaurant',
+                'PHONE_EXISTS'
+            );
         }
         throw err;
     }

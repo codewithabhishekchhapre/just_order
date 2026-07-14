@@ -141,7 +141,13 @@ const getDisplayPhone = (value) => normalizePhoneDigits(value).slice(-10)
 
 const buildOnboardingStepFormData = (stepNum, { step1, step2, step3 }) => {
   const formData = new FormData()
-  formData.append("ownerPhone", normalizePhoneDigits(step1.ownerPhone))
+  const loginPhone = normalizePhoneDigits(
+    step1.primaryContactNumber || step1.ownerPhone,
+  ).slice(-10)
+  const ownerPhone = normalizePhoneDigits(step1.ownerPhone).slice(-10)
+  // Backend identity / login uses primary contact; keep ownerPhone informational.
+  formData.append("primaryContactNumber", loginPhone)
+  formData.append("ownerPhone", ownerPhone || loginPhone)
 
   if (stepNum === 1) {
     formData.append("restaurantName", step1.restaurantName || "")
@@ -151,7 +157,6 @@ const buildOnboardingStepFormData = (stepNum, { step1, step2, step3 }) => {
     )
     formData.append("ownerName", step1.ownerName || "")
     formData.append("ownerEmail", (step1.ownerEmail || "").trim())
-    formData.append("primaryContactNumber", normalizePhoneDigits(step1.primaryContactNumber))
     formData.append("zoneId", step1.zoneId || "")
     formData.append("addressLine1", step1.location?.addressLine1 || "")
     formData.append("addressLine2", step1.location?.addressLine2 || "")
@@ -1428,8 +1433,8 @@ export default function RestaurantOnboarding() {
   useEffect(() => {
     if (!verifiedPhoneNumber) return
     setStep1((prev) => {
-      if (prev.ownerPhone === verifiedPhoneNumber) return prev
-      return { ...prev, ownerPhone: verifiedPhoneNumber }
+      if (prev.primaryContactNumber === verifiedPhoneNumber) return prev
+      return { ...prev, primaryContactNumber: verifiedPhoneNumber }
     })
   }, [verifiedPhoneNumber])
 
@@ -2111,7 +2116,7 @@ export default function RestaurantOnboarding() {
         formData.append("ownerName", mergedStep1.ownerName || "")
         formData.append("ownerEmail", (mergedStep1.ownerEmail || "").trim())
         formData.append("ownerPhone", normalizePhoneDigits(mergedStep1.ownerPhone))
-        formData.append("primaryContactNumber", normalizePhoneDigits(mergedStep1.primaryContactNumber))
+        formData.append("primaryContactNumber", normalizePhoneDigits(mergedStep1.primaryContactNumber || mergedStep1.ownerPhone))
         formData.append("zoneId", mergedStep1.zoneId || "")
         formData.append("addressLine1", mergedStep1.location?.addressLine1 || "")
         formData.append("addressLine2", mergedStep1.location?.addressLine2 || "")
@@ -2203,7 +2208,7 @@ export default function RestaurantOnboarding() {
           const orderRes = await onboardingFeeAPI.createOrder({
             role: "RESTAURANT",
             name: mergedStep1.ownerName || mergedStep1.restaurantName,
-            phone: normalizePhoneDigits(mergedStep1.ownerPhone),
+            phone: normalizePhoneDigits(mergedStep1.primaryContactNumber || mergedStep1.ownerPhone),
             email: mergedStep1.ownerEmail || ""
           });
           const orderData = orderRes?.data?.data || orderRes?.data;
@@ -2227,14 +2232,14 @@ export default function RestaurantOnboarding() {
             clearOnboardingFromLocalStorage();
             clearOnboardingFileCache();
             try {
-              localStorage.setItem("restaurant_pendingPhone", normalizePhoneDigits(mergedStep1.ownerPhone));
+              localStorage.setItem("restaurant_pendingPhone", normalizePhoneDigits(mergedStep1.primaryContactNumber || mergedStep1.ownerPhone));
             } catch { }
 
             toast.success("Registration submitted. Awaiting admin approval.", { duration: 4000 });
             navigate("/food/restaurant/pending-verification", {
               replace: true,
               state: {
-                phone: normalizePhoneDigits(mergedStep1.ownerPhone),
+                phone: normalizePhoneDigits(mergedStep1.primaryContactNumber || mergedStep1.ownerPhone),
               },
             });
           } else {
@@ -2250,7 +2255,7 @@ export default function RestaurantOnboarding() {
               prefill: {
                 name: mergedStep1.ownerName || "",
                 email: mergedStep1.ownerEmail || "",
-                contact: normalizePhoneDigits(mergedStep1.ownerPhone)
+                contact: normalizePhoneDigits(mergedStep1.primaryContactNumber || mergedStep1.ownerPhone)
               },
               handler: async (response) => {
                 try {
@@ -2268,14 +2273,14 @@ export default function RestaurantOnboarding() {
                   clearOnboardingFromLocalStorage();
                   clearOnboardingFileCache();
                   try {
-                    localStorage.setItem("restaurant_pendingPhone", normalizePhoneDigits(mergedStep1.ownerPhone));
+                    localStorage.setItem("restaurant_pendingPhone", normalizePhoneDigits(mergedStep1.primaryContactNumber || mergedStep1.ownerPhone));
                   } catch { }
 
                   toast.success("Registration submitted. Awaiting admin approval.", { duration: 4000 });
                   navigate("/food/restaurant/pending-verification", {
                     replace: true,
                     state: {
-                      phone: normalizePhoneDigits(mergedStep1.ownerPhone),
+                      phone: normalizePhoneDigits(mergedStep1.primaryContactNumber || mergedStep1.ownerPhone),
                     },
                   });
                 } catch (err) {
@@ -2312,14 +2317,14 @@ export default function RestaurantOnboarding() {
           clearOnboardingFromLocalStorage();
           clearOnboardingFileCache();
           try {
-            localStorage.setItem("restaurant_pendingPhone", normalizePhoneDigits(mergedStep1.ownerPhone));
+            localStorage.setItem("restaurant_pendingPhone", normalizePhoneDigits(mergedStep1.primaryContactNumber || mergedStep1.ownerPhone));
           } catch { }
 
           toast.success("Registration submitted. Awaiting admin approval.", { duration: 4000 });
           navigate("/food/restaurant/pending-verification", {
             replace: true,
             state: {
-              phone: normalizePhoneDigits(mergedStep1.ownerPhone),
+              phone: normalizePhoneDigits(mergedStep1.primaryContactNumber || mergedStep1.ownerPhone),
             },
           });
         }
@@ -2455,24 +2460,36 @@ export default function RestaurantOnboarding() {
             )}
           </div>
           <div>
-            <Label className="text-xs font-bold text-gray-700 dark:text-gray-300">Phone Number*</Label>
+            <Label className="text-xs font-bold text-gray-700 dark:text-gray-300">Owner Phone Number*</Label>
             <Input
               type="tel"
-              value={step1.ownerPhone || verifiedPhoneNumber || ""}
-              readOnly={true}
+              value={step1.ownerPhone || ""}
+              onChange={(e) => {
+                const val = e.target.value.replace(/\D/g, "").slice(0, 10)
+                setStep1({ ...step1, ownerPhone: val })
+              }}
+              onKeyDown={(e) => {
+                const allowed = ["Backspace", "Delete", "ArrowLeft", "ArrowRight", "Tab", "Enter"]
+                if (!allowed.includes(e.key) && !/^\d$/.test(e.key)) e.preventDefault()
+                if (/^\d$/.test(e.key) && (step1.ownerPhone || "").length >= 10) e.preventDefault()
+              }}
+              onPaste={(e) => {
+                e.preventDefault()
+                const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 10)
+                setStep1({ ...step1, ownerPhone: pasted })
+              }}
               maxLength={10}
-              className={`mt-1.5 h-11 rounded-xl bg-gray-55 dark:bg-gray-900 border ${fieldErrors.ownerPhone ? 'border-red-500' : 'border-gray-200 dark:border-gray-800'} text-sm text-gray-900 dark:text-white cursor-not-allowed opacity-80`}
-              placeholder="Owner phone number"
-              disabled={true}
+              inputMode="numeric"
+              className={`mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border ${fieldErrors.ownerPhone ? 'border-red-500' : 'border-gray-200 dark:border-gray-800'} text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 focus-visible:ring-[#FF6A00]`}
+              placeholder="Owner phone number (10 digits)"
+              disabled={!isEditing}
             />
             {fieldErrors.ownerPhone && (
               <p className="text-red-500 text-xs mt-1">{fieldErrors.ownerPhone}</p>
             )}
-            {verifiedPhoneNumber ? (
-              <p className="text-[11px] text-gray-450 mt-1.5">
-                This is your OTP-verified number and cannot be changed.
-              </p>
-            ) : null}
+            <p className="text-[11px] text-gray-450 mt-1.5">
+              Owner contact number. Also works for restaurant login. Must be unique.
+            </p>
           </div>
         </div>
       </section>
@@ -2485,36 +2502,28 @@ export default function RestaurantOnboarding() {
         
         <div className="space-y-4">
           <div>
-            <Label className="text-xs font-bold text-gray-700 dark:text-gray-300">Primary Contact Number*</Label>
+            <Label className="text-xs font-bold text-gray-700 dark:text-gray-300">Primary Contact Number (Login)*</Label>
             <Input
               type="tel"
-              value={step1.primaryContactNumber || ""}
-              onChange={(e) => {
-                const val = e.target.value.replace(/\D/g, "").slice(0, 10)
-                setStep1({ ...step1, primaryContactNumber: val })
-              }}
-              onKeyDown={(e) => {
-                const allowed = ["Backspace", "Delete", "ArrowLeft", "ArrowRight", "Tab", "Enter"]
-                if (!allowed.includes(e.key) && !/^\d$/.test(e.key)) e.preventDefault()
-                if (/^\d$/.test(e.key) && (step1.primaryContactNumber || "").length >= 10) e.preventDefault()
-              }}
-              onPaste={(e) => {
-                e.preventDefault()
-                const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 10)
-                setStep1({ ...step1, primaryContactNumber: pasted })
-              }}
+              value={step1.primaryContactNumber || verifiedPhoneNumber || ""}
+              readOnly={true}
               maxLength={10}
-              inputMode="numeric"
-              className={`mt-1.5 h-11 rounded-xl bg-white dark:bg-gray-950 border ${fieldErrors.primaryContactNumber ? 'border-red-500' : 'border-gray-200 dark:border-gray-800'} text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 focus-visible:ring-[#FF6A00]`}
-              placeholder="Primary contact number (10 digits)"
-              disabled={!isEditing}
+              className={`mt-1.5 h-11 rounded-xl bg-gray-55 dark:bg-gray-900 border ${fieldErrors.primaryContactNumber ? 'border-red-500' : 'border-gray-200 dark:border-gray-800'} text-sm text-gray-900 dark:text-white cursor-not-allowed opacity-80`}
+              placeholder="Primary contact / login number"
+              disabled={true}
             />
             {fieldErrors.primaryContactNumber && (
               <p className="text-red-500 text-xs mt-1">{fieldErrors.primaryContactNumber}</p>
             )}
-            <p className="text-[11px] text-gray-450 mt-1.5">
-              Customers, delivery partners and {companyName} may call on this number for order support.
-            </p>
+            {verifiedPhoneNumber ? (
+              <p className="text-[11px] text-gray-450 mt-1.5">
+                OTP-verified restaurant contact number. You can also log in with the owner phone.
+              </p>
+            ) : (
+              <p className="text-[11px] text-gray-450 mt-1.5">
+                Restaurant contact number. Login works with this number or the owner phone.
+              </p>
+            )}
           </div>
           
           <div className="space-y-3 pt-2">

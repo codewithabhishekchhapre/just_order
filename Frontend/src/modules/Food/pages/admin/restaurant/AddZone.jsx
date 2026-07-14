@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom"
 import { MapPin, Save, X, Hand, Shapes, Search } from "lucide-react"
 import { adminAPI } from "@food/api"
 import { getGoogleMapsApiKey } from "@food/utils/googleMapsApiKey"
+import { loadGoogleMaps as loadGoogleMapsSingleton } from "@core/services/googleMapsLoader"
 import { Loader } from "@googlemaps/js-api-loader"
 import FormPageShell from "@/shared/components/admin/FormPageShell"
 import FormSection from "@/shared/components/admin/FormSection"
@@ -15,6 +16,23 @@ const debugError = (...args) => {}
 
 const MIN_POINTS = 3;
 const MAX_POINTS = 10;
+const DEFAULT_MAP_CENTER = { lat: 20.5937, lng: 78.9629 };
+const DEFAULT_MAP_ZOOM = 5;
+const SEARCH_MIN_CHARS = 2;
+const SEARCH_DEBOUNCE_MS = 280;
+const MAX_SEARCH_RESULTS = 8;
+
+const ensurePlacesLibrary = async () => {
+  if (window.google?.maps?.places?.AutocompleteService) return true;
+  if (typeof window.google?.maps?.importLibrary === "function") {
+    try {
+      await window.google.maps.importLibrary("places");
+    } catch (err) {
+      debugWarn("Failed to import places library", err);
+    }
+  }
+  return Boolean(window.google?.maps?.places?.AutocompleteService);
+};
 
 // Order points by angle around their centroid so polygon edges never self-intersect,
 // while KEEPING every clicked point (unlike a convex hull).
@@ -64,9 +82,18 @@ export default function AddZone() {
   const [coordinates, setCoordinates] = useState([])
   const [isDrawing, setIsDrawing] = useState(false)
   const [locationSearch, setLocationSearch] = useState("")
+  const [placePredictions, setPlacePredictions] = useState([])
+  const [isSearchingPlaces, setIsSearchingPlaces] = useState(false)
+  const [showSearchResults, setShowSearchResults] = useState(false)
+  const [searchError, setSearchError] = useState("")
   const [existingZones, setExistingZones] = useState([])
   const autocompleteInputRef = useRef(null)
-  const autocompleteRef = useRef(null)
+  const searchWrapRef = useRef(null)
+  const autocompleteServiceRef = useRef(null)
+  const placesServiceRef = useRef(null)
+  const geocoderRef = useRef(null)
+  const searchMarkerRef = useRef(null)
+  const latestSearchRequestRef = useRef(0)
   const existingZonesPolygonsRef = useRef([])
 
   useEffect(() => {
@@ -89,41 +116,264 @@ export default function AddZone() {
       }
       pathMarkersRef.current?.forEach(m => m.setMap(null));
       existingZonesPolygonsRef.current?.forEach(p => p?.setMap(null));
+      if (searchMarkerRef.current) {
+        searchMarkerRef.current.setMap(null);
+        searchMarkerRef.current = null;
+      }
     };
   }, []);
 
-  // Center map on India when country is selected
+  // Center map on India when country is selected (do not override while searching)
   useEffect(() => {
-    if (formData.country === "India" && mapInstanceRef.current) {
-      const indiaCenter = { lat: 20.5937, lng: 78.9629 }
-      mapInstanceRef.current.setCenter(indiaCenter)
-      mapInstanceRef.current.setZoom(5)
+    if (formData.country === "India" && mapInstanceRef.current && !locationSearch.trim()) {
+      mapInstanceRef.current.setCenter(DEFAULT_MAP_CENTER)
+      mapInstanceRef.current.setZoom(DEFAULT_MAP_ZOOM)
     }
   }, [formData.country])
 
-  // Initialize Places Autocomplete when map is loaded
-  useEffect(() => {
-    if (!mapLoading && mapInstanceRef.current && autocompleteInputRef.current && window.google?.maps?.places && !autocompleteRef.current) {
-      const autocomplete = new window.google.maps.places.Autocomplete(autocompleteInputRef.current, {
-        // No `geocode` type — it routes predictions through Geocoding-style endpoints.
-        componentRestrictions: { country: 'in' } // Restrict to India
-      })
-      
-      autocomplete.addListener('place_changed', () => {
-        const place = autocomplete.getPlace()
-        if (place.geometry && place.geometry.location && mapInstanceRef.current) {
-          const location = place.geometry.location
-          mapInstanceRef.current.setCenter(location)
-          mapInstanceRef.current.setZoom(15) // Zoom in when location is selected
-          
-          // Set the search input value
-          setLocationSearch(place.formatted_address || place.name || "")
-        }
-      })
-      
-      autocompleteRef.current = autocomplete
+  const initPlacesServices = useCallback(async () => {
+    const placesReady = await ensurePlacesLibrary()
+    if (!placesReady || !window.google?.maps?.places) return false
+
+    if (!autocompleteServiceRef.current) {
+      autocompleteServiceRef.current = new window.google.maps.places.AutocompleteService()
     }
-  }, [mapLoading])
+    if (!geocoderRef.current) {
+      geocoderRef.current = new window.google.maps.Geocoder()
+    }
+    if (!placesServiceRef.current && mapInstanceRef.current) {
+      placesServiceRef.current = new window.google.maps.places.PlacesService(mapInstanceRef.current)
+    }
+    return Boolean(autocompleteServiceRef.current)
+  }, [])
+
+  const clearSearchMarker = useCallback(() => {
+    if (searchMarkerRef.current) {
+      searchMarkerRef.current.setMap(null)
+      searchMarkerRef.current = null
+    }
+  }, [])
+
+  const resetMapToDefaultView = useCallback(() => {
+    const map = mapInstanceRef.current
+    if (!map) return
+    clearSearchMarker()
+    map.setCenter(DEFAULT_MAP_CENTER)
+    map.setZoom(DEFAULT_MAP_ZOOM)
+  }, [clearSearchMarker])
+
+  const focusMapOnLocation = useCallback((latLng, label = "") => {
+    const map = mapInstanceRef.current
+    const google = window.google
+    if (!map || !google?.maps || !latLng) return
+
+    map.panTo(latLng)
+    map.setZoom(15)
+    clearSearchMarker()
+    searchMarkerRef.current = new google.maps.Marker({
+      map,
+      position: latLng,
+      title: label || "Selected location",
+      animation: google.maps.Animation.DROP,
+    })
+  }, [clearSearchMarker])
+
+  // Real-time Places predictions (area / locality / address / landmark / city / PIN)
+  useEffect(() => {
+    if (mapLoading) return undefined
+
+    const query = locationSearch.trim()
+    if (query.length < SEARCH_MIN_CHARS) {
+      latestSearchRequestRef.current += 1
+      setPlacePredictions([])
+      setIsSearchingPlaces(false)
+      setSearchError("")
+      return undefined
+    }
+
+    let cancelled = false
+    const timer = setTimeout(async () => {
+      const ready = await initPlacesServices()
+      if (cancelled || !ready || !autocompleteServiceRef.current) {
+        if (!cancelled) {
+          setSearchError("Location search is unavailable. Check Google Maps Places API.")
+          setPlacePredictions([])
+          setIsSearchingPlaces(false)
+        }
+        return
+      }
+
+      const requestId = ++latestSearchRequestRef.current
+      setIsSearchingPlaces(true)
+      setSearchError("")
+
+      // No `types` restriction so predictions cover addresses, localities, landmarks, and postal codes.
+      autocompleteServiceRef.current.getPlacePredictions(
+        {
+          input: query,
+          componentRestrictions: { country: "in" },
+        },
+        (predictions, status) => {
+          if (cancelled || requestId !== latestSearchRequestRef.current) return
+          setIsSearchingPlaces(false)
+
+          const ok = status === window.google.maps.places.PlacesServiceStatus.OK
+          const zero = status === window.google.maps.places.PlacesServiceStatus.ZERO_RESULTS
+          if (ok && Array.isArray(predictions)) {
+            setPlacePredictions(predictions.slice(0, MAX_SEARCH_RESULTS))
+            setShowSearchResults(true)
+            setSearchError("")
+          } else if (zero) {
+            setPlacePredictions([])
+            setShowSearchResults(true)
+            setSearchError("No matching locations found")
+          } else {
+            setPlacePredictions([])
+            setShowSearchResults(true)
+            setSearchError("Unable to search locations right now")
+          }
+        },
+      )
+    }, SEARCH_DEBOUNCE_MS)
+
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [locationSearch, mapLoading, initPlacesServices])
+
+  // Close suggestions on outside click
+  useEffect(() => {
+    const onPointerDown = (event) => {
+      if (!searchWrapRef.current?.contains(event.target)) {
+        setShowSearchResults(false)
+      }
+    }
+    document.addEventListener("mousedown", onPointerDown)
+    return () => document.removeEventListener("mousedown", onPointerDown)
+  }, [])
+
+  const handleSelectPlacePrediction = useCallback(async (prediction) => {
+    if (!prediction?.place_id) return
+
+    const ready = await initPlacesServices()
+    if (!ready) {
+      setSearchError("Location search is unavailable")
+      return
+    }
+
+    const label =
+      prediction.description ||
+      prediction.structured_formatting?.main_text ||
+      locationSearch
+
+    const applyGeometry = (geometry, displayName) => {
+      if (!geometry?.location) return false
+      focusMapOnLocation(geometry.location, displayName)
+      setLocationSearch(displayName || label)
+      setPlacePredictions([])
+      setShowSearchResults(false)
+      setSearchError("")
+      return true
+    }
+
+    if (placesServiceRef.current) {
+      placesServiceRef.current.getDetails(
+        {
+          placeId: prediction.place_id,
+          fields: ["geometry", "formatted_address", "name", "address_components"],
+        },
+        (place, status) => {
+          if (status === window.google.maps.places.PlacesServiceStatus.OK && place) {
+            const displayName = place.formatted_address || place.name || label
+            if (applyGeometry(place.geometry, displayName)) return
+          }
+
+          // Fallback: geocode the prediction text
+          geocoderRef.current?.geocode({ placeId: prediction.place_id }, (results, geoStatus) => {
+            if (geoStatus === "OK" && results?.[0]?.geometry) {
+              applyGeometry(
+                results[0].geometry,
+                results[0].formatted_address || label,
+              )
+            } else {
+              setSearchError("Could not locate that place on the map")
+            }
+          })
+        },
+      )
+      return
+    }
+
+    geocoderRef.current?.geocode({ placeId: prediction.place_id }, (results, geoStatus) => {
+      if (geoStatus === "OK" && results?.[0]?.geometry) {
+        applyGeometry(results[0].geometry, results[0].formatted_address || label)
+      } else {
+        setSearchError("Could not locate that place on the map")
+      }
+    })
+  }, [focusMapOnLocation, initPlacesServices, locationSearch])
+
+  const handleLocationSearchChange = (value) => {
+    setLocationSearch(value)
+    setShowSearchResults(true)
+    if (!value.trim()) {
+      latestSearchRequestRef.current += 1
+      setPlacePredictions([])
+      setIsSearchingPlaces(false)
+      setSearchError("")
+      resetMapToDefaultView()
+    }
+  }
+
+  const handleClearLocationSearch = () => {
+    setLocationSearch("")
+    setPlacePredictions([])
+    setShowSearchResults(false)
+    setIsSearchingPlaces(false)
+    setSearchError("")
+    resetMapToDefaultView()
+  }
+
+  const handleLocationSearchKeyDown = async (event) => {
+    if (event.key === "Escape") {
+      setShowSearchResults(false)
+      return
+    }
+    if (event.key !== "Enter") return
+    event.preventDefault()
+
+    if (placePredictions[0]) {
+      await handleSelectPlacePrediction(placePredictions[0])
+      return
+    }
+
+    const query = locationSearch.trim()
+    if (query.length < SEARCH_MIN_CHARS) return
+
+    const ready = await initPlacesServices()
+    if (!ready || !geocoderRef.current) {
+      setSearchError("Location search is unavailable")
+      return
+    }
+
+    geocoderRef.current.geocode(
+      { address: query, componentRestrictions: { country: "IN" } },
+      (results, status) => {
+        if (status === "OK" && results?.[0]?.geometry?.location) {
+          const displayName = results[0].formatted_address || query
+          focusMapOnLocation(results[0].geometry.location, displayName)
+          setLocationSearch(displayName)
+          setPlacePredictions([])
+          setShowSearchResults(false)
+          setSearchError("")
+        } else {
+          setSearchError("No matching locations found")
+          setShowSearchResults(true)
+        }
+      },
+    )
+  }
 
   // Draw existing polygon when in edit mode and coordinates are loaded
   useEffect(() => {
@@ -189,6 +439,20 @@ export default function AddZone() {
     try {
       const apiKey = await getGoogleMapsApiKey()
       setGoogleMapsApiKey(apiKey || "loaded")
+
+      // Prefer singleton loader (includes places) when we have a key
+      if (apiKey) {
+        try {
+          await loadGoogleMapsSingleton(apiKey)
+          await ensurePlacesLibrary()
+          if (window.google?.maps) {
+            initializeMap(window.google)
+            return
+          }
+        } catch (err) {
+          debugWarn("Singleton Google Maps load failed, falling back", err)
+        }
+      }
       
       // Wait for Google Maps to be loaded from main.jsx if it's loading
       let retries = 0
@@ -201,6 +465,7 @@ export default function AddZone() {
 
       // If Google Maps is already loaded (from main.jsx), use it directly
       if (window.google && window.google.maps) {
+        await ensurePlacesLibrary()
         initializeMap(window.google)
         return
       }
@@ -214,6 +479,7 @@ export default function AddZone() {
         })
 
         const google = await loader.load()
+        await ensurePlacesLibrary()
         initializeMap(google)
       } else {
         setMapLoading(false)
@@ -228,12 +494,12 @@ export default function AddZone() {
     if (!mapRef.current) return
 
     // Initial location (India center)
-    const initialLocation = { lat: 20.5937, lng: 78.9629 }
+    const initialLocation = DEFAULT_MAP_CENTER
 
     // Create map
     const map = new google.maps.Map(mapRef.current, {
       center: initialLocation,
-      zoom: 5,
+      zoom: DEFAULT_MAP_ZOOM,
       clickableIcons: false, // POI labels must NOT capture clicks while drawing
       mapTypeControl: true,
       mapTypeControlOptions: {
@@ -263,6 +529,9 @@ export default function AddZone() {
     });
 
     setMapLoading(false)
+
+    // Warm Places services once the map exists (non-blocking)
+    initPlacesServices().catch(() => {})
 
     // Existing zones will be drawn by useEffect when data is ready
     if (existingZones.length > 0) {
@@ -697,16 +966,67 @@ export default function AddZone() {
             }
           >
             <div>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400" />
+              <div className="relative" ref={searchWrapRef}>
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400 pointer-events-none z-10" />
                 <input
                   ref={autocompleteInputRef}
                   type="text"
-                  placeholder="Search location on map..."
+                  placeholder="Search area, locality, address, landmark, city, or PIN..."
                   value={locationSearch}
-                  onChange={(e) => setLocationSearch(e.target.value)}
-                  className={cn(formInputClass, "pl-10")}
+                  onChange={(e) => handleLocationSearchChange(e.target.value)}
+                  onFocus={() => {
+                    if (locationSearch.trim().length >= SEARCH_MIN_CHARS || placePredictions.length > 0) {
+                      setShowSearchResults(true)
+                    }
+                  }}
+                  onKeyDown={handleLocationSearchKeyDown}
+                  autoComplete="off"
+                  className={cn(formInputClass, "pl-10 pr-10")}
                 />
+                {locationSearch ? (
+                  <button
+                    type="button"
+                    onClick={handleClearLocationSearch}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    aria-label="Clear location search"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                ) : null}
+
+                {showSearchResults && locationSearch.trim().length >= SEARCH_MIN_CHARS && (
+                  <div className="absolute left-0 right-0 top-full z-1000 mt-1 max-h-64 overflow-auto rounded-lg border border-slate-200 bg-white shadow-lg">
+                    {isSearchingPlaces && (
+                      <div className="px-3 py-2 text-sm text-slate-500">Searching locations...</div>
+                    )}
+                    {!isSearchingPlaces && placePredictions.length === 0 && (
+                      <div className="px-3 py-2 text-sm text-slate-500">
+                        {searchError || "No matching locations found"}
+                      </div>
+                    )}
+                    {!isSearchingPlaces &&
+                      placePredictions.map((prediction) => (
+                        <button
+                          key={prediction.place_id}
+                          type="button"
+                          onClick={() => handleSelectPlacePrediction(prediction)}
+                          className="flex w-full items-start gap-2 border-b border-slate-100 px-3 py-2 text-left last:border-b-0 hover:bg-slate-50"
+                        >
+                          <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
+                          <span className="min-w-0">
+                            <span className="block text-sm font-medium text-slate-800">
+                              {prediction.structured_formatting?.main_text || prediction.description}
+                            </span>
+                            {prediction.structured_formatting?.secondary_text ? (
+                              <span className="block text-xs text-slate-500">
+                                {prediction.structured_formatting.secondary_text}
+                              </span>
+                            ) : null}
+                          </span>
+                        </button>
+                      ))}
+                  </div>
+                )}
               </div>
               {coordinates.length > 0 && (
                 <p className="text-xs text-slate-600 mt-2">

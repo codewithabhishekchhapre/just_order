@@ -67,20 +67,12 @@ const restaurantSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
-    // Normalized fields for fast lookup + uniqueness guarantees.
-    // These are derived from restaurantName/ownerPhone at write time.
+    // Normalized restaurant name for search / legacy indexes.
     restaurantNameNormalized: {
       type: String,
       trim: true,
     },
-    ownerPhoneDigits: {
-      type: String,
-      trim: true,
-    },
-    ownerPhoneLast10: {
-      type: String,
-      trim: true,
-    },
+    // Restaurant contact / login phone (canonical last-10 digits).
     primaryContactNumber: {
       type: String,
       trim: true,
@@ -425,14 +417,41 @@ restaurantSchema.pre("validate", function normalizeDerivedFields(next) {
   const normalizedName = name.trim().toLowerCase().replace(/\s+/g, " ");
   this.restaurantNameNormalized = normalizedName || undefined;
 
-  const phoneRaw =
-    typeof this.ownerPhone === "string" || typeof this.ownerPhone === "number"
-      ? String(this.ownerPhone)
-      : "";
-  const digits = phoneRaw.replace(/\D/g, "").slice(-15); // guard against country prefixes
-  this.ownerPhoneDigits = digits || undefined;
-  this.ownerPhoneLast10 = digits ? digits.slice(-10) : undefined;
+  // Store only canonical last-10 digits for the two phone fields (no derived fields).
+  if (this.primaryContactNumber != null && String(this.primaryContactNumber).trim()) {
+    const digits = String(this.primaryContactNumber).replace(/\D/g, "").slice(-15);
+    this.primaryContactNumber = digits ? digits.slice(-10) : undefined;
+  } else {
+    this.primaryContactNumber = undefined;
+  }
 
+  if (this.ownerPhone != null && String(this.ownerPhone).trim()) {
+    const digits = String(this.ownerPhone).replace(/\D/g, "").slice(-15);
+    this.ownerPhone = digits ? digits.slice(-10) : undefined;
+  } else {
+    this.ownerPhone = undefined;
+  }
+
+  next();
+});
+
+// Drop legacy derived phone keys from the in-memory doc before save.
+// MongoDB still needs an explicit $unset (see unsetLegacyRestaurantPhoneFields).
+restaurantSchema.pre("save", function stripLegacyPhoneFields(next) {
+  for (const key of [
+    "primaryContactLast10",
+    "primaryContactDigits",
+    "ownerPhoneLast10",
+    "ownerPhoneDigits",
+  ]) {
+    if (this._doc && Object.prototype.hasOwnProperty.call(this._doc, key)) {
+      delete this._doc[key];
+    }
+  }
+  next();
+});
+
+restaurantSchema.pre("validate", function normalizeLocationAndDelivery(next) {
   // Keep `location` in sync when flat address fields exist (backward-compatible migration).
   // Prefer explicit location.* fields if provided.
   const hasAnyFlatAddress =
@@ -538,22 +557,29 @@ restaurantSchema.pre("validate", function normalizeDerivedFields(next) {
   next();
 });
 
-restaurantSchema.index({ ownerPhone: 1 });
 restaurantSchema.index({ restaurantName: 1 });
 restaurantSchema.index({ restaurantNameNormalized: 1 });
 restaurantSchema.index({ city: 1 });
 restaurantSchema.index({ "location.city": 1 });
 restaurantSchema.index({ location: "2dsphere" });
 restaurantSchema.index({ restaurantName: 1, ownerPhone: 1 });
-// Enforce uniqueness at the database level to avoid race conditions in registration.
-// Uses partial filter to avoid blocking older documents that may not yet have normalized fields.
+// Both phones are login-capable and must be globally unique (per field).
+// Cross-field uniqueness (primary vs owner across restaurants) is enforced in services.
 restaurantSchema.index(
-  { restaurantNameNormalized: 1, ownerPhoneLast10: 1 },
+  { primaryContactNumber: 1 },
   {
     unique: true,
     partialFilterExpression: {
-      restaurantNameNormalized: { $type: "string" },
-      ownerPhoneLast10: { $type: "string" },
+      primaryContactNumber: { $type: "string" },
+    },
+  },
+);
+restaurantSchema.index(
+  { ownerPhone: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      ownerPhone: { $type: "string" },
     },
   },
 );

@@ -129,9 +129,21 @@ function RestaurantDetailsContent() {
   }
 
   const getDishQuantity = (item, preferredVariantId = "") => {
-    const variant = getVariantForDish(item, preferredVariantId)
-    const lineItemId = getLineItemIdForDish(item, variant)
-    return quantities[lineItemId] || 0
+    if (preferredVariantId) {
+      const variant = getVariantForDish(item, preferredVariantId)
+      const lineItemId = getLineItemIdForDish(item, variant)
+      return quantities[lineItemId] || 0
+    }
+    
+    // Aggregate total quantity for all variants of this item in the cart
+    const baseItemId = item?.id || item?._id || ""
+    let total = 0
+    Object.keys(quantities).forEach(key => {
+      if (key.startsWith(`${baseItemId}::`) || key === baseItemId) {
+         total += quantities[key] || 0
+      }
+    })
+    return total
   }
 
   // Initialize filters from localStorage if available
@@ -2556,6 +2568,10 @@ function RestaurantDetailsContent() {
                                     onClick={(e) => {
                                       e.stopPropagation()
                                       if (!shouldShowGrayscale) {
+                                        if (hasFoodVariants(item)) {
+                                          handleItemClick(item)
+                                          return
+                                        }
                                         updateItemQuantity(item, Math.max(0, quantity - 1), e)
                                       }
                                     }}
@@ -2569,6 +2585,10 @@ function RestaurantDetailsContent() {
                                     onClick={(e) => {
                                       e.stopPropagation()
                                       if (!shouldShowGrayscale) {
+                                        if (hasFoodVariants(item)) {
+                                          handleItemClick(item)
+                                          return
+                                        }
                                         updateItemQuantity(item, quantity + 1, e)
                                       }
                                     }}
@@ -3464,7 +3484,7 @@ function RestaurantDetailsContent() {
                   </div>
 
                   {/* Image Section */}
-                  <div className="relative w-full h-64 overflow-hidden rounded-t-3xl bg-gray-100 dark:bg-gray-800">
+                  <div className="relative w-full h-48 sm:h-64 overflow-hidden rounded-t-3xl bg-gray-100 dark:bg-gray-800 flex-shrink-0">
                     {(() => {
                       const allImages = (selectedItem.images || []).filter(img => img && typeof img === 'string');
                       if (selectedItem.image && !allImages.includes(selectedItem.image)) {
@@ -3615,7 +3635,7 @@ function RestaurantDetailsContent() {
                               key={variant.id}
                               type="button"
                               onClick={() => setSelectedVariantId(variant.id)}
-                              className={`rounded-full border px-3 py-1.5 text-sm font-medium transition-colors ${String(selectedVariantId || "") === String(variant.id)
+                              className={`rounded-full border px-3 py-1.5 text-sm font-medium transition-colors max-w-full text-left break-words ${String(selectedVariantId || "") === String(variant.id)
                                   ? "border-red-500 bg-red-50 text-red-600 dark:border-red-400 dark:bg-red-900/30 dark:text-red-200"
                                   : "border-gray-200 bg-white text-gray-700 dark:border-gray-700 dark:bg-[#2a2a2a] dark:text-gray-300"
                                 }`}
@@ -3629,10 +3649,10 @@ function RestaurantDetailsContent() {
                   </div>
 
                   {/* Bottom Action Bar */}
-                  <div className="border-t border-gray-200 dark:border-gray-800 px-4 py-4 bg-white dark:bg-[#1a1a1a]">
-                    <div className="flex items-center gap-4">
+                  <div className="border-t border-gray-200 dark:border-gray-800 px-3 sm:px-4 py-3 sm:py-4 bg-white dark:bg-[#1a1a1a]">
+                    <div className="flex items-center gap-2 sm:gap-4 w-full">
                       {/* Quantity Selector */}
-                      <div className={`flex items-center gap-3 border-2 rounded-lg px-3 h-[44px] bg-white dark:bg-[#2a2a2a] ${shouldShowGrayscale
+                      <div className={`flex items-center gap-1.5 sm:gap-3 border-2 rounded-lg px-2 sm:px-3 h-[44px] flex-shrink-0 bg-white dark:bg-[#2a2a2a] ${shouldShowGrayscale
                         ? 'border-gray-300 dark:border-gray-700 opacity-50'
                         : 'border-gray-300 dark:border-gray-700'
                         }`}>
@@ -3653,9 +3673,9 @@ function RestaurantDetailsContent() {
                             : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white disabled:text-gray-300 dark:disabled:text-gray-600 disabled:cursor-not-allowed'
                             }`}
                         >
-                          <Minus className="h-5 w-5" />
+                          <Minus className="h-4 w-4 sm:h-5 sm:w-5" />
                         </button>
-                        <span className={`text-lg font-semibold min-w-[2rem] text-center ${shouldShowGrayscale
+                        <span className={`text-base sm:text-lg font-semibold min-w-[1.5rem] sm:min-w-[2rem] text-center ${shouldShowGrayscale
                           ? 'text-gray-400 dark:text-gray-600'
                           : 'text-gray-900 dark:text-white'
                           }`}>
@@ -3678,13 +3698,13 @@ function RestaurantDetailsContent() {
                             : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
                           }
                         >
-                          <Plus className="h-5 w-5" />
+                          <Plus className="h-4 w-4 sm:h-5 sm:w-5" />
                         </button>
                       </div>
 
                       {/* Add Item Button */}
                       <Button
-                        className={`flex-1 h-[44px] rounded-lg font-semibold flex items-center justify-center gap-2 ${shouldShowGrayscale
+                        className={`flex-1 h-[44px] rounded-lg font-semibold flex items-center justify-center gap-1 sm:gap-2 min-w-0 ${shouldShowGrayscale
                           ? 'bg-gray-300 dark:bg-gray-700 text-gray-500 dark:text-gray-600 cursor-not-allowed opacity-50'
                           : 'bg-red-500 hover:bg-red-600 text-white'
                           }`}
@@ -3701,14 +3721,15 @@ function RestaurantDetailsContent() {
                         }}
                         disabled={shouldShowGrayscale}
                       >
-                        <span>Add item</span>
-                        <div className="flex items-center gap-1">
+                        <span className="hidden sm:inline whitespace-nowrap">Add item</span>
+                        <span className="sm:hidden whitespace-nowrap flex-shrink-0">Add</span>
+                        <div className="flex items-center gap-1 min-w-0 overflow-hidden">
                           {selectedItem.originalPrice && selectedItem.originalPrice > selectedItem.price && (
-                            <span className="text-sm line-through text-red-200">
+                            <span className="text-xs sm:text-sm line-through text-red-200 hidden sm:inline flex-shrink-0">
                               {RUPEE_SYMBOL}{Math.round(selectedItem.originalPrice)}
                             </span>
                           )}
-                          <span className="text-base font-bold">
+                          <span className="text-sm sm:text-base font-bold truncate">
                             {hasFoodVariants(selectedItem)
                               ? `${getFoodVariantLabel(getVariantForDish(selectedItem, selectedVariantId) || { name: "Default" })} · ${RUPEE_SYMBOL}${Math.round(getVariantForDish(selectedItem, selectedVariantId)?.price || selectedItem.price)}`
                               : `${RUPEE_SYMBOL}${Math.round(selectedItem.price)}`}

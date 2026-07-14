@@ -1051,9 +1051,10 @@ export default function EditRestaurant() {
               {fieldErrors.ownerName && <p className="text-red-500 text-xs">{fieldErrors.ownerName}</p>}
             </div>
             <div className="p-4 rounded-2xl bg-emerald-50/30 border border-emerald-100/30 space-y-2">
-              <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider">Contact Number</p>
+              <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider">Owner Phone (Informational)</p>
               <Input value={step1.ownerPhone || ""} onChange={(e) => setStep1({ ...step1, ownerPhone: sanitizeDigits(e.target.value).slice(0, 10) })} className={`bg-white text-sm ${fieldErrors.ownerPhone ? "border-red-500" : ""}`} placeholder="10-digit mobile" inputMode="numeric" maxLength={10} />
               {fieldErrors.ownerPhone && <p className="text-red-500 text-xs">{fieldErrors.ownerPhone}</p>}
+              <p className="text-[10px] text-slate-500">Also works for restaurant login. Must be unique.</p>
             </div>
             <div className="p-4 rounded-2xl bg-indigo-50/30 border border-indigo-100/30 space-y-2">
               <p className="text-[10px] text-indigo-600 font-bold uppercase tracking-wider">Email Address</p>
@@ -1070,9 +1071,10 @@ export default function EditRestaurant() {
           </div>
           <div className="space-y-3">
             <div>
-              <Label className="text-xs text-slate-500">Primary contact number*</Label>
-              <Input value={step1.primaryContactNumber || ""} onChange={(e) => setStep1({ ...step1, primaryContactNumber: sanitizeDigits(e.target.value).slice(0, 10) })} className={`mt-1 bg-white text-sm ${fieldErrors.primaryContactNumber ? "border-red-500" : ""}`} placeholder="10-digit number" inputMode="numeric" maxLength={10} />
+              <Label className="text-xs text-slate-500">Primary contact number (Login)*</Label>
+              <Input value={step1.primaryContactNumber || ""} onChange={(e) => setStep1({ ...step1, primaryContactNumber: sanitizeDigits(e.target.value).slice(0, 10) })} className={`mt-1 bg-white text-sm ${fieldErrors.primaryContactNumber ? "border-red-500" : ""}`} placeholder="10-digit login number" inputMode="numeric" maxLength={10} />
               {fieldErrors.primaryContactNumber && <p className="text-red-500 text-xs mt-1">{fieldErrors.primaryContactNumber}</p>}
+              <p className="text-[10px] text-slate-500 mt-1">Login works with this number or the owner phone. Must be unique.</p>
             </div>
             <div>
               <Label className="text-xs text-slate-500">Service zone*</Label>

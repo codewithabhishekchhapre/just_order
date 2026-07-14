@@ -974,12 +974,12 @@ export default function AddRestaurant() {
             placeholder="owner@example.com"
           />
         </FormField>
-        <FormField label="Phone number" required span="full" error={fieldErrors.ownerPhone}>
+        <FormField label="Owner phone number" required span="full" error={fieldErrors.ownerPhone} helperText="Also works for restaurant login. Must be unique across all restaurants.">
           <Input
             value={step1.ownerPhone || ""}
             onChange={(e) => setStep1({ ...step1, ownerPhone: sanitizeDigits(e.target.value).slice(0, 10) })}
             className={cn(formInputClass, fieldErrors.ownerPhone && "border-red-500")}
-            placeholder="10-digit mobile number"
+            placeholder="10-digit owner phone"
             inputMode="numeric"
             maxLength={10}
           />
@@ -987,12 +987,12 @@ export default function AddRestaurant() {
       </FormSection>
 
       <FormSection title="Restaurant contact & location">
-        <FormField label="Primary contact number" required span="full" error={fieldErrors.primaryContactNumber}>
+        <FormField label="Primary contact number (Login)" required span="full" error={fieldErrors.primaryContactNumber} helperText="Restaurant contact number. Login works with this or the owner phone. Must be unique.">
           <Input
             value={step1.primaryContactNumber || ""}
             onChange={(e) => setStep1({ ...step1, primaryContactNumber: sanitizeDigits(e.target.value).slice(0, 10) })}
             className={cn(formInputClass, fieldErrors.primaryContactNumber && "border-red-500")}
-            placeholder="Primary contact number (10 digits)"
+            placeholder="Restaurant contact number (10 digits)"
             inputMode="numeric"
             maxLength={10}
           />

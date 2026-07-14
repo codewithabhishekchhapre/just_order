@@ -47,6 +47,10 @@ const getCreateFoodPricing = (body = {}) => {
         ? bodyOtherPrice
         : getFoodDisplayOtherPrice({ variants });
 
+    if (otherPrice > 0 && otherPrice < price) {
+        throw new ValidationError(`Original price cannot be less than selling price (${price})`);
+    }
+
     return {
         price,
         otherPrice,
@@ -85,6 +89,13 @@ const getUpdatedFoodPricing = (existing = {}, body = {}) => {
         if (variants.length > 0) {
             update.otherPrice = getFoodDisplayOtherPrice({ variants });
         }
+    }
+
+    const finalPrice = update.price !== undefined ? update.price : existing.price;
+    const finalOtherPrice = update.otherPrice !== undefined ? update.otherPrice : existing.otherPrice;
+
+    if (finalOtherPrice > 0 && finalOtherPrice < finalPrice) {
+        throw new ValidationError(`Original price cannot be less than selling price (${finalPrice})`);
     }
 
     return update;

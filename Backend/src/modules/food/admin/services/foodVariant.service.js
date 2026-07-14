@@ -24,6 +24,7 @@ export const normalizeFoodVariantsInput = (value = [], options = {}) => {
         throw new ValidationError('Variants must be an array');
     }
 
+    const seenNames = new Set();
     const normalized = value
         .map((entry = {}) => {
             const name = toTrimmedString(entry?.name);
@@ -31,15 +32,26 @@ export const normalizeFoodVariantsInput = (value = [], options = {}) => {
                 throw new ValidationError('Each variant must have a name');
             }
 
+            const lowerName = name.toLowerCase();
+            if (seenNames.has(lowerName)) {
+                throw new ValidationError(`Duplicate variant name found: "${name}"`);
+            }
+            seenNames.add(lowerName);
+
             const price = Number(entry?.price);
             if (!Number.isFinite(price) || price <= 0) {
                 throw new ValidationError(`${priceLabel} must be greater than 0`);
             }
 
+            const otherPrice = Number(entry?.otherPrice) || 0;
+            if (otherPrice > 0 && otherPrice < price) {
+                throw new ValidationError(`Original price for variant "${name}" cannot be less than selling price`);
+            }
+
             const variant = {
                 name,
                 price,
-                otherPrice: Number(entry?.otherPrice) || 0,
+                otherPrice,
                 unit: toTrimmedString(entry?.unit)
             };
 
