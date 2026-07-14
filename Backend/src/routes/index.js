@@ -30,6 +30,7 @@ import commonSettingsRoutes from '../modules/common/routes/settings.routes.js';
 import { getGlobalSettings as getPublicSettings } from '../modules/common/controllers/settings.controller.js';
 import onboardingFeeRoutes from '../modules/common/routes/onboardingFee.routes.js';
 import porterRoutes from '../modules/porter/routes/porter.routes.js';
+import locationRoutes from '../core/location/location.routes.js';
 
 const router = express.Router();
 
@@ -38,6 +39,9 @@ router.get('/v1/health', (req, res) => {
 });
 
 
+
+// Centralized location services (geocode, reverse-geocode, autocomplete, road distance)
+router.use('/v1/location', locationRoutes);
 
 // Food-prefixed auth routes (preferred)
 router.use('/v1/food/auth', authRoutes);
@@ -79,7 +83,6 @@ router.use('/fcm-tokens', fcmRoutes);
 router.use('/v1/quick-commerce', quickCommerceRoutes);
 router.use('/v1/porter', porterRoutes);
 router.use('/v1/seller', sellerRoutes);
-
 
 // router.get('/v1/env/public', getPublicEnvController);
 // router.get('/env/public', getPublicEnvController);

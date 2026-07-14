@@ -34,6 +34,10 @@ import {
     importContactsController,
     updatePermissionStatusController
 } from '../controllers/userContact.controller.js';
+import {
+    getUserLocationController,
+    updateUserLocationController
+} from '../controllers/userLocation.controller.js';
 
 import {
     submitRoleRequestController,
@@ -72,6 +76,9 @@ router.get('/safety-emergency-reports', listMySafetyEmergencyReportsController);
 // Support tickets (Bearer USER)
 router.post('/support/ticket', createSupportTicketController);
 router.get('/support/my-tickets', listMySupportTicketsController);
+
+router.get('/location', getUserLocationController);
+router.patch('/location', updateUserLocationController);
 
 router.get('/addresses', listAddressesController);
 router.post('/addresses', addAddressController);

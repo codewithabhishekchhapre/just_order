@@ -131,10 +131,11 @@ const DeliveryTrackingMap = ({
         debugLog('?? Received Cloud Polyline for live path');
         setCloudPolyline(data.polyline);
       }
-      if (data?.eta) {
-        debugLog('?? Received real-time ETA:', data.eta);
-        setCurrentEta(data.eta);
-        if (onEtaUpdate) onEtaUpdate(data.eta);
+      const liveEta = data?.etaMinutes ?? data?.eta;
+      if (liveEta) {
+        debugLog('?? Received real-time ETA:', liveEta);
+        setCurrentEta(liveEta);
+        if (onEtaUpdate) onEtaUpdate(liveEta);
       }
     }));
 
@@ -165,9 +166,10 @@ const DeliveryTrackingMap = ({
           setCloudPolyline(data.polyline);
         }
 
-        if (data.eta) {
-          setCurrentEta(data.eta);
-          if (onEtaUpdate) onEtaUpdate(data.eta);
+        const liveEta = data.etaMinutes ?? data.eta;
+        if (liveEta) {
+          setCurrentEta(liveEta);
+          if (onEtaUpdate) onEtaUpdate(liveEta);
         }
       }
     });
@@ -585,7 +587,7 @@ const DeliveryTrackingMap = ({
                 <span className="text-[9px] text-white/80 font-bold uppercase tracking-[0.2em] mb-0.5">Arrival</span>
                 <div className="flex items-center gap-2">
                   <span className="text-xl font-bold text-white leading-none tracking-tighter">
-                    {currentEta}
+                    {typeof currentEta === 'number' ? `${currentEta} min` : currentEta}
                   </span>
                   <div className="flex items-center gap-1.5 opacity-80">
                      <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />

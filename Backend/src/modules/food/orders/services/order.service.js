@@ -34,6 +34,7 @@ import { Seller } from '../../../quick-commerce/seller/models/seller.model.js';
 import { SellerOrder } from '../../../quick-commerce/seller/models/sellerOrder.model.js';
 import { getSellerCommissionSnapshot } from '../../../quick-commerce/admin/services/commission.service.js';
 import { QuickFeeSettings } from '../../../quick-commerce/admin/models/feeSettings.model.js';
+import { getRoadDistance, geocodeAddress } from '../../../../core/location/location.service.js';
 import { calculateQuickPricing, calculateDeliveryFeeFromSettings } from '../../../quick-commerce/admin/services/billing.service.js';
 import {
     createRazorpayOrder,
@@ -265,6 +266,25 @@ function normalizeDeliveryAddress(address) {
     String(address.state || "").trim() ||
     city;
 
+  // Accept every coordinate shape clients send: GeoJSON coordinates,
+  // location: {lat, lng}, or flat latitude/longitude.
+  let location;
+  const geoCoords = address.location?.coordinates;
+  if (Array.isArray(geoCoords) && geoCoords.length === 2) {
+    const lng = Number(geoCoords[0]);
+    const lat = Number(geoCoords[1]);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      location = { type: "Point", coordinates: [lng, lat] };
+    }
+  }
+  if (!location) {
+    const lat = Number(address.location?.lat ?? address.latitude ?? address.lat);
+    const lng = Number(address.location?.lng ?? address.longitude ?? address.lng);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      location = { type: "Point", coordinates: [lng, lat] };
+    }
+  }
+
   return {
     label: address.label || "Home",
     street,
@@ -273,11 +293,12 @@ function normalizeDeliveryAddress(address) {
       String(address.area || "").trim(),
     city,
     state,
-    zipCode: String(address.zipCode || address.postalCode || "").trim(),
+    zipCode: String(address.zipCode || address.postalCode || address.pincode || "").trim(),
+    area: String(address.area || "").trim(),
+    landmark: String(address.landmark || "").trim(),
+    formattedAddress: String(address.formattedAddress || "").trim(),
     phone: String(address.phone || "").trim(),
-    location: address.location?.coordinates
-      ? { type: "Point", coordinates: address.location.coordinates }
-      : undefined,
+    location,
   };
 }
 
@@ -332,6 +353,23 @@ function getPointLatLng(locationLike) {
   const [lng, lat] = coords;
   if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) return null;
   return { lat: Number(lat), lng: Number(lng) };
+}
+
+/**
+ * Distance used for delivery pricing: real road distance via the central
+ * location service (Google Routes API, Mongo-cached). Falls back to
+ * haversine automatically inside getRoadDistance, so pricing never breaks
+ * when the Routes API is unavailable.
+ */
+async function resolveDeliveryDistanceKm(fromPoint, toPoint) {
+  if (!fromPoint || !toPoint) return 0;
+  try {
+    const road = await getRoadDistance(fromPoint, toPoint);
+    if (road && Number.isFinite(road.distanceKm)) return road.distanceKm;
+  } catch (err) {
+    logger.warn(`resolveDeliveryDistanceKm failed, using haversine: ${err?.message || err}`);
+  }
+  return haversineKm(fromPoint.lat, fromPoint.lng, toPoint.lat, toPoint.lng);
 }
 
 function roundCurrency(value) {
@@ -1982,15 +2020,7 @@ export async function calculateOrder(userId, dto) {
   if (orderType === "food") {
     const userPoint = getPointLatLng(dto.address?.location);
     const restaurantPoint = getPointLatLng(primaryRestaurant?.location);
-    const distanceKm =
-      userPoint && restaurantPoint
-        ? haversineKm(
-            restaurantPoint.lat,
-            restaurantPoint.lng,
-            userPoint.lat,
-            userPoint.lng,
-          )
-        : 0;
+    const distanceKm = await resolveDeliveryDistanceKm(restaurantPoint, userPoint);
     const deliveryPricing = calculateFoodDeliveryPricing({
       subtotal,
       distanceKm,
@@ -2263,6 +2293,34 @@ export async function createOrder(userId, dto) {
 
   const deliveryAddress = normalizeDeliveryAddress(dto.address);
 
+  // Self-heal text-only addresses (legacy saved addresses without coordinates):
+  // geocode server-side so distance-based pricing, dispatch and live tracking
+  // all get a usable point. Best-effort — order creation never fails on this.
+  if (deliveryAddress && !deliveryAddress.location) {
+    const addressText = [
+      deliveryAddress.street,
+      deliveryAddress.area,
+      deliveryAddress.city,
+      deliveryAddress.state,
+      deliveryAddress.zipCode,
+    ]
+      .filter(Boolean)
+      .join(", ");
+    if (addressText) {
+      try {
+        const geocoded = await geocodeAddress(addressText);
+        if (geocoded) {
+          deliveryAddress.location = {
+            type: "Point",
+            coordinates: [geocoded.longitude, geocoded.latitude],
+          };
+        }
+      } catch (err) {
+        logger.warn(`Order address geocode fallback failed: ${err?.message || err}`);
+      }
+    }
+  }
+
   const paymentMethod =
     dto.paymentMethod === "card" ? "razorpay" : dto.paymentMethod;
   const isCash = paymentMethod === "cash";
@@ -2377,10 +2435,7 @@ export async function createOrder(userId, dto) {
   if (orderType === "food") {
     const userPoint = getPointLatLng(deliveryAddress?.location);
     const restaurantPoint = getPointLatLng(primaryRestaurant?.location);
-    const distanceForFee =
-      userPoint && restaurantPoint
-        ? haversineKm(restaurantPoint.lat, restaurantPoint.lng, userPoint.lat, userPoint.lng)
-        : 0;
+    const distanceForFee = await resolveDeliveryDistanceKm(restaurantPoint, userPoint);
     const deliveryPricing = calculateFoodDeliveryPricing({
       subtotal: computedSubtotal,
       distanceKm: distanceForFee,
@@ -2397,10 +2452,7 @@ export async function createOrder(userId, dto) {
   } else if (orderType === "mixed") {
     const userPoint = getPointLatLng(deliveryAddress?.location);
     const restaurantPoint = getPointLatLng(primaryRestaurant?.location);
-    const distanceForFee =
-      userPoint && restaurantPoint
-        ? haversineKm(restaurantPoint.lat, restaurantPoint.lng, userPoint.lat, userPoint.lng)
-        : 0;
+    const distanceForFee = await resolveDeliveryDistanceKm(restaurantPoint, userPoint);
     const foodDeliveryPricing = calculateFoodDeliveryPricing({
       subtotal: computedSubtotal,
       distanceKm: distanceForFee,

@@ -2455,15 +2455,14 @@ export const userAPI = {
       params: params ?? {},
       contextModule: "user",
     }),
-  /**
-   * Legacy UI compatibility: update "current user location".
-   * We already persist the user's selected location in localStorage in the UI.
-   * Keep this as a no-op success so existing flows don't break.
-   */
-  updateLocation: (_payload) =>
-    Promise.resolve({
-      data: { success: true, message: "Location saved (client)", data: null },
+  /** PATCH /food/user/location — persist the user's live location (Bearer USER). */
+  updateLocation: (payload) =>
+    apiClient.patch("/food/user/location", payload ?? {}, {
+      contextModule: "user",
     }),
+  /** GET /food/user/location — last saved live location (Bearer USER). */
+  getLocation: () =>
+    apiClient.get("/food/user/location", { contextModule: "user" }),
   saveFcmToken: (token, options = {}) => {
     if (!token) return Promise.reject(new Error("FCM token is required"));
     const platform = options?.platform === "mobile" ? "mobile" : "web";
@@ -2506,7 +2505,48 @@ export const userAPI = {
   deleteAccount: () =>
     apiClient.delete("/food/user/profile", { contextModule: "user" }),
 };
-export const locationAPI = createStubAPI();
+/**
+ * Centralized location services — backed by Backend /v1/location/* which
+ * proxies Google Maps server-side (cached in Mongo). Use these instead of
+ * calling Google/Nominatim/BigDataCloud directly from the browser.
+ */
+export const locationAPI = {
+  /** GET /location/reverse-geocode — lat/lng -> canonical address object. */
+  reverseGeocode: (latitude, longitude) =>
+    apiClient.get("/location/reverse-geocode", {
+      params: { lat: latitude, lng: longitude },
+    }),
+  /** GET /location/geocode — free-text address -> coordinates + components. */
+  geocode: (address) =>
+    apiClient.get("/location/geocode", { params: { address } }),
+  /** GET /location/autocomplete — Places search-as-you-type suggestions. */
+  autocomplete: (input, { sessionToken, latitude, longitude } = {}) =>
+    apiClient.get("/location/autocomplete", {
+      params: {
+        input,
+        sessiontoken: sessionToken,
+        lat: latitude,
+        lng: longitude,
+      },
+    }),
+  /** GET /location/place-details — placeId -> canonical address object. */
+  placeDetails: (placeId, { sessionToken } = {}) =>
+    apiClient.get("/location/place-details", {
+      params: { placeId, sessiontoken: sessionToken },
+    }),
+  /** GET /location/road-distance — road distance + ETA between two points. */
+  roadDistance: (fromLat, fromLng, toLat, toLng) =>
+    apiClient.get("/location/road-distance", {
+      params: { fromLat, fromLng, toLat, toLng },
+    }),
+  /**
+   * POST /location/road-distance-matrix — road distances from one origin to
+   * up to 25 destinations in a single call (server-cached per pair).
+   * destinations: [{lat, lng}, ...] -> data.distances aligned with input.
+   */
+  roadDistanceMatrix: (origin, destinations) =>
+    apiClient.post("/location/road-distance-matrix", { origin, destinations }),
+};
 export const zoneAPI = {
   /** Public: detect active service zone for a lat/lng point. */
   detectZone: (lat, lng) =>

@@ -666,7 +666,9 @@ export default function OrderTracking() {
   const [orderStatus, setOrderStatus] = useState(() =>
     prefetchedOrder ? mapOrderToTrackingUiStatus(isQuickOrder ? normalizeQuickOrderForTracking(prefetchedOrder) : prefetchedOrder) : 'placed'
   );
-  const [estimatedTime, setEstimatedTime] = useState(29);
+  // Live ETA in minutes (road-distance based, pushed with rider location).
+  // null until the first real value arrives — never a fabricated number.
+  const [estimatedTime, setEstimatedTime] = useState(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [cancellationNotice, setCancellationNotice] = useState(null);
@@ -1056,9 +1058,13 @@ export default function OrderTracking() {
     return () => clearInterval(interval);
   }, [isQuickCommerceOrder, isDeliveredOrder]);
 
-  // Estimated time countdown
+  // Tick the ETA down between live updates (fresh road-based values from the
+  // socket overwrite this). Never below 1 and never for unknown (null) ETAs.
   useEffect(() => {
-    const timer = setInterval(() => setEstimatedTime((prev) => Math.max(0, prev - 1)), 60000);
+    const timer = setInterval(
+      () => setEstimatedTime((prev) => (typeof prev === 'number' ? Math.max(1, prev - 1) : prev)),
+      60000
+    );
     return () => clearInterval(timer);
   }, []);
 
@@ -1217,7 +1223,27 @@ export default function OrderTracking() {
   }, [orderId, isSocketConnected]);
 
   // ── Stable callbacks ─────────────────────────────────────────────────────────
-  const handleEtaUpdate = useCallback((newEta) => setEstimatedTime(newEta), []);
+  // ETA arrives as a number of minutes (socket road-distance ETA), a numeric
+  // string, or Directions text like "12 mins" / "1 hour 5 mins" — normalize
+  // everything to a number so the "Arriving in X mins" UI always renders.
+  const handleEtaUpdate = useCallback((newEta) => {
+    if (typeof newEta === 'number' && Number.isFinite(newEta)) {
+      setEstimatedTime(Math.max(1, Math.round(newEta)));
+      return;
+    }
+    const text = String(newEta || '').trim();
+    if (!text) return;
+    if (/^\d+(\.\d+)?$/.test(text)) {
+      setEstimatedTime(Math.max(1, Math.round(Number(text))));
+      return;
+    }
+    const hours = text.match(/(\d+)\s*(?:hour|hr)/i);
+    const mins = text.match(/(\d+)\s*min/i);
+    if (hours || mins) {
+      const total = (hours ? Number(hours[1]) * 60 : 0) + (mins ? Number(mins[1]) : 0);
+      if (total > 0) setEstimatedTime(total);
+    }
+  }, []);
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);

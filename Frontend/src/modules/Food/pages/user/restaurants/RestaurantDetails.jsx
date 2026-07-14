@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, Component, useMemo } from "react"
 import { createPortal } from "react-dom"
 import { motion, AnimatePresence } from "framer-motion"
 import { useParams, useNavigate, useSearchParams } from "react-router-dom"
-import { restaurantAPI, diningAPI, orderAPI } from "@food/api"
+import { restaurantAPI, diningAPI, orderAPI, locationAPI } from "@food/api"
 import { API_BASE_URL } from "@food/api/config"
 import { toast } from "sonner"
 import { useLocation } from "@food/hooks/useLocation"
@@ -510,7 +510,7 @@ function RestaurantDetailsContent() {
             rating: actualRestaurant?.rating || apiRestaurant?.rating || actualRestaurant?.averageRating || apiRestaurant?.averageRating || 4.5,
             reviews: actualRestaurant?.totalRatings || apiRestaurant?.totalRatings || actualRestaurant?.reviewCount || apiRestaurant?.reviewCount || actualRestaurant?.reviews?.length || apiRestaurant?.reviews?.length || 0,
             deliveryTime: actualRestaurant?.estimatedDeliveryTime || apiRestaurant?.estimatedDeliveryTime || actualRestaurant?.deliveryTime || apiRestaurant?.deliveryTime || actualRestaurant?.avgDeliveryTime || apiRestaurant?.avgDeliveryTime || "25-30 mins",
-            distance: calculatedDistance || actualRestaurant?.distance || apiRestaurant?.distance || actualRestaurant?.distanceFromUser || apiRestaurant?.distanceFromUser || "1.2 km",
+            distance: calculatedDistance || actualRestaurant?.distance || apiRestaurant?.distance || actualRestaurant?.distanceFromUser || apiRestaurant?.distanceFromUser || "",
             location: formattedAddress,
             locationObject: locationObj, // Store full location object for reference
             image: normalizedCoverImages?.[0]?.url
@@ -1070,34 +1070,39 @@ function RestaurantDetailsContent() {
         return R * c // Distance in kilometers
       }
 
-      const distanceInKm = calculateDistance(userLat, userLng, restaurantLat, restaurantLng)
-      let calculatedDistance = null
+      const formatKm = (km) =>
+        km >= 1 ? `${km.toFixed(1)} km` : `${Math.round(km * 1000)} m`
 
-      // Format distance: show 1 decimal place if >= 1km, otherwise show in meters
-      if (distanceInKm >= 1) {
-        calculatedDistance = `${distanceInKm.toFixed(1)} km`
-      } else {
-        const distanceInMeters = Math.round(distanceInKm * 1000)
-        calculatedDistance = `${distanceInMeters} m`
-      }
-
-      // Only update if distance actually changed
-      if (calculatedDistance !== prevDistanceRef.current) {
-        debugLog('? Recalculated distance from user to restaurant:', calculatedDistance, 'km:', distanceInKm)
-        prevDistanceRef.current = calculatedDistance
-
-        // Update restaurant distance
+      const applyDistance = (label, extra = {}) => {
+        if (label === prevDistanceRef.current) return
+        prevDistanceRef.current = label
         setRestaurant(prev => {
-          // Only update if distance actually changed to prevent infinite loop
-          if (prev?.distance === calculatedDistance) {
-            return prev
-          }
-          return {
-            ...prev,
-            distance: calculatedDistance
-          }
+          if (prev?.distance === label && !Object.keys(extra).length) return prev
+          return { ...prev, distance: label, ...extra }
         })
       }
+
+      // 1) Instant estimate (air distance) so the UI never waits
+      const airKm = calculateDistance(userLat, userLng, restaurantLat, restaurantLng)
+      applyDistance(formatKm(airKm))
+      debugLog('? Air-distance estimate user->restaurant:', formatKm(airKm))
+
+      // 2) Refine to real ROAD distance via the centralized backend (cached)
+      let cancelled = false
+      locationAPI.roadDistance(userLat, userLng, restaurantLat, restaurantLng)
+        .then((res) => {
+          if (cancelled) return
+          const d = res?.data?.data
+          if (d && Number.isFinite(Number(d.distanceKm)) && d.source !== 'haversine') {
+            applyDistance(formatKm(Number(d.distanceKm)), {
+              roadDurationMinutes: d.durationMinutes ?? null,
+            })
+            debugLog('? Road distance user->restaurant:', d.distanceKm, 'km,', d.durationMinutes, 'min')
+          }
+        })
+        .catch(() => { /* keep the air-distance estimate */ })
+
+      return () => { cancelled = true }
     }
   }, [userLocation?.latitude, userLocation?.longitude, restaurantLat, restaurantLng])
 

@@ -24,7 +24,14 @@ const BaseOrderHeader = ({ title, subtitle, badges, earnings, timeLeft, bgColor 
   </div>
 );
 
-const BaseOrderBody = ({ pickupStops, dropPoint, customerAddress, mapsLink, distanceKm, etaMins, isReturnPickup, returnLabels, pickupIcon: PickupIcon = ChefHat }) => (
+const formatLeg = (leg) => {
+  if (!leg || !Number.isFinite(Number(leg.distanceKm))) return null;
+  const km = Number(leg.distanceKm);
+  const dist = km >= 1 ? `${km.toFixed(1)} km` : `${Math.round(km * 1000)} m`;
+  return leg.durationMinutes ? `${dist} • ${leg.durationMinutes} min` : dist;
+};
+
+const BaseOrderBody = ({ pickupStops, dropPoint, customerAddress, mapsLink, distanceKm, etaMins, pickupLeg, dropLeg, isReturnPickup, returnLabels, pickupIcon: PickupIcon = ChefHat }) => (
   <div className="p-5 space-y-6">
     <div className="flex gap-4">
       <div className="flex flex-col items-center gap-1 mt-1.5 py-0.5">
@@ -67,15 +74,23 @@ const BaseOrderBody = ({ pickupStops, dropPoint, customerAddress, mapsLink, dist
       <div className="p-3 bg-gray-50 rounded-xl border border-gray-100 flex items-center gap-3">
         <Clock className="w-4 h-4 text-gray-500" />
         <div className="flex flex-col">
-          <span className="text-[9px] text-gray-400 font-bold uppercase tracking-widest">Time</span>
-          <span className="text-xs font-bold text-gray-900">{etaMins} MINS</span>
+          <span className="text-[9px] text-gray-400 font-bold uppercase tracking-widest">
+            {isReturnPickup ? 'You → Pickup' : 'You → Restaurant'}
+          </span>
+          <span className="text-xs font-bold text-gray-900">
+            {formatLeg(pickupLeg) || `${distanceKm} KM • ${etaMins} MIN`}
+          </span>
         </div>
       </div>
       <div className="p-3 bg-gray-50 rounded-xl border border-gray-100 flex items-center gap-3">
         <MapPin className="w-4 h-4 text-gray-400" />
         <div className="flex flex-col">
-          <span className="text-[9px] text-gray-400 font-bold uppercase tracking-widest">Distance</span>
-          <span className="text-xs font-bold text-gray-900">{distanceKm} KM</span>
+          <span className="text-[9px] text-gray-400 font-bold uppercase tracking-widest">
+            {isReturnPickup ? 'Pickup → Drop' : 'Restaurant → Customer'}
+          </span>
+          <span className="text-xs font-bold text-gray-900">
+            {formatLeg(dropLeg) || 'Calculating…'}
+          </span>
         </div>
       </div>
     </div>
@@ -86,7 +101,7 @@ const BaseOrderBody = ({ pickupStops, dropPoint, customerAddress, mapsLink, dist
 // RENDERERS
 // ----------------------
 
-const FoodOrderRenderer = ({ order, distanceKm, etaMins, timeLeft }) => {
+const FoodOrderRenderer = ({ order, distanceKm, etaMins, pickupLeg, dropLeg, timeLeft }) => {
   const isReturnPickup = isReturnPickupTrip(order);
   const returnLabels = getReturnPickupStopLabels();
   const pickupPoints = normalizePickupPoints(order);
@@ -124,6 +139,8 @@ const FoodOrderRenderer = ({ order, distanceKm, etaMins, timeLeft }) => {
         customerAddress={customerAddress}
         distanceKm={distanceKm}
         etaMins={etaMins}
+        pickupLeg={pickupLeg}
+        dropLeg={dropLeg}
         isReturnPickup={isReturnPickup}
         returnLabels={returnLabels}
         pickupIcon={ChefHat}
@@ -132,7 +149,7 @@ const FoodOrderRenderer = ({ order, distanceKm, etaMins, timeLeft }) => {
   );
 };
 
-const QuickCommerceOrderRenderer = ({ order, distanceKm, etaMins, timeLeft }) => {
+const QuickCommerceOrderRenderer = ({ order, distanceKm, etaMins, pickupLeg, dropLeg, timeLeft }) => {
   const pickupPoints = normalizePickupPoints(order);
   const earnings = order.earnings || order.riderEarning || order.tripEarning || order.walletEarning || 0;
   const storeName = order?.storeName || order?.sellerName || order?.seller?.shopName || 'Seller Store';
@@ -165,13 +182,15 @@ const QuickCommerceOrderRenderer = ({ order, distanceKm, etaMins, timeLeft }) =>
         customerAddress={customerAddress}
         distanceKm={distanceKm}
         etaMins={etaMins}
+        pickupLeg={pickupLeg}
+        dropLeg={dropLeg}
         pickupIcon={Package}
       />
     </>
   );
 };
 
-const ParcelOrderRenderer = ({ order, distanceKm, etaMins, timeLeft }) => {
+const ParcelOrderRenderer = ({ order, distanceKm, etaMins, pickupLeg, dropLeg, timeLeft }) => {
   const earnings = order.earnings || order.riderEarning || order.tripEarning || order.walletEarning || 0;
   
   const pickupStops = [{
@@ -199,6 +218,8 @@ const ParcelOrderRenderer = ({ order, distanceKm, etaMins, timeLeft }) => {
         customerAddress={order?.dropAddress || 'Drop Address'}
         distanceKm={distanceKm}
         etaMins={etaMins}
+        pickupLeg={pickupLeg}
+        dropLeg={dropLeg}
         pickupIcon={Package}
       />
     </>

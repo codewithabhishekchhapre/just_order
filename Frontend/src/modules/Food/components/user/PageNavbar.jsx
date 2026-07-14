@@ -363,40 +363,17 @@ export default function PageNavbar({
         debugLog(`?? City index (exact match with "${location.city}"):`, cityIndex)
       }
 
-      // Method 2: Check common city names (case-insensitive)
-      if (cityIndex === -1) {
-        const commonCities = ["Indore", "indore", "Bhopal", "bhopal", "Mumbai", "mumbai", "Delhi", "delhi"]
-        cityIndex = filteredParts.findIndex(part =>
-          commonCities.some(city => part.toLowerCase() === city.toLowerCase())
-        )
-        debugLog("?? City index (common cities):", cityIndex)
-      }
-
-      // Method 3: Check if part contains state name (usually comes after city)
+      // Method 2: Check if part contains the structured state name (city is
+      // usually one position before the state in Indian formatted addresses).
+      // No hardcoded city/state lists — the centralized geocoder always
+      // provides structured city/state fields, so Method 1 covers the norm.
       if (cityIndex === -1 && location?.state) {
         const stateIndex = filteredParts.findIndex(part =>
-          part.toLowerCase().includes(location.state.toLowerCase()) ||
-          part.toLowerCase().includes("madhya") ||
-          part.toLowerCase().includes("pradesh")
+          part.toLowerCase().includes(location.state.toLowerCase())
         )
         if (stateIndex > 0) {
-          // City is usually one position before state
           cityIndex = stateIndex - 1
           debugLog("?? City index (before state):", cityIndex)
-        }
-      }
-
-      // Method 4: Check for "Madhya Pradesh" or other state names
-      if (cityIndex === -1) {
-        const stateIndex = filteredParts.findIndex(part =>
-          part.toLowerCase().includes("madhya") ||
-          part.toLowerCase().includes("pradesh") ||
-          part.toLowerCase().includes("maharashtra") ||
-          part.toLowerCase().includes("gujarat")
-        )
-        if (stateIndex > 0) {
-          cityIndex = stateIndex - 1
-          debugLog("?? City index (before state name):", cityIndex)
         }
       }
 
@@ -481,13 +458,6 @@ export default function PageNavbar({
         if (location?.city) {
           cityIndex = filteredParts.findIndex(part =>
             part.toLowerCase() === location.city.toLowerCase()
-          )
-        }
-
-        if (cityIndex === -1) {
-          const commonCities = ["Indore", "indore", "Bhopal", "bhopal"]
-          cityIndex = filteredParts.findIndex(part =>
-            commonCities.some(city => part.toLowerCase().includes(city.toLowerCase()))
           )
         }
 
@@ -635,7 +605,7 @@ export default function PageNavbar({
     }
 
     // Final check: If mainLocation is just city name, try one more time to extract from formattedAddress
-    if (mainLocation && (mainLocation.toLowerCase() === location?.city?.toLowerCase() || mainLocation === "Indore")) {
+    if (mainLocation && mainLocation.toLowerCase() === location?.city?.toLowerCase()) {
       debugLog("?????? MainLocation is city, trying to extract locality one more time...")
 
       // First priority: Check if area is available in location object

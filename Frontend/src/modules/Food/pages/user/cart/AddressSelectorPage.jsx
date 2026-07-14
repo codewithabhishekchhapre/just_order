@@ -201,7 +201,8 @@ export default function AddressSelectorPage() {
     })
   }, [])
 
-  // Nominatim search
+  // Address search: centralized Places autocomplete first (backend key,
+  // location-biased when we know the user's position), Nominatim as fallback.
   useEffect(() => {
     if (!showAddressForm) return
     const q = String(addressAutocompleteValue || "").trim()
@@ -214,8 +215,34 @@ export default function AddressSelectorPage() {
     const t = setTimeout(async () => {
       try {
         setIsKeywordSearching(true)
-        const refLat = location?.latitude ?? 22.7196
-        const refLng = location?.longitude ?? 75.8577
+        const hasRef =
+          Number.isFinite(Number(location?.latitude)) &&
+          Number.isFinite(Number(location?.longitude))
+
+        // 1) Backend Places autocomplete (coordinates resolved on selection)
+        try {
+          const res = await locationAPI.autocomplete(q, hasRef
+            ? { latitude: location.latitude, longitude: location.longitude }
+            : {})
+          const suggestions = res?.data?.data?.suggestions || []
+          if (suggestions.length > 0) {
+            setKeywordAddressSuggestions(
+              suggestions.slice(0, 4).map((p) => ({
+                id: p.placeId,
+                placeId: p.placeId,
+                display: p.description || p.mainText || "",
+                lat: null,
+                lng: null,
+                address: { city: p.secondaryText || "" },
+              }))
+            )
+            return
+          }
+        } catch {
+          // backend unavailable — fall through to Nominatim
+        }
+
+        // 2) Nominatim fallback
         const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=10&q=${encodeURIComponent(q)}`
         const res = await fetch(url, { headers: { Accept: "application/json" } })
         const json = await res.json()
@@ -225,13 +252,14 @@ export default function AddressSelectorPage() {
           lat: Number(r.lat),
           lng: Number(r.lon),
           address: r.address || {},
-        }))
-        const withDistance = mapped
-          .filter(x => Number.isFinite(x.lat) && Number.isFinite(x.lng))
-          .map(x => ({ ...x, distanceMeters: calculateDistance(refLat, refLng, x.lat, x.lng) }))
-          .sort((a, b) => (a.distanceMeters ?? Infinity) - (b.distanceMeters ?? Infinity))
-          .slice(0, 4)
-        setKeywordAddressSuggestions(withDistance)
+        })).filter(x => Number.isFinite(x.lat) && Number.isFinite(x.lng))
+        // Sort by distance only when we have a real reference point — never a hardcoded one.
+        const sorted = hasRef
+          ? mapped
+            .map(x => ({ ...x, distanceMeters: calculateDistance(location.latitude, location.longitude, x.lat, x.lng) }))
+            .sort((a, b) => (a.distanceMeters ?? Infinity) - (b.distanceMeters ?? Infinity))
+          : mapped
+        setKeywordAddressSuggestions(sorted.slice(0, 4))
       } catch (e) {
         setKeywordAddressSuggestions([])
       } finally {
@@ -575,12 +603,37 @@ export default function AddressSelectorPage() {
                     {keywordAddressSuggestions.map((s) => (
                       <button
                         key={s.id}
-                        onClick={() => {
-                          const { lat, lng, display, address: a } = s
-                          setMapPosition([lat, lng])
-                          if (googleMapRef.current) {
-                            googleMapRef.current.panTo({ lat, lng })
-                            googleMapRef.current.setZoom(17)
+                        onClick={async () => {
+                          let { lat, lng, display, address: a } = s
+
+                          // Places suggestions carry a placeId instead of
+                          // coordinates — resolve via the backend (canonical
+                          // address with lat/lng + structured components).
+                          if ((!Number.isFinite(lat) || !Number.isFinite(lng)) && s.placeId) {
+                            try {
+                              const res = await locationAPI.placeDetails(s.placeId)
+                              const detail = res?.data?.data?.address
+                              if (detail?.latitude && detail?.longitude) {
+                                lat = detail.latitude
+                                lng = detail.longitude
+                                display = detail.formattedAddress || display
+                                a = {
+                                  city: detail.city,
+                                  state: detail.state,
+                                  postcode: detail.pincode,
+                                }
+                              }
+                            } catch {
+                              /* details unavailable — keep text-only fill below */
+                            }
+                          }
+
+                          if (Number.isFinite(lat) && Number.isFinite(lng)) {
+                            setMapPosition([lat, lng])
+                            if (googleMapRef.current) {
+                              googleMapRef.current.panTo({ lat, lng })
+                              googleMapRef.current.setZoom(17)
+                            }
                           }
                           setAddressAutocompleteValue(display)
                           const city = a.city || a.town || a.village || a.county || ""

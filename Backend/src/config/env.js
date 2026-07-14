@@ -74,6 +74,9 @@ export const config = {
     firebaseWebVapidKey: process.env.VITE_FIREBASE_VAPID_KEY || process.env.FIREBASE_VAPID_KEY,
     firebaseVapidPrivateKey: process.env.FIREBASE_VAPID_PRIVATE_KEY,
 
+    // Google Maps (server-side key: Geocoding, Places, Routes, Directions)
+    googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAP_API_KEY,
+
     // Socket.io
     socketCorsOrigin: process.env.SOCKET_CORS_ORIGIN || '*',
 
