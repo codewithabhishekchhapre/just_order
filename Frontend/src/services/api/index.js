@@ -2623,6 +2623,14 @@ export const orderAPI = {
     apiClient.post("/food/orders/verify-payment", body ?? {}, {
       contextModule: "user",
     }),
+  retryPayment: (orderId) =>
+    apiClient.post(`/food/orders/${String(orderId)}/retry-payment`, {}, {
+      contextModule: "user",
+    }),
+  markPaymentFailed: (orderId, body = {}) =>
+    apiClient.patch(`/food/orders/${String(orderId)}/payment-failed`, body ?? {}, {
+      contextModule: "user",
+    }),
   getOrders: (params = {}) =>
     apiClient
       .get("/food/orders", {

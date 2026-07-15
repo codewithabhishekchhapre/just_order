@@ -316,30 +316,32 @@ export default function MixedSharedCart({ initialAddress = null, addressMode = "
           }
         },
         onClose: async () => {
-          try {
-            const cancelId = order?._id || order?.id || order?.orderId;
-            if (cancelId) {
-              await orderAPI.cancelOrder(cancelId, {
-                reason: "Payment Cancelled",
-                note: "User closed payment modal in Mixed Cart",
-              });
-            }
-          } catch (err) {
-            console.error("Failed to cancel mixed order after close", err);
+          // Keep unpaid order for Retry Payment — do not auto-cancel.
+          const trackingId = order?._id || order?.id || order?.orderId;
+          if (trackingId) {
+            clearCart();
+            toast.message("Payment not completed. You can retry from this order.");
+            navigate(`/food/user/orders/${trackingId}`, {
+              state: { prefetchedOrder: order, awaitPayment: true },
+            });
           }
           setIsPlacingOrder(false);
         },
         onError: async (error) => {
-          try {
-            const cancelId = order?._id || order?.id || order?.orderId;
-            if (cancelId) {
-              await orderAPI.cancelOrder(cancelId, {
-                reason: "Payment Failed",
+          const trackingId = order?._id || order?.id || order?.orderId;
+          if (trackingId) {
+            try {
+              await orderAPI.markPaymentFailed(trackingId, {
                 note: error?.message || "Payment failed in Mixed Cart",
               });
+            } catch (err) {
+              console.error("Failed to mark mixed order payment failed", err);
             }
-          } catch (err) {
-            console.error("Failed to cancel mixed order after error", err);
+            clearCart();
+            toast.error(error?.message || "Payment failed. You can retry from the order page.");
+            navigate(`/food/user/orders/${trackingId}`, {
+              state: { prefetchedOrder: order, awaitPayment: true },
+            });
           }
           setIsPlacingOrder(false);
         },

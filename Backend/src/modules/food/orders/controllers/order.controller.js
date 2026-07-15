@@ -1,4 +1,5 @@
 import { sendResponse } from '../../../../utils/response.js';
+import { ValidationError } from '../../../../core/auth/errors.js';
 import * as orderService from '../services/order.service.js';
 import * as foodOrderPaymentService from '../services/foodOrderPayment.service.js';
 import {
@@ -40,6 +41,31 @@ export async function verifyPaymentController(req, res, next) {
         const dto = validateVerifyPaymentDto(req.body);
         const result = await orderService.verifyPayment(userId, dto);
         return sendResponse(res, 200, 'Payment verified', result);
+    } catch (err) {
+        next(err);
+    }
+}
+
+export async function retryOnlinePaymentController(req, res, next) {
+    try {
+        const userId = req.user?.userId;
+        const orderId = String(req.params.orderId || '').trim();
+        if (!orderId) throw new ValidationError('Order id required');
+        const result = await orderService.retryOnlinePayment(userId, orderId);
+        return sendResponse(res, 200, 'Payment retry ready', result);
+    } catch (err) {
+        next(err);
+    }
+}
+
+export async function markOnlinePaymentFailedController(req, res, next) {
+    try {
+        const userId = req.user?.userId;
+        const orderId = String(req.params.orderId || '').trim();
+        if (!orderId) throw new ValidationError('Order id required');
+        const note = String(req.body?.note || req.body?.reason || '').trim();
+        const result = await orderService.markOnlinePaymentFailed(userId, orderId, note);
+        return sendResponse(res, 200, 'Payment marked as failed', result);
     } catch (err) {
         next(err);
     }

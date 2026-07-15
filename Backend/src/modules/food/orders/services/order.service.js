@@ -52,6 +52,10 @@ import { getFirebaseDB } from '../../../../config/firebase.js';
 import * as foodTransactionService from './foodTransaction.service.js';
 import { ensureDailyPassEligibility } from "../../subscriptions/services/wallet.service.js";
 import {
+  deductWalletBalance,
+  refundWalletBalance,
+} from "../../user/services/userWallet.service.js";
+import {
   tryAutoAssign,
   processDispatchTimeout,
   listNearbyOnlineDeliveryPartners,
@@ -2782,7 +2786,48 @@ export async function createOrder(userId, dto) {
     }
   }
 
-  await order.save();
+  // Wallet: deduct before the order is persisted as paid. On insufficient balance or
+  // debit failure, throw and never create the order. If save fails after debit, refund.
+  let walletDeducted = false;
+  const walletChargeAmount = Math.max(0, Number(normalizedPricing.total || 0));
+  if (isWallet && walletChargeAmount > 0) {
+    try {
+      await deductWalletBalance(
+        userId,
+        walletChargeAmount,
+        `Food order ${orderId}`,
+        { orderId, source: "order_payment" },
+      );
+      walletDeducted = true;
+    } catch (err) {
+      if (err instanceof ValidationError) throw err;
+      throw new ValidationError(err?.message || "Wallet payment failed");
+    }
+  }
+
+  try {
+    await order.save();
+  } catch (err) {
+    if (walletDeducted) {
+      try {
+        await refundWalletBalance(
+          userId,
+          walletChargeAmount,
+          `Food order ${orderId} placement rollback`,
+          {
+            orderId,
+            refundTransactionId: `wallet_order_rollback_${orderId}`,
+            source: "order_placement_rollback",
+          },
+        );
+      } catch (refundErr) {
+        logger.error(
+          `Wallet rollback failed after order save error for ${orderId}: ${refundErr?.message || refundErr}`,
+        );
+      }
+    }
+    throw err;
+  }
 
   await foodTransactionService.createInitialTransaction(order);
   const sellerOrders = hasQuickItems
@@ -2794,6 +2839,83 @@ export async function createOrder(userId, dto) {
 
   if (paymentMethod === "razorpay" && order.payment?.razorpay?.orderId) {
     // Audit can still happen here or via FinanceService events
+  }
+
+  // COD/wallet: consume coupon BEFORE restaurant notify / cart clear.
+  // If consume fails, roll back the order so it never completes at the discounted total.
+  const requiresImmediateCouponConsume =
+    (orderType === "food" || orderType === "mixed") &&
+    (isCash || isWallet) &&
+    (Number(order.pricing?.couponDiscount || order.pricing?.discount || 0) > 0 ||
+      order.pricing?.couponFreeDelivery);
+
+  if (requiresImmediateCouponConsume) {
+    let consumeResult;
+    try {
+      consumeResult = await consumeCouponForOrder(order);
+    } catch (err) {
+      logger.warn(
+        `Coupon consume threw for order ${order.orderId}: ${err?.message || err}`,
+      );
+      consumeResult = { consumed: false, reason: "CONSUME_ERROR" };
+    }
+
+    if (!consumeResult?.consumed) {
+      try {
+        // Safe even when consume never claimed — no-ops unless couponConsumed was set.
+        await releaseCouponForOrder(order);
+      } catch (releaseErr) {
+        logger.warn(
+          `Coupon release during consume-failure rollback for ${order.orderId}: ${releaseErr?.message || releaseErr}`,
+        );
+      }
+
+      try {
+        if (hasQuickItems) {
+          await cancelSellerOrdersForParent(
+            order,
+            "Coupon could not be applied",
+          );
+        }
+        await Promise.all([
+          FoodTransaction.deleteOne({
+            $or: [
+              { orderId: order._id },
+              { orderReadableId: String(order.orderId) },
+            ],
+          }),
+          FoodOrder.deleteOne({ _id: order._id }),
+        ]);
+      } catch (rollbackErr) {
+        logger.error(
+          `Coupon-failure order rollback failed for ${order.orderId}: ${rollbackErr?.message || rollbackErr}`,
+        );
+      }
+
+      if (walletDeducted && walletChargeAmount > 0) {
+        try {
+          await refundWalletBalance(
+            userId,
+            walletChargeAmount,
+            `Food order ${orderId} coupon unavailable rollback`,
+            {
+              orderId,
+              refundTransactionId: `wallet_coupon_fail_rollback_${orderId}`,
+              source: "coupon_consume_failure_rollback",
+            },
+          );
+        } catch (refundErr) {
+          logger.error(
+            `Wallet refund after coupon failure failed for ${orderId}: ${refundErr?.message || refundErr}`,
+          );
+        }
+      }
+
+      throw new ValidationError(
+        "This coupon is no longer available. Please remove it or choose another coupon and try again.",
+        "COUPON_UNAVAILABLE",
+      );
+    }
   }
 
   // Realtime + push notifications.
@@ -2857,24 +2979,15 @@ export async function createOrder(userId, dto) {
   } catch {
     // Don't block order placement on socket failures.
   }
-  // Consume coupon only after successful COD/wallet placement (online unpaid waits for verifyPayment).
-  if (
-    (orderType === "food" || orderType === "mixed") &&
-    (isCash || isWallet) &&
-    (Number(order.pricing?.couponDiscount || order.pricing?.discount || 0) > 0 ||
-      order.pricing?.couponFreeDelivery)
-  ) {
-    try {
-      await consumeCouponForOrder(order);
-    } catch (err) {
-      logger.warn(`Coupon consume failed for order ${order.orderId}: ${err?.message || err}`);
-    }
-  }
 
-  // Clear DB food cart after successful COD/wallet/QR placement (online waits for verifyPayment).
+  // Clear DB food cart once the order exists (incl. unpaid Razorpay).
+  // Source of truth becomes the order — retry payment reuses it; TTL cleans abandoned unpaid orders.
   if (
     hasFoodItems &&
-    (isCash || isWallet || String(dto.paymentMethod || "") === "razorpay_qr")
+    (isCash ||
+      isWallet ||
+      paymentMethod === "razorpay" ||
+      String(dto.paymentMethod || "") === "razorpay_qr")
   ) {
     try {
       await clearFoodCart(userId);
@@ -2901,6 +3014,159 @@ export async function createOrder(userId, dto) {
   return { order: saved, razorpay: razorpayPayload };
 }
 
+const UNPAID_ONLINE_PAYMENT_STATUSES = new Set(["created", "failed"]);
+const CANCELLED_ORDER_STATUSES_FOR_RETRY = new Set([
+  "cancelled_by_user",
+  "cancelled_by_admin",
+  "cancelled_by_restaurant",
+  "cancelled",
+  "failed",
+  "payment_failed",
+]);
+
+/**
+ * Soft-mark unpaid online payment as failed (order stays alive for Retry Payment).
+ */
+export async function markOnlinePaymentFailed(userId, orderId, note = "") {
+  const identity = buildOrderIdentityFilter(orderId);
+  if (!identity) throw new ValidationError("Order id required");
+
+  const order = await FoodOrder.findOne({
+    ...identity,
+    userId: new mongoose.Types.ObjectId(userId),
+  });
+  if (!order) throw new NotFoundError("Order not found");
+
+  const method = String(order.payment?.method || "").toLowerCase();
+  if (method !== "razorpay") {
+    throw new ValidationError("Only unpaid Razorpay orders can be marked payment-failed");
+  }
+  if (String(order.payment?.status || "").toLowerCase() === "paid") {
+    throw new ValidationError("Order is already paid");
+  }
+  if (CANCELLED_ORDER_STATUSES_FOR_RETRY.has(String(order.orderStatus || "").toLowerCase())) {
+    throw new ValidationError("Order is cancelled");
+  }
+
+  if (String(order.payment?.status || "").toLowerCase() !== "failed") {
+    order.payment.status = "failed";
+    pushStatusHistory(order, {
+      byRole: "USER",
+      byId: userId,
+      from: order.orderStatus,
+      to: order.orderStatus,
+      note: note || "Online payment attempt failed — awaiting retry",
+    });
+    await order.save();
+  }
+
+  return { order: order.toObject(), payment: order.payment };
+}
+
+/**
+ * Reissue a Razorpay order for an existing unpaid online order (Retry Payment).
+ * Does not recalculate pricing, coupons, fees, or create a new FoodOrder.
+ */
+export async function retryOnlinePayment(userId, orderId) {
+  const identity = buildOrderIdentityFilter(orderId);
+  if (!identity) throw new ValidationError("Order id required");
+  if (!isRazorpayConfigured()) {
+    throw new ValidationError("Payment gateway is not configured");
+  }
+
+  const order = await FoodOrder.findOne({
+    ...identity,
+    userId: new mongoose.Types.ObjectId(userId),
+  });
+  if (!order) throw new NotFoundError("Order not found");
+
+  const method = String(order.payment?.method || "").toLowerCase();
+  const payStatus = String(order.payment?.status || "").toLowerCase();
+  const orderStatus = String(order.orderStatus || "").toLowerCase();
+
+  if (method !== "razorpay") {
+    throw new ValidationError("Retry payment is only available for Razorpay orders");
+  }
+  if (payStatus === "paid") {
+    throw new ValidationError("Order is already paid");
+  }
+  if (CANCELLED_ORDER_STATUSES_FOR_RETRY.has(orderStatus)) {
+    throw new ValidationError("Cancelled orders cannot retry payment");
+  }
+  if (!UNPAID_ONLINE_PAYMENT_STATUSES.has(payStatus) && payStatus !== "cancelled") {
+    // Allow cancelled payment status on a still-active orderStatus=created (legacy)
+    if (!(orderStatus === "created" || orderStatus === "placed" || orderStatus === "scheduled")) {
+      throw new ValidationError("Order is not awaiting payment");
+    }
+  }
+  if (!(orderStatus === "created" || orderStatus === "placed" || orderStatus === "scheduled")) {
+    throw new ValidationError("Order is not awaiting payment");
+  }
+
+  const amountPaise = Math.round((Number(order.pricing?.total) || 0) * 100);
+  if (amountPaise < 100) {
+    throw new ValidationError("Amount too low for online payment");
+  }
+
+  // Atomic claim: only one concurrent retry can mint a new Razorpay order.
+  const claim = await FoodOrder.findOneAndUpdate(
+    {
+      _id: order._id,
+      userId: new mongoose.Types.ObjectId(userId),
+      "payment.method": "razorpay",
+      "payment.status": { $nin: ["paid", "refunded"] },
+      orderStatus: { $nin: [...CANCELLED_ORDER_STATUSES_FOR_RETRY] },
+      $or: [
+        { "payment.retryInProgress": { $ne: true } },
+        { "payment.retryInProgress": { $exists: false } },
+      ],
+    },
+    { $set: { "payment.retryInProgress": true } },
+    { new: true },
+  );
+
+  if (!claim) {
+    throw new ValidationError(
+      "A payment attempt is already in progress for this order. Please wait a moment and try again.",
+      "PAYMENT_RETRY_IN_PROGRESS",
+    );
+  }
+
+  try {
+    const rzOrder = await createRazorpayOrder(
+      amountPaise,
+      order.pricing?.currency || "INR",
+      order.orderId,
+    );
+
+    claim.payment.razorpay = {
+      orderId: rzOrder.id,
+      paymentId: "",
+      signature: "",
+    };
+    claim.payment.status = "created";
+    claim.payment.amountDue = Number(order.pricing?.total) || 0;
+    claim.payment.retryInProgress = false;
+    await claim.save();
+
+    return {
+      order: claim.toObject(),
+      razorpay: {
+        key: getRazorpayKeyId(),
+        orderId: rzOrder.id,
+        amount: rzOrder.amount,
+        currency: rzOrder.currency || "INR",
+      },
+    };
+  } catch (err) {
+    await FoodOrder.updateOne(
+      { _id: order._id },
+      { $set: { "payment.retryInProgress": false } },
+    );
+    throw new ValidationError(err?.message || "Payment gateway error");
+  }
+}
+
 // ----- Verify payment -----
 export async function verifyPayment(userId, dto) {
   const identity = buildOrderIdentityFilter(dto.orderId);
@@ -2921,9 +3187,25 @@ export async function verifyPayment(userId, dto) {
   );
   if (!valid) throw new ValidationError("Payment verification failed");
 
+  const orderStatusForVerify = String(order.orderStatus || "").toLowerCase();
+  if (
+    [
+      "cancelled_by_user",
+      "cancelled_by_admin",
+      "cancelled_by_restaurant",
+      "cancelled",
+    ].includes(orderStatusForVerify)
+  ) {
+    throw new ValidationError("Cannot verify payment for a cancelled order");
+  }
+
   order.payment.status = "paid";
   order.payment.razorpay.paymentId = dto.razorpayPaymentId;
   order.payment.razorpay.signature = dto.razorpaySignature;
+  if (dto.razorpayOrderId) {
+    order.payment.razorpay.orderId = dto.razorpayOrderId;
+  }
+  order.payment.retryInProgress = false;
   pushStatusHistory(order, {
     byRole: "USER",
     byId: userId,
@@ -3128,6 +3410,18 @@ export async function cancelOrder(orderId, userId, reason, refundTo) {
   if (!order) throw new NotFoundError("Order not found");
 
   const orderStatus = String(order.orderStatus || "").trim().toLowerCase();
+  // Idempotent: explicit cancel on an already-cancelled order is a no-op success.
+  if (
+    [
+      "cancelled_by_user",
+      "cancelled_by_admin",
+      "cancelled_by_restaurant",
+      "cancelled",
+    ].includes(orderStatus)
+  ) {
+    return order.toObject();
+  }
+
   const alwaysCancelableStatuses = ["created", "placed"];
   const cancelWindowStatuses = ["confirmed", "preparing", "ready_for_pickup", "picked_up"];
   const dispatchStatus = String(order.dispatch?.status || "").trim().toLowerCase();

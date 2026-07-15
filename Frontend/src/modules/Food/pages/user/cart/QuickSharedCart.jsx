@@ -267,30 +267,32 @@ export default function QuickSharedCart({ initialAddress = null, addressMode = "
           throw new Error("Payment verification failed");
         },
         onClose: async () => {
-          try {
-            const cancelId = order?._id || order?.id || order?.orderId;
-            if (cancelId) {
-              await orderAPI.cancelOrder(cancelId, {
-                reason: "Payment Cancelled",
-                note: "User closed payment modal in Quick Cart",
-              });
-            }
-          } catch (err) {
-            console.error("Failed to cancel quick order after close", err);
+          // Keep unpaid order for Retry Payment — do not auto-cancel.
+          const trackingId = order?._id || order?.id || order?.orderId;
+          if (trackingId) {
+            clearCart();
+            toast.message("Payment not completed. You can retry from this order.");
+            navigate(`/food/user/orders/${trackingId}`, {
+              state: { prefetchedOrder: order, awaitPayment: true },
+            });
           }
           setIsPlacingOrder(false);
         },
         onError: async (error) => {
-          try {
-            const cancelId = order?._id || order?.id || order?.orderId;
-            if (cancelId) {
-              await orderAPI.cancelOrder(cancelId, {
-                reason: "Payment Failed",
+          const trackingId = order?._id || order?.id || order?.orderId;
+          if (trackingId) {
+            try {
+              await orderAPI.markPaymentFailed(trackingId, {
                 note: error?.message || "Payment failed in Quick Cart",
               });
+            } catch (err) {
+              console.error("Failed to mark quick order payment failed", err);
             }
-          } catch (err) {
-            console.error("Failed to cancel quick order after error", err);
+            clearCart();
+            toast.error(error?.message || "Payment failed. You can retry from the order page.");
+            navigate(`/food/user/orders/${trackingId}`, {
+              state: { prefetchedOrder: order, awaitPayment: true },
+            });
           }
           setIsPlacingOrder(false);
         },

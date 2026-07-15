@@ -170,24 +170,72 @@ export const deductWalletBalance = async (userId, amountInr, description = 'Orde
         throw new ValidationError('Invalid deduction amount');
     }
 
-    const wallet = await ensureWallet(userId);
-    if (wallet.balance < amount) {
-        throw new ValidationError('Insufficient wallet balance');
+    const id = String(userId || '');
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+        throw new ValidationError('User not found');
     }
+    const oid = new mongoose.Types.ObjectId(id);
+    await ensureWallet(userId);
 
-    wallet.transactions.unshift({
+    const orderId = String(metadata?.orderId || '').trim();
+    const txn = {
         type: 'deduction',
         amount,
         status: 'Completed',
         description,
-        metadata: { source: 'order_payment', ...(metadata || {}) }
-    });
+        metadata: { source: 'order_payment', ...(metadata || {}) },
+        createdAt: new Date(),
+        updatedAt: new Date(),
+    };
 
-    wallet.balance = Number(wallet.balance) - amount;
-    await wallet.save();
-    await syncUserWalletBalance(userId, wallet.balance);
+    const debitFilter = {
+        userId: oid,
+        balance: { $gte: amount },
+    };
+    // Prevent concurrent double-debit for the same orderId.
+    if (orderId) {
+        debitFilter.transactions = {
+            $not: {
+                $elemMatch: {
+                    type: 'deduction',
+                    'metadata.orderId': orderId,
+                },
+            },
+        };
+    }
 
-    return { wallet: await getUserWallet(userId) };
+    const updated = await FoodUserWallet.findOneAndUpdate(
+        debitFilter,
+        {
+            $inc: { balance: -amount },
+            $push: { transactions: { $each: [txn], $position: 0 } },
+        },
+        { new: true }
+    );
+
+    if (updated) {
+        await syncUserWalletBalance(userId, updated.balance);
+        return { wallet: await getUserWallet(userId), alreadyProcessed: false };
+    }
+
+    if (orderId) {
+        const alreadyDeducted = await FoodUserWallet.findOne({
+            userId: oid,
+            transactions: {
+                $elemMatch: {
+                    type: 'deduction',
+                    'metadata.orderId': orderId,
+                },
+            },
+        })
+            .select('_id')
+            .lean();
+        if (alreadyDeducted) {
+            return { wallet: await getUserWallet(userId), alreadyProcessed: true };
+        }
+    }
+
+    throw new ValidationError('Insufficient wallet balance');
 };
 
 export const refundWalletBalance = async (userId, amountInr, description = 'Order refund', metadata = {}) => {

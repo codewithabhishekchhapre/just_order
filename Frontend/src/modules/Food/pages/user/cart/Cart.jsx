@@ -1948,14 +1948,26 @@ export default function Cart() {
           }
         } catch (payErr) {
           const msg = payErr?.message || 'Payment failed or cancelled'
-          if (!/cancel/i.test(msg)) {
-            // Cancel order in backend if payment failed (not just cancelled)
+          const trackingId = order?._id || order?.id || order?.orderMongoId || order?.orderId
+          const isUserCancel = /cancel/i.test(msg)
+          if (!isUserCancel && trackingId) {
             try {
-              const cancelId = order?._id || order?.id || order?.orderMongoId
-              if (cancelId) {
-                await orderAPI.cancelOrder(cancelId, { reason: 'Payment Failed', note: msg })
-              }
-            } catch { /* ignore cancel error */ }
+              await orderAPI.markPaymentFailed(trackingId, { note: msg })
+            } catch {
+              // non-blocking — order stays unpaid for retry either way
+            }
+          }
+          if (trackingId) {
+            clearCart()
+            toast.message(
+              isUserCancel
+                ? "Payment not completed. You can retry from My Orders."
+                : "Payment failed. You can retry from the order page.",
+            )
+            navigate(`/food/user/orders/${trackingId}`, {
+              state: { prefetchedOrder: order, awaitPayment: true },
+            })
+          } else if (!isUserCancel) {
             alert(msg)
           }
         } finally {
@@ -2029,39 +2041,42 @@ export default function Cart() {
           },
           onError: async (error) => {
             debugError("? Razorpay payment error:", error)
-            // Clean up the pending order in backend if payment failed
-            try {
-              const cancelId = order?._id || order?.id || order?.orderMongoId
-              if (cancelId) {
-                await orderAPI.cancelOrder(cancelId, {
-                  reason: "Payment Failed",
-                  note: error?.description || error?.message || "Online payment failed"
+            const trackingId = order?._id || order?.id || order?.orderMongoId || order?.orderId
+            const isUserCancel =
+              error?.code === "PAYMENT_CANCELLED" || error?.message === "PAYMENT_CANCELLED"
+            // Keep unpaid order alive for Retry Payment — never auto-cancel.
+            if (!isUserCancel && trackingId) {
+              try {
+                await orderAPI.markPaymentFailed(trackingId, {
+                  note: error?.description || error?.message || "Online payment failed",
                 })
+              } catch (markErr) {
+                debugError("? Failed to mark payment failed:", markErr)
               }
-            } catch (cancelErr) {
-              debugError("? Failed to auto-cancel order after payment error:", cancelErr)
+              if (error?.code !== "PAYMENT_CANCELLED" && error?.message !== "PAYMENT_CANCELLED") {
+                const errorMessage =
+                  error?.description || error?.message || "Payment failed. Please try again."
+                toast.error(errorMessage)
+              }
             }
-
-            // Don't show alert for user cancellation
-            if (error?.code !== 'PAYMENT_CANCELLED' && error?.message !== 'PAYMENT_CANCELLED') {
-              const errorMessage = error?.description || error?.message || "Payment failed. Please try again."
-              alert(errorMessage)
+            if (trackingId) {
+              clearCart()
+              navigate(`/food/user/orders/${trackingId}`, {
+                state: { prefetchedOrder: order, awaitPayment: true },
+              })
             }
             setIsPlacingOrder(false)
           },
           onClose: async () => {
             debugLog("?? Payment modal closed by user")
-            // Clean up the pending order in backend if user closed the modal without paying
-            try {
-              const cancelId = order?._id || order?.id || order?.orderMongoId
-              if (cancelId) {
-                await orderAPI.cancelOrder(cancelId, {
-                  reason: "Payment Cancelled",
-                  note: "User closed payment modal"
-                })
-              }
-            } catch (cancelErr) {
-              debugError("? Failed to auto-cancel order after modal close:", cancelErr)
+            // Do NOT cancel the unpaid order — user can Retry Payment from order page.
+            const trackingId = order?._id || order?.id || order?.orderMongoId || order?.orderId
+            if (trackingId) {
+              clearCart()
+              toast.message("Payment not completed. You can retry from this order.")
+              navigate(`/food/user/orders/${trackingId}`, {
+                state: { prefetchedOrder: order, awaitPayment: true },
+              })
             }
             setIsPlacingOrder(false)
           }

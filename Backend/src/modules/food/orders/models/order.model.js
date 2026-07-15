@@ -164,6 +164,8 @@ const paymentSchema = new mongoose.Schema(
             paymentId: { type: String },
             signature: { type: String }
         },
+        /** Short-lived lock while minting a Razorpay retry order (prevents duplicate payment attempts). */
+        retryInProgress: { type: Boolean, default: false },
         qr: {
             qrId: { type: String },
             imageUrl: { type: String },

@@ -371,6 +371,9 @@ async function incrementRestaurantCouponUsage({ couponId, usageLimit }) {
 
 /**
  * Atomically consume coupon for a paid/COD-confirmed order. Idempotent via couponConsumed.
+ * Claims the order flag first, then increments usage — so a failed limit check never
+ * leaves a completed discounted order without a durable consume, and concurrent claims
+ * cannot double-increment for the same order.
  */
 export async function consumeCouponForOrder(orderDoc) {
   if (!orderDoc) return { consumed: false };
@@ -402,35 +405,26 @@ export async function consumeCouponForOrder(orderDoc) {
     }
   }
 
-  if (offer) {
-    const result = await incrementAdminOfferUsage({
-      offerId: offer._id,
-      userId: orderDoc.userId,
-      usageLimit: offer.usageLimit,
-      perUserLimit: offer.perUserLimit,
-    });
-    if (!result.ok) return { consumed: false, reason: result.reason };
-  } else if (restCoupon) {
-    if (orderDoc.userId && Number(restCoupon.perUserLimit) > 0) {
-      const used = await countRestaurantCouponUsesByUser({
-        userId: orderDoc.userId,
-        couponCode: code,
-        restaurantMongoId: restCoupon.restaurantId,
-      });
-      if (used >= Number(restCoupon.perUserLimit)) {
-        return { consumed: false, reason: 'PER_USER_LIMIT' };
-      }
-    }
-    const result = await incrementRestaurantCouponUsage({
-      couponId: restCoupon._id,
-      usageLimit: restCoupon.usageLimit,
-    });
-    if (!result.ok) return { consumed: false, reason: 'GLOBAL_LIMIT' };
-  } else {
+  if (!offer && !restCoupon) {
     return { consumed: false, reason: 'NOT_FOUND' };
   }
 
-  await FoodOrder.updateOne(
+  if (restCoupon && orderDoc.userId && Number(restCoupon.perUserLimit) > 0) {
+    const used = await countRestaurantCouponUsesByUser({
+      userId: orderDoc.userId,
+      couponCode: code,
+      restaurantMongoId: restCoupon.restaurantId,
+    });
+    if (used >= Number(restCoupon.perUserLimit)) {
+      return { consumed: false, reason: 'PER_USER_LIMIT' };
+    }
+  }
+
+  const couponSource = offer ? 'admin' : 'restaurant';
+  const couponRefId = String((offer || restCoupon)._id);
+
+  // Claim this order first so only one consumer can proceed.
+  const claim = await FoodOrder.updateOne(
     { _id: orderDoc._id, 'pricing.couponConsumed': { $ne: true } },
     {
       $set: {
@@ -438,14 +432,61 @@ export async function consumeCouponForOrder(orderDoc) {
         'pricing.couponCode': code,
         'pricing.couponDiscount': couponDiscount,
         'pricing.couponFreeDelivery': freeDelivery,
-        'pricing.couponSource': offer ? 'admin' : 'restaurant',
-        'pricing.couponRefId': String((offer || restCoupon)._id),
+        'pricing.couponSource': couponSource,
+        'pricing.couponRefId': couponRefId,
       },
     },
   );
 
+  if (!claim.matchedCount) {
+    const current = await FoodOrder.findById(orderDoc._id)
+      .select('pricing.couponConsumed')
+      .lean();
+    if (current?.pricing?.couponConsumed === true) {
+      if (orderDoc.pricing) orderDoc.pricing.couponConsumed = true;
+      return { consumed: true, already: true };
+    }
+    return { consumed: false, reason: 'CLAIM_FAILED' };
+  }
+
+  let usageOk = true;
+  let failReason = 'GLOBAL_LIMIT';
+
+  if (offer) {
+    const result = await incrementAdminOfferUsage({
+      offerId: offer._id,
+      userId: orderDoc.userId,
+      usageLimit: offer.usageLimit,
+      perUserLimit: offer.perUserLimit,
+    });
+    usageOk = Boolean(result.ok);
+    failReason = result.reason || failReason;
+  } else {
+    const result = await incrementRestaurantCouponUsage({
+      couponId: restCoupon._id,
+      usageLimit: restCoupon.usageLimit,
+    });
+    usageOk = Boolean(result.ok);
+    failReason = result.reason || failReason;
+  }
+
+  if (!usageOk) {
+    // Release claim — coupon must not stay marked consumed without usage.
+    await FoodOrder.updateOne(
+      { _id: orderDoc._id, 'pricing.couponConsumed': true },
+      { $set: { 'pricing.couponConsumed': false } },
+    );
+    if (orderDoc.pricing) orderDoc.pricing.couponConsumed = false;
+    return { consumed: false, reason: failReason };
+  }
+
   if (orderDoc.pricing) {
     orderDoc.pricing.couponConsumed = true;
+    orderDoc.pricing.couponCode = code;
+    orderDoc.pricing.couponDiscount = couponDiscount;
+    orderDoc.pricing.couponFreeDelivery = freeDelivery;
+    orderDoc.pricing.couponSource = couponSource;
+    orderDoc.pricing.couponRefId = couponRefId;
   }
   return { consumed: true };
 }

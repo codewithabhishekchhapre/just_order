@@ -741,6 +741,10 @@ Order again from this restaurant in the ${companyName} app.`
             const paymentFailed = !isCodOrWallet &&
               !isCancelled &&
               (order.payment?.status === 'failed')
+            const paymentPending = !isCodOrWallet &&
+              !isCancelled &&
+              (order.payment?.status === 'created' || order.payment?.status === 'pending')
+            const needsPayment = paymentFailed || paymentPending
 
             const isDelivered = order.status === 'delivered'
             const isRestaurantCancelled = order.isRestaurantCancelled || order.status === 'restaurant_cancelled'
@@ -1006,12 +1010,21 @@ Order again from this restaurant in the ${companyName} app.`
                       </div>
                       <p className="text-xs text-gray-600 dark:text-gray-300 ml-7">Refund will be processed in 24-48 hours</p>
                     </div>
-                  ) : paymentFailed ? (
+                  ) : needsPayment ? (
                     <div className="flex items-center gap-2">
-                      <div className="bg-red-100 p-1 rounded-full">
-                        <AlertCircle className="w-4 h-4 text-red-500" />
+                      <div className="bg-amber-100 p-1 rounded-full">
+                        <AlertCircle className="w-4 h-4 text-amber-600" />
                       </div>
-                      <span className="text-xs font-semibold text-red-500">Payment failed</span>
+                      <span className="text-xs font-semibold text-amber-700">
+                        {paymentFailed ? "Payment failed" : "Payment pending"}
+                      </span>
+                      <Link
+                        to={`/food/user/orders/${order.id}`}
+                        state={{ awaitPayment: true }}
+                        className="ml-1 text-xs font-bold text-[#FF6A00] hover:text-[#C83C00]"
+                      >
+                        Pay now →
+                      </Link>
                     </div>
                   ) : isDelivered && order.restaurantRating && (!order.deliveryPartnerId || order.deliveryPartnerRating) ? (
                     <div>

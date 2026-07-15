@@ -40,6 +40,8 @@ import { useLocation as useUserLocation } from "@food/hooks/useLocation"
 import DeliveryTrackingMap from "@food/components/user/DeliveryTrackingMap"
 import { orderAPI, restaurantAPI } from "@food/api"
 import { useCompanyName } from "@food/hooks/useCompanyName"
+import { getCompanyNameAsync } from "@common/utils/businessSettings"
+import { initRazorpayPayment, isFlutterWebView, handleFlutterRazorpayPayment } from "@food/utils/razorpay"
 import { useUserNotifications } from "@food/hooks/useUserNotifications"
 import { customerApi } from "../../../../quickCommerce/user/services/customerApi"
 import DeliveryOtpDisplay from "../../../../quickCommerce/user/components/DeliveryOtpDisplay"
@@ -545,6 +547,18 @@ function isQuickOrderOnlinePayment(order, confirmedCheckout = false) {
   return false;
 }
 
+/** Unpaid Razorpay order that should show Retry Payment (not auto-cancelled). */
+function isAwaitingOnlinePayment(order) {
+  if (!order) return false;
+  const method = String(order?.payment?.method || order?.paymentMethod || "").trim().toLowerCase();
+  const payStatus = String(order?.payment?.status || order?.paymentStatus || "").trim().toLowerCase();
+  const orderStatus = String(order?.status || order?.orderStatus || "").trim().toLowerCase();
+  if (method !== "razorpay") return false;
+  if (["paid", "captured", "authorized", "settled", "refunded"].includes(payStatus)) return false;
+  if (orderStatus.includes("cancel") || orderStatus === "delivered") return false;
+  return ["created", "failed", "cancelled", ""].includes(payStatus);
+}
+
 function normalizeQuickOrderForTracking(rawOrder) {
   if (!rawOrder || typeof rawOrder !== "object") return rawOrder;
   const seller = rawOrder.seller || rawOrder.store || rawOrder.storeId || rawOrder.sellerId || {};
@@ -662,7 +676,9 @@ export default function OrderTracking() {
   const [error, setError] = useState(null);
 
   // ── UI state ────────────────────────────────────────────────────────────────
-  const [showConfirmation, setShowConfirmation] = useState(confirmed);
+  const [showConfirmation, setShowConfirmation] = useState(
+    () => confirmed && !Boolean(location.state?.awaitPayment),
+  );
   const [orderStatus, setOrderStatus] = useState(() =>
     prefetchedOrder ? mapOrderToTrackingUiStatus(isQuickOrder ? normalizeQuickOrderForTracking(prefetchedOrder) : prefetchedOrder) : 'placed'
   );
@@ -676,6 +692,8 @@ export default function OrderTracking() {
   const [cancellationReason, setCancellationReason] = useState("");
   const [refundDestination, setRefundDestination] = useState("gateway");
   const [isCancelling, setIsCancelling] = useState(false);
+  const [isRetryingPayment, setIsRetryingPayment] = useState(false);
+  const paymentRetryInFlightRef = useRef(false);
   const [isInstructionsModalOpen, setIsInstructionsModalOpen] = useState(false);
   const [deliveryInstructions, setDeliveryInstructions] = useState("");
   const [activeReturnCount, setActiveReturnCount] = useState(0);
@@ -1311,6 +1329,8 @@ export default function OrderTracking() {
     makeCall(phone || order?.deliveryPartner?.phone || '');
   }, [order?.deliveryPartner?.phone, makeCall]);
 
+  const awaitingOnlinePayment = useMemo(() => isAwaitingOnlinePayment(order), [order]);
+
   const handleCancelOrder = useCallback(() => {
     if (!order) return;
     if (isAdminAccepted && !isEditWindowOpen) { toast.error('Cancellation window ended.'); return; }
@@ -1320,6 +1340,144 @@ export default function OrderTracking() {
     setRefundDestination(canUseWalletRefund ? preferredRefund : "gateway");
     setShowCancelDialog(true);
   }, [order, isAdminAccepted, isEditWindowOpen, canUseWalletRefund]);
+
+  const handleRetryPayment = useCallback(async () => {
+    if (!order || paymentRetryInFlightRef.current) return;
+    if (!isAwaitingOnlinePayment(order)) {
+      toast.error("This order is not awaiting payment");
+      return;
+    }
+
+    const trackingId =
+      lookupIdsRef.current[0] ||
+      order?.mongoId ||
+      order?._id ||
+      order?.id ||
+      orderId;
+    if (!trackingId) {
+      toast.error("Order id missing");
+      return;
+    }
+
+    paymentRetryInFlightRef.current = true;
+    setIsRetryingPayment(true);
+    try {
+      const retryRes = await orderAPI.retryPayment(trackingId);
+      const payload = retryRes?.data?.data || {};
+      const razorpay = payload.razorpay;
+      const refreshedOrder = payload.order || order;
+      if (!razorpay?.orderId || !razorpay?.key) {
+        throw new Error("Payment gateway is not ready");
+      }
+
+      setOrder((prev) =>
+        refreshedOrder
+          ? transformOrderForTracking(
+              isQuickOrder
+                ? normalizeQuickOrderForTracking(refreshedOrder)
+                : refreshedOrder,
+            )
+          : prev,
+      );
+
+      const companyName = await getCompanyNameAsync();
+      const userInfo = userProfile || {};
+      const formattedPhone = String(userInfo.phone || order?.address?.phone || "")
+        .replace(/\D/g, "")
+        .slice(-10);
+
+      const openCheckout = async () => {
+        if (isFlutterWebView()) {
+          const flutterResult = await handleFlutterRazorpayPayment({
+            key: razorpay.key,
+            order_id: razorpay.orderId,
+            amount: razorpay.amount,
+            currency: razorpay.currency || "INR",
+            name: companyName,
+            description: `Order ${order?.orderId || trackingId}`,
+            prefill: {
+              name: userInfo.name || "",
+              email: userInfo.email || "",
+              contact: formattedPhone,
+            },
+            notes: { orderId: order?.orderId || trackingId },
+          });
+          const verifyResponse = await orderAPI.verifyPayment({
+            orderId: trackingId,
+            razorpayOrderId: flutterResult.razorpay_order_id,
+            razorpayPaymentId: flutterResult.razorpay_payment_id,
+            razorpaySignature: flutterResult.razorpay_signature,
+          });
+          if (!verifyResponse?.data?.success) {
+            throw new Error(verifyResponse?.data?.message || "Payment verification failed");
+          }
+          toast.success("Payment successful");
+          setShowConfirmation(true);
+          await handleRefresh();
+          return;
+        }
+
+        await initRazorpayPayment({
+          key: razorpay.key,
+          amount: razorpay.amount,
+          currency: razorpay.currency || "INR",
+          order_id: razorpay.orderId,
+          name: companyName,
+          description: `Order ${order?.orderId || trackingId}`,
+          prefill: {
+            name: userInfo.name || "",
+            email: userInfo.email || "",
+            contact: formattedPhone,
+          },
+          notes: { orderId: order?.orderId || trackingId },
+          handler: async (response) => {
+            try {
+              const verifyResponse = await orderAPI.verifyPayment({
+                orderId: trackingId,
+                razorpayOrderId: response.razorpay_order_id,
+                razorpayPaymentId: response.razorpay_payment_id,
+                razorpaySignature: response.razorpay_signature,
+              });
+              if (!verifyResponse?.data?.success) {
+                throw new Error(verifyResponse?.data?.message || "Payment verification failed");
+              }
+              toast.success("Payment successful");
+              setShowConfirmation(true);
+              await handleRefresh();
+            } catch (err) {
+              toast.error(err?.message || "Payment verification failed");
+            }
+          },
+          onError: async (error) => {
+            try {
+              await orderAPI.markPaymentFailed(trackingId, {
+                note: error?.description || error?.message || "Payment retry failed",
+              });
+            } catch {
+              /* keep order for another retry */
+            }
+            toast.error(error?.description || error?.message || "Payment failed. You can try again.");
+            await handleRefresh();
+          },
+          onClose: () => {
+            toast.message("Payment not completed. You can retry anytime.");
+          },
+        });
+      };
+
+      await openCheckout();
+    } catch (err) {
+      toast.error(
+        err?.response?.data?.message ||
+          err?.response?.data?.error?.message ||
+          err?.message ||
+          "Could not start payment retry",
+      );
+    } finally {
+      paymentRetryInFlightRef.current = false;
+      setIsRetryingPayment(false);
+    }
+  }, [order, orderId, isQuickOrder, userProfile, handleRefresh]);
 
   const handleConfirmCancel = useCallback(async () => {
     if (!cancellationReason.trim()) { toast.error('Please provide a reason for cancellation'); return; }
@@ -1680,6 +1838,42 @@ export default function OrderTracking() {
 
       {/* Scrollable content */}
       <div className="max-w-4xl mx-auto px-4 md:px-6 lg:px-8 py-4 md:py-6 space-y-4 md:space-y-6 pb-24 md:pb-32">
+
+        {awaitingOnlinePayment && (
+          <motion.div className="rounded-xl border border-amber-200 bg-amber-50 p-4 shadow-sm" {...MOTION_SLIDE_UP(0.2)}>
+            <p className="text-sm font-bold text-amber-900">
+              {String(order?.payment?.status || "").toLowerCase() === "failed"
+                ? "Payment failed"
+                : "Payment pending"}
+            </p>
+            <p className="mt-1 text-xs text-amber-800">
+              Your order is saved. Complete payment to send it to the restaurant. No new order will be created.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button
+                type="button"
+                onClick={handleRetryPayment}
+                disabled={isRetryingPayment}
+                className="bg-[#FF6A00] hover:bg-[#C83C00] text-white"
+              >
+                {isRetryingPayment ? (
+                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Opening payment...</>
+                ) : (
+                  "Retry Payment"
+                )}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleCancelOrder}
+                disabled={isRetryingPayment || isCancelling}
+                className="border-red-200 text-red-700 hover:bg-red-50"
+              >
+                Cancel Order
+              </Button>
+            </div>
+          </motion.div>
+        )}
 
         {customerDeliveryOtp && orderStatus !== 'delivered' && orderStatus !== 'cancelled' && (
           <motion.div className="bg-blue-50 rounded-xl p-4 shadow-sm border border-blue-100" {...MOTION_SLIDE_UP(0.28)}>
