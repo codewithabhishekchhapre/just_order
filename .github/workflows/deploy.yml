@@ -24,6 +24,17 @@ jobs:
 
             echo "========== DEPLOY START =========="
 
+            # Load NVM and switch to Node 20
+            export NVM_DIR="$HOME/.nvm"
+            source "$NVM_DIR/nvm.sh"
+            nvm use 20
+
+            echo "Using Node version:"
+            node -v
+
+            echo "Using npm version:"
+            npm -v
+
             cd /var/www/just_order
 
             echo "Fetching latest code..."
@@ -44,7 +55,7 @@ jobs:
             npm run build
 
             echo "Restarting backend..."
-            pm2 restart justorder-backend
+            pm2 restart justorder-backend --update-env
             pm2 save
 
             echo "Testing nginx..."
