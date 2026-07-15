@@ -11,9 +11,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Deploy using SSH
+      - name: Deploy to VPS
         uses: appleboy/ssh-action@v1.2.0
-
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
@@ -27,28 +26,31 @@ jobs:
 
             cd /var/www/just_order
 
-            echo "Pull latest code..."
-            git pull origin main
+            echo "Fetching latest code..."
+            git fetch origin
 
-            echo "Installing backend packages..."
+            echo "Resetting to origin/main..."
+            git reset --hard origin/main
+
+            echo "Installing backend dependencies..."
             cd Backend
             npm ci
 
-            echo "Installing frontend packages..."
+            echo "Installing frontend dependencies..."
             cd ../Frontend
             npm ci
 
-            echo "Building React..."
+            echo "Building frontend..."
             npm run build
 
-            echo "Restarting PM2..."
+            echo "Restarting backend..."
             pm2 restart justorder-backend
             pm2 save
 
-            echo "Checking Nginx..."
+            echo "Testing nginx..."
             nginx -t
 
-            echo "Reloading Nginx..."
+            echo "Reloading nginx..."
             systemctl reload nginx
 
-            echo "Deployment Completed Successfully"
+            echo "========== DEPLOY SUCCESS =========="
