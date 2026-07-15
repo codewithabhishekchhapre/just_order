@@ -24,7 +24,7 @@ jobs:
 
             echo "========== DEPLOY START =========="
 
-            # Load NVM and switch to Node 20
+            # Load NVM and use Node 20
             export NVM_DIR="$HOME/.nvm"
             source "$NVM_DIR/nvm.sh"
             nvm use 20
@@ -49,7 +49,12 @@ jobs:
 
             echo "Installing frontend dependencies..."
             cd ../Frontend
-            npm ci
+
+            echo "Cleaning old frontend dependencies..."
+            rm -rf node_modules package-lock.json
+
+            echo "Installing fresh frontend dependencies..."
+            npm install
 
             echo "Building frontend..."
             npm run build
