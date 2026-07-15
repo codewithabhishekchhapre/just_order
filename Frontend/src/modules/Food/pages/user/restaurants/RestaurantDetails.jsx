@@ -1120,17 +1120,30 @@ function RestaurantDetailsContent() {
 
   // Sync quantities from cart on mount and when restaurant changes
   useEffect(() => {
-    if (!restaurant || !restaurant.name) return
+    if (!restaurant) return
 
     const cartQuantities = {}
+    const validRestaurantIds = [
+      restaurant.id,
+      restaurant.restaurantId,
+      restaurant.mongoId,
+      restaurant._id
+    ].filter(Boolean).map(String)
+    
+    const normalizeName = (name) => name ? String(name).trim().toLowerCase() : ""
+    const targetName = normalizeName(restaurant.name)
+
     cart.forEach((item) => {
-      if (item.restaurant === restaurant.name) {
+      const matchByName = targetName && normalizeName(item.restaurant) === targetName
+      const matchById = item.restaurantId && validRestaurantIds.includes(String(item.restaurantId))
+      
+      if (matchByName || matchById) {
         cartQuantities[item.id] = item.quantity || 0
       }
     })
+    
     setQuantities(cartQuantities)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [restaurant?.name, cart])
+  }, [restaurant?.id, restaurant?.name, cart])
 
   useEffect(() => {
     if (!selectedItem) {
