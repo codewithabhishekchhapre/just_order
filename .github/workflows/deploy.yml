@@ -70,3 +70,4 @@ jobs:
             systemctl reload nginx
 
             echo "========== DEPLOY SUCCESS =========="
+            
