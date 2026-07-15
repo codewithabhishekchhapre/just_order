@@ -7,42 +7,48 @@ on:
 
 jobs:
   deploy:
+    name: Deploy to Hostinger VPS
     runs-on: ubuntu-latest
 
     steps:
-      - name: Deploy to Hostinger VPS
+      - name: Deploy using SSH
         uses: appleboy/ssh-action@v1.2.0
+
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
           port: ${{ secrets.PORT }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+
           script: |
             set -e
 
+            echo "========== DEPLOY START =========="
+
             cd /var/www/just_order
 
-            echo "Pulling latest code..."
+            echo "Pull latest code..."
             git pull origin main
 
-            echo "Installing backend dependencies..."
+            echo "Installing backend packages..."
             cd Backend
             npm ci
 
-            echo "Installing frontend dependencies..."
+            echo "Installing frontend packages..."
             cd ../Frontend
             npm ci
 
-            echo "Building frontend..."
+            echo "Building React..."
             npm run build
 
-            echo "Restarting backend..."
+            echo "Restarting PM2..."
             pm2 restart justorder-backend
-
-            echo "Saving PM2 process list..."
             pm2 save
+
+            echo "Checking Nginx..."
+            nginx -t
 
             echo "Reloading Nginx..."
             systemctl reload nginx
 
-            echo "Deployment completed successfully!"
+            echo "Deployment Completed Successfully"
