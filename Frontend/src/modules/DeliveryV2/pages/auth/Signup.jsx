@@ -223,7 +223,7 @@ export default function DeliverySignup() {
               </span>
             </div>
           </div>
-          <div className="absolute right-6 sm:right-10 lg:right-16 top-6 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-[11px] font-medium text-emerald-700 shadow-sm">
+          <div className="absolute right-6 sm:right-10 lg:right-16 top-6 px-3 py-1 rounded-full bg-orange-50 border border-orange-200 text-[11px] font-medium text-orange-700 shadow-sm">
             Software Version : 1.0.0
           </div>
         </div>

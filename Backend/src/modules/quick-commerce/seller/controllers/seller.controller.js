@@ -29,7 +29,7 @@ import { QuickOrder } from "../../models/order.model.js";
 import { resolveQuickOrderCancellationReason } from "../../utils/cancellation.helpers.js";
 import { getSellerVisibleQuickOrderPaymentFilter, isQuickOrderVisibleToSeller } from "../../utils/sellerOrderVisibility.helpers.js";
 import { resolveQuickOrderCustomer } from "../../utils/customer.helpers.js";
-import { FoodDeliveryPartner } from "../../../food/delivery/models/deliveryPartner.model.js";
+import { Driver } from '../../../../core/models/driver.model.js';
 import {
   buildDeliverySocketPayload,
   haversineKm,
@@ -434,8 +434,9 @@ const listNearbyOnlineDeliveryPartnersByCoords = async (
   origin,
   { maxKm = 15, limit = 10 } = {},
 ) => {
-  const onlinePartners = await FoodDeliveryPartner.find({
+  const onlinePartners = await Driver.find({
     availabilityStatus: "online",
+    authorizedServices: "quick-commerce",
     status: {
       $in:
         process.env.NODE_ENV === "production"
@@ -2105,7 +2106,7 @@ export const getSellerOrdersController = async (req, res) => {
       .filter(Boolean);
 
     const deliveryPartners = deliveryPartnerIds.length
-      ? await FoodDeliveryPartner.find({ _id: { $in: deliveryPartnerIds } })
+      ? await Driver.find({ _id: { $in: deliveryPartnerIds } })
         .select("_id name phone vehicleType vehicleNumber")
         .lean()
       : [];
@@ -2392,7 +2393,7 @@ const enrichSellerReturnsWithOrderContext = async (returnDocs = [], sellerId) =>
       .select("orderId deliveryAddress")
       .lean(),
     partnerIds.length
-      ? FoodDeliveryPartner.find({ _id: { $in: partnerIds } })
+      ? Driver.find({ _id: { $in: partnerIds } })
           .select("name phone")
           .lean()
       : Promise.resolve([]),

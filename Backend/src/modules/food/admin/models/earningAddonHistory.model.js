@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 const earningAddonHistorySchema = new mongoose.Schema(
     {
         offerId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodEarningAddon', required: true, index: true },
-        deliveryPartnerId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodDeliveryPartner', required: true, index: true },
+        deliveryPartnerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Driver', required: true, index: true },
 
         ordersCompleted: { type: Number, default: 0 },
         ordersRequired: { type: Number, default: 0 },

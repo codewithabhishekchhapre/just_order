@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import { logger } from '../../../../utils/logger.js';
+import { ValidationError } from '../../../../core/auth/errors.js';
 import {
   sendNotificationToOwner,
   sendNotificationToOwners,
@@ -202,6 +203,92 @@ export function pushStatusHistory(order, { byRole, byId, from, to, note = "" }) 
   });
 }
 
+/** Prep time bounds (minutes) — shared validation for create + restaurant updates */
+export const PREPARATION_TIME_MIN = 1;
+export const PREPARATION_TIME_MAX = Math.max(
+  1,
+  Number(process.env.PREPARATION_TIME_MAX) || 180,
+);
+export const PREPARATION_TIME_DEFAULT = 15;
+
+/**
+ * Parse food item preparationTime strings ("15 mins", "20-25 min", 32) → minutes.
+ * Ranges use the upper bound (slowest dish wins).
+ */
+export function parsePreparationTimeMinutes(value, fallback = PREPARATION_TIME_DEFAULT) {
+  if (value == null || value === "") return fallback;
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.max(PREPARATION_TIME_MIN, Math.round(value));
+  }
+  const numbers = String(value).match(/\d+/g);
+  if (!numbers?.length) return fallback;
+  const mins = numbers.map(Number).filter((n) => Number.isFinite(n));
+  if (!mins.length) return fallback;
+  return Math.max(PREPARATION_TIME_MIN, Math.max(...mins));
+}
+
+export function clampPreparationTimeMinutes(minutes) {
+  const n = Math.round(Number(minutes));
+  if (!Number.isFinite(n)) {
+    throw new ValidationError(
+      `Preparation time must be between ${PREPARATION_TIME_MIN} and ${PREPARATION_TIME_MAX} minutes`
+    );
+  }
+  if (n < PREPARATION_TIME_MIN || n > PREPARATION_TIME_MAX) {
+    throw new ValidationError(
+      `Preparation time must be between ${PREPARATION_TIME_MIN} and ${PREPARATION_TIME_MAX} minutes`
+    );
+  }
+  return n;
+}
+
+/**
+ * Order prep ETA = MAX(item preparation times), never sum/average.
+ * @param {Array<{preparationTime?: string|number}|string|number>} prepValues
+ */
+export function maxPreparationTimeMinutes(prepValues = [], fallback = PREPARATION_TIME_DEFAULT) {
+  const times = (Array.isArray(prepValues) ? prepValues : [])
+    .map((v) => {
+      if (v && typeof v === "object" && "preparationTime" in v) {
+        return parsePreparationTimeMinutes(v.preparationTime, null);
+      }
+      return parsePreparationTimeMinutes(v, null);
+    })
+    .filter((n) => n != null && Number.isFinite(n));
+  if (!times.length) return fallback;
+  return Math.max(...times);
+}
+
+export function emitPreparationTimeUpdate(order) {
+  try {
+    const io = getIO();
+    if (!io || !order) return;
+    const payload = {
+      orderMongoId: order._id?.toString?.(),
+      orderId: order.orderId,
+      orderStatus: order.orderStatus,
+      preparationTime: order.preparationTime,
+      title: `Order ${order.orderId} prep time updated`,
+      message: `Estimated preparation time is now ${order.preparationTime} minutes`,
+    };
+    if (order.restaurantId) {
+      io.to(rooms.restaurant(order.restaurantId)).emit("order_status_update", payload);
+      io.to(rooms.restaurant(order.restaurantId)).emit("preparation_time_update", payload);
+    }
+    if (order.userId) {
+      io.to(rooms.user(order.userId)).emit("order_status_update", payload);
+      io.to(rooms.user(order.userId)).emit("preparation_time_update", payload);
+    }
+    const riderId = order.dispatch?.deliveryPartnerId;
+    if (riderId) {
+      io.to(rooms.delivery(riderId)).emit("order_status_update", payload);
+      io.to(rooms.delivery(riderId)).emit("preparation_time_update", payload);
+    }
+  } catch (err) {
+    logger.warn(`emitPreparationTimeUpdate failed: ${err?.message || err}`);
+  }
+}
+
 export function normalizeOrderForClient(orderDoc) {
   const order = orderDoc?.toObject ? orderDoc.toObject() : orderDoc || {};
   const mongoId = (order._id || orderDoc?._id || "").toString();
@@ -352,6 +439,7 @@ export function buildDeliverySocketPayload(orderDoc, restaurantDoc = null) {
     userName: order?.customerName || deliveryAddress?.name || deliveryAddress?.fullName || order?.userId?.name || "",
     userPhone: order?.customerPhone || deliveryAddress?.phone || order?.userId?.phone || "",
     note: order?.note || "",
+    preparationTime: order?.preparationTime ?? null,
     riderEarning: order?.riderEarning || 0,
     earnings: order?.riderEarning || order?.pricing?.deliveryFee || 0,
     deliveryFee: order?.pricing?.deliveryFee || 0,

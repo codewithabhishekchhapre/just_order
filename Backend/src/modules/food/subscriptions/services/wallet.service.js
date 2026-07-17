@@ -356,7 +356,6 @@ export async function ensureDailyPassEligibility(userId, userType) {
         throw new ValidationError('Invalid user type for eligibility check');
     }
 
-    /* Comment out the related restriction/check logic in the codebase instead of removing it completely.
     // 1. Priority Check: MONTH/WEEK Subscription (MONTH > WEEK)
     const activeSub = await getActiveSubscription(userId, userType);
     if (activeSub && activeSub.planId) {
@@ -447,17 +446,6 @@ export async function ensureDailyPassEligibility(userId, userType) {
         balance,
         threshold: 1000,
         deductionAmount
-    };
-    */
-
-    return {
-        eligible: true,
-        reason: 'BYPASSED',
-        shouldDeduct: false,
-        subscriptionType: 'DAY',
-        balance: 9999,
-        threshold: 1000,
-        deductionAmount: 0
     };
 }
 export async function getWalletLedger(ownerId, ownerType, { limit = 20, skip = 0 } = {}) {

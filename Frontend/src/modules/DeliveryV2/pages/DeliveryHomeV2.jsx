@@ -28,8 +28,8 @@ const ProfileV2 = React.lazy(() => import('@/modules/DeliveryV2/pages/ProfileV2'
 import { 
   Bell, HelpCircle, AlertTriangle, 
   Wallet, History, User as UserIcon, LayoutGrid,
-  Plus, Minus, Navigation2, Target, Play, CheckCircle2, Clock, ChevronDown,
-  Contact, Package, ShieldCheck, Loader2, Zap
+  Plus, Minus, Navigation2, Target, Play, CheckCircle2, Clock, ChevronDown, ChevronRight,
+  Contact, Package, ShieldCheck, Loader2, Zap, Bike, Truck
 } from 'lucide-react';
 import { subscriptionAPI } from '@food/api';
 
@@ -227,7 +227,7 @@ const CashLimitBlockingModal = ({ isOpen, onClose }) => {
  */
 export default function DeliveryHomeV2({ tab = 'feed' }) {
   const navigate = useNavigate();
-  const { isOnline, setOnline, toggleOnline, activeOrder, tripStatus, setRiderLocation, setActiveOrder, updateTripStatus, clearActiveOrder } = useDeliveryStore();
+  const { isOnline, setOnline, toggleOnline, activeOrder, tripStatus, setRiderLocation, setActiveOrder, updateTripStatus, clearActiveOrder, setDriverVehicles } = useDeliveryStore();
   const riderLocation = useDeliveryStore((s) => s.riderLocation);
   // Reactive browser geolocation permission — drives the blocking popup and
   // re-registers the GPS watch when the driver enables location later.
@@ -235,6 +235,77 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
   const getActiveVehicle = useDeliveryStore(state => state.getActiveVehicle);
   const activeVehicle = getActiveVehicle();
   const [showVehicleSwitcher, setShowVehicleSwitcher] = useState(false);
+
+  const seedVehicleFromProfile = useCallback((profile) => {
+    if (!profile) return false;
+    const vehicleType = profile.vehicleType || profile.vehicle?.type || "";
+    const vehicleNumber = profile.vehicleNumber || profile.vehicle?.number || "";
+    const brand = profile.vehicleBrand || profile.vehicle?.brand || "";
+    const model = profile.vehicleModel || profile.vehicle?.model || "";
+    const typeLabel = vehicleType
+      ? vehicleType.charAt(0).toUpperCase() + vehicleType.slice(1)
+      : "Vehicle";
+    const vehicleName =
+      profile.vehicleName ||
+      [brand, model].filter(Boolean).join(" ") ||
+      typeLabel;
+    if (!vehicleType && !vehicleNumber && !profile._id && !profile.id) {
+      return false;
+    }
+    const vehicleId =
+      profile._id ||
+      profile.id ||
+      vehicleNumber ||
+      vehicleType ||
+      "primary-vehicle";
+    const vehicle = {
+      id: String(vehicleId),
+      vehicleId: String(vehicleId),
+      registrationNumber: vehicleNumber || (vehicleType === "bicycle" ? "Bicycle" : ""),
+      verificationStatus:
+        profile.status === "approved" || profile.status === "Approved"
+          ? "Approved"
+          : profile.status || "Approved",
+      name: vehicleName,
+      image: null,
+      supportedServices: ["food"],
+      master: {
+        name: vehicleName,
+        image: null,
+        supportedServices: ["food"],
+      },
+      type: vehicleType,
+      brand,
+      model,
+    };
+    setDriverVehicles([vehicle]);
+    return true;
+  }, [setDriverVehicles]);
+
+  const resolveProfilePhoto = useCallback((profile) => {
+    if (!profile) return null;
+    return (
+      profile.profileImage?.url ||
+      (typeof profile.profilePhoto === "string" && profile.profilePhoto) ||
+      profile.documents?.photo ||
+      null
+    );
+  }, []);
+
+  const ensureActiveVehicle = useCallback(() => {
+    const state = useDeliveryStore.getState();
+    if (state.resolveActiveVehicleId()) return true;
+    try {
+      const raw = localStorage.getItem("delivery_user");
+      if (raw) {
+        const user = JSON.parse(raw);
+        if (seedVehicleFromProfile(user)) return true;
+      }
+    } catch {
+      /* ignore */
+    }
+    return Boolean(useDeliveryStore.getState().resolveActiveVehicleId());
+  }, [seedVehicleFromProfile]);
   const { isWithinRange, distanceToTarget } = useProximityCheck();
   const { acceptOrder, reachPickup, pickUpOrder, reachDrop, completeDelivery, resetTrip } = useOrderManager();
   const { newOrder, clearNewOrder, orderStatusUpdate, clearOrderStatusUpdate, isConnected: isSocketConnected, emitLocation, forcedOfflineEvent, clearForcedOfflineEvent } = useDeliveryNotifications();
@@ -254,6 +325,39 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
   const [showCashLimitModal, setShowCashLimitModal] = useState(false);
   const [eligibilityData, setEligibilityData] = useState(null);
   const companyName = useCompanyName();
+
+  const loadEligibilityForModal = useCallback(async (modalType) => {
+    try {
+      const res = await subscriptionAPI.getEligibility('DELIVERY_PARTNER');
+      const data = res?.data?.data || res?.data || {};
+      setEligibilityData(data);
+      if (modalType === 'LOW_BALANCE') {
+        setShowLowBalanceModal(true);
+      } else if (modalType === 'PASS_REQUIRED') {
+        setShowSubModal(true);
+      }
+    } catch {
+      toast.error('Could not load subscription details');
+    }
+  }, []);
+
+  const handleGoOnlineSuccess = useCallback(() => {
+    if (!ensureActiveVehicle()) {
+      toast.error("Add a vehicle to your profile before going online");
+      setShowVehicleSwitcher(true);
+      return false;
+    }
+    setOnline(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        deliveryAPI.updateLocation(pos.coords.latitude, pos.coords.longitude, true).catch(() => {});
+      },
+      (err) => console.warn('Online sync position failed:', err),
+      { enableHighAccuracy: true }
+    );
+    return true;
+  }, [setOnline, ensureActiveVehicle]);
+
   const { unreadCount: notificationUnreadCount } = useNotificationInbox("delivery", { limit: 20 });
 
     const [incomingOrder, setIncomingOrder] = useState(null);
@@ -270,6 +374,7 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
   const [showVerification, setShowVerification] = useState(false);
   const [showEmergencyPopup, setShowEmergencyPopup] = useState(false);
   const [profileImage, setProfileImage] = useState(null);
+  const [driverProfile, setDriverProfile] = useState(null);
   const [emergencyNumbers, setEmergencyNumbers] = useState({
     medicalEmergency: "",
     accidentHelpline: "",
@@ -452,11 +557,19 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
         }
         if (profileRes?.data?.success && profileRes.data.data?.profile) {
           const profile = profileRes.data.data.profile;
-          setProfileImage(profile.profileImage?.url || profile.documents?.photo || null);
+          setDriverProfile(profile);
+          setProfileImage(resolveProfilePhoto(profile));
+          try {
+            localStorage.setItem("delivery_user", JSON.stringify(profile));
+          } catch {
+            /* ignore */
+          }
+          // Single-vehicle Driver model: seed store so go-online is not blocked
+          seedVehicleFromProfile(profile);
         }
       } catch (err) { console.warn('Navbar Data Fetch Error:', err); }
     })();
-  }, []);
+  }, [seedVehicleFromProfile, resolveProfilePhoto]);
 
   const emergencyOptions = [
     { title: "Medical Emergency", subtitle: "Call an ambulance", icon: <AlertTriangle className="text-red-600" />, phone: emergencyNumbers.medicalEmergency },
@@ -805,6 +918,78 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
   }, [orderStatusUpdate, resetTrip, clearOrderStatusUpdate]);
 
 
+  const handleOnlineToggle = useCallback(async () => {
+    if (isProcessingToggle) return;
+
+    const turningOn = !useDeliveryStore.getState().isOnline;
+    if (!turningOn) {
+      setIsProcessingToggle(true);
+      try {
+        await deliveryAPI.updateOnlineStatus(false);
+        setOnline(false);
+      } catch {
+        toast.error("Failed to go offline");
+      } finally {
+        setIsProcessingToggle(false);
+      }
+      return;
+    }
+
+    setIsProcessingToggle(true);
+    try {
+      if (!ensureActiveVehicle()) {
+        toast.error("Add a vehicle to your profile before going online");
+        setShowVehicleSwitcher(true);
+        return;
+      }
+      await deliveryAPI.updateOnlineStatus(true);
+      handleGoOnlineSuccess();
+    } catch (err) {
+      const errMsg = err?.response?.data?.message || err?.message || "";
+      if (errMsg === "CASH_LIMIT_EXCEEDED") {
+        setShowCashLimitModal(true);
+      } else if (errMsg === "LOW_BALANCE") {
+        await loadEligibilityForModal("LOW_BALANCE");
+      } else if (errMsg === "PASS_REQUIRED") {
+        await loadEligibilityForModal("PASS_REQUIRED");
+      } else {
+        toast.error(errMsg || "Failed to go online");
+      }
+    } finally {
+      setIsProcessingToggle(false);
+    }
+  }, [isProcessingToggle, ensureActiveVehicle, handleGoOnlineSuccess, loadEligibilityForModal, setOnline]);
+
+  const confirmPassAndGoOnline = useCallback(async () => {
+    setIsProcessingToggle(true);
+    try {
+      await deliveryAPI.updateOnlineStatus(true, true);
+      handleGoOnlineSuccess();
+      setShowSubModal(false);
+    } catch (err) {
+      const errMsg = err?.response?.data?.message || err?.message || "";
+      if (errMsg === "LOW_BALANCE") {
+        setShowSubModal(false);
+        await loadEligibilityForModal("LOW_BALANCE");
+      } else {
+        toast.error(err?.response?.data?.message || "Failed to go online");
+      }
+    } finally {
+      setIsProcessingToggle(false);
+    }
+  }, [handleGoOnlineSuccess, loadEligibilityForModal]);
+
+  const driverFirstName = driverProfile?.name?.trim()?.split(/\s+/)[0] || "Partner";
+  const vehicleLabel =
+    (activeVehicle?.master || activeVehicle)?.name ||
+    activeVehicle?.type ||
+    "Vehicle";
+  const vehicleReg =
+    activeVehicle?.registrationNumber ||
+    (activeVehicle?.type
+      ? activeVehicle.type.charAt(0).toUpperCase() + activeVehicle.type.slice(1)
+      : "");
+
   const handleCenterMap = () => {
     if (mapRef.current && useDeliveryStore.getState().riderLocation) {
       const loc = useDeliveryStore.getState().riderLocation;
@@ -822,7 +1007,7 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
   };
 
   return (
-    <div className="relative h-screen w-full bg-white text-gray-900 overflow-hidden flex flex-col">
+    <div className="relative h-[100dvh] w-full max-w-[100vw] bg-slate-100 text-slate-900 overflow-hidden flex flex-col">
       {/* Blocking popup: online driver without usable browser location */}
       <LocationPermissionModal
         open={isOnline && !isSimMode && (geoPermission === 'denied' || (geoPermission === 'prompt' && !riderLocation))}
@@ -833,225 +1018,169 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
           deliveryAPI.updateLocation(latitude, longitude, true, { heading: heading || 0 }).catch(() => {});
         }}
       />
-      {/* ─── 1. TOP HEADER (Premium Dark Gray) ─── */}
+      {/* FEED HEADER - compact mobile chrome */}
       {currentTab === 'feed' && (
-      <div className="absolute top-0 inset-x-0 bg-[#121212]/95 backdrop-blur-2xl shadow-2xl z-[200] safe-top pb-2 border-b border-white/10">
-        <div className="flex items-center justify-between px-4 py-2">
-          <div className="flex items-center gap-4">
-             <div 
-                onClick={() => navigate('/food/delivery/profile')}
-                className="w-10 h-10 rounded-full border border-white/20 p-0.5 shadow-xl overflow-hidden bg-white/5 cursor-pointer active:scale-95 transition-all"
-             >
-                <img src={profileImage || "https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png"} alt="Profile" className="w-full h-full object-cover rounded-full" />
-             </div>
-             <button 
-                onClick={async () => {
-                  if (isProcessingToggle) return;
-                  
-                  const turningOn = !isOnline;
-                  if (!turningOn) {
-                    setIsProcessingToggle(true);
-                    try {
-                      await deliveryAPI.updateOnlineStatus(false);
-                      setOnline(false);
-                    } catch (err) {
-                      toast.error("Failed to go offline");
-                    } finally {
-                      setIsProcessingToggle(false);
-                    }
-                    return;
-                  }
+        <header className="absolute top-0 inset-x-0 z-[200] pointer-events-none">
+          <div className="pointer-events-auto px-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
+            <div className="rounded-2xl bg-[#111827]/92 backdrop-blur-xl border border-white/10 shadow-xl shadow-black/20 overflow-hidden">
+              <div className="flex items-center gap-2.5 px-3 py-2.5">
+                <button
+                  type="button"
+                  onClick={() => navigate('/food/delivery/profile')}
+                  className="shrink-0 w-11 h-11 rounded-full border border-white/15 overflow-hidden bg-white/10 flex items-center justify-center active:scale-95 transition"
+                  aria-label="Open profile"
+                >
+                  {profileImage ? (
+                    <img
+                      src={profileImage}
+                      alt={driverProfile?.name || 'Profile'}
+                      className="w-full h-full object-cover"
+                      onError={() => setProfileImage(null)}
+                    />
+                  ) : (
+                    <span className="text-sm font-bold text-primary-orange">
+                      {(driverProfile?.name || 'D').charAt(0).toUpperCase()}
+                    </span>
+                  )}
+                </button>
 
-                  setIsProcessingToggle(true);
-                  try {
-                    await deliveryAPI.updateOnlineStatus(true);
-                    setOnline(true);
-                    setIsProcessingToggle(false);
-                    navigator.geolocation.getCurrentPosition((pos) => {
-                        deliveryAPI.updateLocation(pos.coords.latitude, pos.coords.longitude, true).catch(() => {});
-                    }, (err) => console.warn('Online sync position failed:', err), { enableHighAccuracy: true });
-                  } catch (err) {
-                    const errMsg = err?.response?.data?.message || err?.message || '';
-                    if (errMsg === 'CASH_LIMIT_EXCEEDED') {
-                      setShowCashLimitModal(true);
-                    } else {
-                      toast.error("Failed to go online");
-                    }
-                    setIsProcessingToggle(false);
-                  }
-                }}
-                disabled={isProcessingToggle}
-                className={`relative w-[92px] h-8 rounded-full p-1 transition-all duration-500 flex items-center ${isOnline ? 'bg-green-500 shadow-lg shadow-green-500/20' : 'bg-gray-400'}`}
-             >
-                <div className={`flex items-center justify-between w-full px-2 text-[8.5px] font-black uppercase tracking-widest text-white`}>
+                <div className="flex-1 min-w-0">
+                  <p className="text-white text-sm font-semibold truncate leading-tight">
+                    {driverProfile?.name || 'Delivery Partner'}
+                  </p>
+                  <p className="text-white/50 text-[11px] truncate mt-0.5">
+                    {driverProfile?.deliveryId || 'Partner account'}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleOnlineToggle}
+                  disabled={isProcessingToggle}
+                  aria-pressed={isOnline}
+                  className={`relative shrink-0 w-[88px] h-9 rounded-full p-1 transition-colors duration-300 flex items-center ${
+                    isOnline ? 'bg-emerald-500 shadow-md shadow-emerald-500/30' : 'bg-slate-500'
+                  }`}
+                >
                   {isProcessingToggle ? (
-                    <div className="w-full flex justify-center">
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                    </div>
+                    <span className="w-full flex justify-center">
+                      <Loader2 className="w-4 h-4 text-white animate-spin" />
+                    </span>
                   ) : (
                     <>
-                      <span>{isOnline ? 'Online' : ''}</span>
-                      <span>{!isOnline ? 'Offline' : ''}</span>
+                      <span className={`absolute inset-x-0 text-[10px] font-bold uppercase tracking-wide text-white pointer-events-none ${isOnline ? 'pl-2 text-left' : 'pr-2 text-right'}`}>
+                        {isOnline ? 'Online' : 'Offline'}
+                      </span>
+                      <motion.span
+                        className="relative z-10 w-7 h-7 bg-white rounded-full shadow"
+                        animate={{ x: isOnline ? 52 : 0 }}
+                        transition={{ type: 'spring', stiffness: 400, damping: 28 }}
+                      />
                     </>
                   )}
-                </div>
-                {!isProcessingToggle && (
-                  <motion.div animate={{ x: isOnline ? 59 : 0 }} className="absolute left-1 w-6 h-6 bg-white rounded-full shadow-sm" />
-                )}
-              </button>
-          </div>
-          <div className="flex items-center gap-3">
-             <button onClick={() => setShowEmergencyPopup(true)} className="w-9 h-9 rounded-full bg-red-500/10 flex items-center justify-center text-red-500 border border-red-500/20 active:scale-95 transition-all shadow-lg"><AlertTriangle className="w-4 h-4" /></button>
-             <button onClick={() => navigate('/food/delivery/help/id-card')} className="w-9 h-9 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-500 border border-blue-500/20 active:scale-95 transition-all shadow-lg"><Contact className="w-4 h-4" /></button>
-             <button onClick={() => navigate('/food/delivery/notifications')} className="relative w-9 h-9 rounded-full bg-white/10 flex items-center justify-center text-white border border-white/10 active:scale-95 transition-all shadow-lg"><Bell className="w-4 h-4" />{notificationUnreadCount > 0 && <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-400 border border-[#1f1f1f]" />}</button>
-          </div>
-        </div>
+                </button>
 
-        {/* ─── LIVE STATUS / PROGRESS BADGE (MATCHED PRO) ─── */}
-        <AnimatePresence>
-          {currentTab === 'feed' && (
-            <motion.div 
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className="px-4 mt-1"
-            >
-              {activeOrder ? (
-                <div className="grid grid-cols-2 gap-3 w-full">
-                  {/* LEFT: DISTANCE (Vibrant Orange Card) */}
-                  <div className="bg-[#FF6A00] rounded-2xl p-3.5 shadow-xl shadow-orange-500/20 border border-red-400/50 flex items-center justify-between overflow-hidden relative">
-                    <div className="flex flex-col z-10">
-                      <span className="text-[9px] text-white/70 font-black uppercase tracking-[0.15em] mb-1">Distance</span>
-                      <div className="flex items-end gap-1">
-                        <span className="text-2xl font-black text-white leading-none tracking-tighter">
-                          {distanceToTarget && distanceToTarget !== Infinity ? (distanceToTarget / 1000).toFixed(1) : '--'}
-                        </span>
-                        <span className="text-[11px] text-white/80 font-bold mb-0.5">KM</span>
-                      </div>
-                    </div>
-                    <div className="w-9 h-9 bg-white rounded-xl flex items-center justify-center z-10 shadow-lg">
-                      <Navigation2 className="w-4 h-4 text-[#FF6A00] rotate-45" />
-                    </div>
-                  </div>
-
-                  {/* RIGHT: TIME (Emerald PRO Content) */}
-                  <div className="bg-[#10B981] rounded-2xl p-3.5 shadow-xl shadow-green-500/20 border border-green-400/50 flex items-center justify-between relative overflow-hidden group">
-                    <div className="flex flex-col z-10">
-                      <span className="text-[9px] text-white/70 font-black uppercase tracking-[0.15em] mb-1">Arrival</span>
-                      <div className="flex items-end gap-1">
-                        <span className="text-2xl font-black text-white leading-none tracking-tighter">
-                          {eta ? String(eta) : '--'}
-                        </span>
-                        <span className="text-[11px] text-white/80 font-bold mb-0.5">MIN</span>
-                      </div>
-                    </div>
-                    <div className="w-9 h-9 bg-white rounded-xl flex items-center justify-center z-10 shadow-lg">
-                       <Clock className="w-4 h-4 text-[#10B981]" />
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex flex-col gap-2">
-                  <div className="bg-white/5 rounded-2xl p-4 flex items-center border border-white/5 shadow-sm backdrop-blur-md">
-                    <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 bg-green-500/10 rounded-full flex items-center justify-center">
-                        <div className={`w-2 h-2 rounded-full ${isOnline ? 'bg-green-500 animate-pulse' : 'bg-gray-500'}`} />
-                      </div>
-                      <div>
-                        <h3 className="text-white font-black text-[11px] uppercase tracking-widest leading-none mb-1">{isOnline ? 'System Online' : 'System Offline'}</h3>
-                        <p className="text-gray-400 text-[10px] font-bold uppercase tracking-tight">{isOnline ? 'Waiting for order requests' : 'Go online to receive jobs'}</p>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {activeVehicle && (
-                    <div 
-                      onClick={() => setShowVehicleSwitcher(true)}
-                      className="bg-white/5 rounded-2xl p-4 flex flex-col border border-white/10 shadow-sm backdrop-blur-md relative overflow-hidden group cursor-pointer active:scale-95 transition-all"
-                    >
-                      <div className="flex items-center justify-between mb-3">
-                        <span className="text-[9px] text-white/50 font-black uppercase tracking-[0.15em]">Current Vehicle</span>
-                        <div className="flex items-center gap-1 text-[10px] text-blue-400 font-bold uppercase tracking-widest">
-                          <span>Change</span>
-                          <ChevronRight className="w-3 h-3" />
-                        </div>
-                      </div>
-                      
-                      <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 bg-white/10 rounded-xl flex items-center justify-center shrink-0 shadow-inner">
-                          <img src={(activeVehicle.master || activeVehicle).image || "https://i.ibb.co/68zRzVv/Auto.png"} alt="Vehicle" className="w-8 h-8 object-contain" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <h3 className="text-white font-bold text-sm truncate">{(activeVehicle.master || activeVehicle).name || 'Vehicle'}</h3>
-                          <div className="text-[10px] text-gray-400 uppercase tracking-widest font-semibold flex items-center gap-1.5 mt-0.5 truncate">
-                            <span>{activeVehicle.registrationNumber || 'No Reg'}</span>
-                            <span>•</span>
-                            <span className={activeVehicle.verificationStatus === 'Approved' ? 'text-green-400' : 'text-orange-400'}>{activeVehicle.verificationStatus || 'Unknown'}</span>
-                          </div>
-                        </div>
-                      </div>
-                      
-                      {((activeVehicle.master || activeVehicle).supportedServices || []).length > 0 && (
-                        <div className="flex items-center gap-1 mt-3 flex-wrap">
-                          {((activeVehicle.master || activeVehicle).supportedServices || []).map(s => (
-                            <span key={s} className="text-[9px] bg-white/10 text-white px-2 py-1 rounded font-black uppercase">{s}</span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                <button
+                  type="button"
+                  onClick={() => navigate('/food/delivery/notifications')}
+                  className="relative shrink-0 w-10 h-10 rounded-full bg-white/10 border border-white/10 flex items-center justify-center text-white active:scale-95"
+                  aria-label="Notifications"
+                >
+                  <Bell className="w-4 h-4" />
+                  {notificationUnreadCount > 0 && (
+                    <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500 border border-[#111827]" />
                   )}
-                </div>
-              )}
-            </motion.div>
-          )}
-        </AnimatePresence>
+                </button>
+              </div>
 
-        <SubscriptionConfirmationModal 
-          isOpen={showSubModal} 
-          onClose={() => setShowSubModal(false)}
-          data={eligibilityData}
-          loading={isProcessingToggle}
-          onConfirm={async () => {
-             setIsProcessingToggle(true);
-             try {
-               await deliveryAPI.updateOnlineStatus(true);
-               setOnline(true);
-               setShowSubModal(false);
-               navigator.geolocation.getCurrentPosition((pos) => {
-                 deliveryAPI.updateLocation(pos.coords.latitude, pos.coords.longitude, true).catch(() => {});
-               }, (err) => console.warn('Online sync position failed:', err), { enableHighAccuracy: true });
-             } catch (err) {
-               toast.error("Failed to go online");
-             } finally {
-               setIsProcessingToggle(false);
-             }
-          }}
-        />
+              <div className="px-3 pb-3">
+                {activeOrder ? (
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="rounded-xl bg-primary-orange px-3 py-2.5 flex items-center justify-between">
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-white/80">Distance</p>
+                        <p className="text-xl font-bold text-white leading-none mt-1">
+                          {distanceToTarget && distanceToTarget !== Infinity ? (distanceToTarget / 1000).toFixed(1) : '--'}
+                          <span className="text-xs font-semibold ml-1 opacity-80">km</span>
+                        </p>
+                      </div>
+                      <Navigation2 className="w-4 h-4 text-white/90 rotate-45" />
+                    </div>
+                    <div className="rounded-xl bg-emerald-500 px-3 py-2.5 flex items-center justify-between">
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-white/80">ETA</p>
+                        <p className="text-xl font-bold text-white leading-none mt-1">
+                          {eta ? String(eta) : '--'}
+                          <span className="text-xs font-semibold ml-1 opacity-80">min</span>
+                        </p>
+                      </div>
+                      <Clock className="w-4 h-4 text-white/90" />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-stretch gap-2">
+                    <div className={`flex-1 min-w-0 rounded-xl px-3 py-2.5 border ${isOnline ? 'bg-emerald-500/15 border-emerald-400/30' : 'bg-white/5 border-white/10'}`}>
+                      <div className="flex items-center gap-2">
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-slate-400'}`} />
+                        <div className="min-w-0">
+                          <p className="text-white text-xs font-semibold truncate">
+                            {isOnline ? `${driverFirstName}, you're online` : "You're offline"}
+                          </p>
+                          <p className="text-white/50 text-[10px] truncate mt-0.5">
+                            {isOnline ? 'Waiting for delivery requests' : 'Go online to start earning'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                    {activeVehicle && (
+                      <button
+                        type="button"
+                        onClick={() => setShowVehicleSwitcher(true)}
+                        className="shrink-0 max-w-[42%] rounded-xl bg-white/5 border border-white/10 px-2.5 py-2 flex items-center gap-2 active:scale-[0.98] transition"
+                      >
+                        <span className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center text-white shrink-0">
+                          {activeVehicle.type === 'bicycle' ? <Bike className="w-4 h-4" /> : <Truck className="w-4 h-4" />}
+                        </span>
+                        <span className="min-w-0 text-left">
+                          <span className="block text-white text-[11px] font-semibold truncate">{vehicleLabel}</span>
+                          <span className="block text-white/45 text-[10px] truncate">{vehicleReg || 'Tap to change'}</span>
+                        </span>
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
 
-        <LowBalanceBlockingModal
-          isOpen={showLowBalanceModal}
-          onClose={() => setShowLowBalanceModal(false)}
-          data={eligibilityData}
-          onRecharge={() => {
-            setShowLowBalanceModal(false);
-            navigate('/food/delivery/profile');
-          }}
-        />
-
-        <CashLimitBlockingModal
-          isOpen={showCashLimitModal}
-          onClose={() => setShowCashLimitModal(false)}
-        />
-      </div>
+            <div className="flex items-center justify-end gap-2 mt-2">
+              <button
+                type="button"
+                onClick={() => setShowEmergencyPopup(true)}
+                className="h-9 px-3 rounded-full bg-white/95 shadow-md border border-red-100 text-red-600 text-[11px] font-semibold flex items-center gap-1.5 active:scale-95"
+              >
+                <AlertTriangle className="w-3.5 h-3.5" />
+                SOS
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate('/food/delivery/help/id-card')}
+                className="h-9 px-3 rounded-full bg-white/95 shadow-md border border-slate-200 text-slate-700 text-[11px] font-semibold flex items-center gap-1.5 active:scale-95"
+              >
+                <Contact className="w-3.5 h-3.5" />
+                ID Card
+              </button>
+            </div>
+          </div>
+        </header>
       )}
 
       {/* ─── 2. MAIN CONTENT ─── */}
       <div 
         ref={scrollContainerRef}
-        className={`flex-1 relative overflow-y-auto ${currentTab === 'feed' ? 'pt-[120px]' : 'pt-0'} no-scrollbar`}
+        className="flex-1 relative overflow-y-auto no-scrollbar"
       >
          {currentTab === 'feed' ? (
-           <div className="absolute inset-0 top-[-120px]">
+           <div className="absolute inset-0">
                <LiveMap 
                  onMapLoad={(m) => mapRef.current = m}
                  onMapClick={handleMapClick}
@@ -1064,66 +1193,55 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                  simulationLocked={isSimMode && simPath.length > 1}
                />
              
-             {/* SIMULATION INDICATOR */}
-             {isSimMode && (
-               <div className="absolute top-[180px] left-4 right-4 z-[100] bg-black/80 backdrop-blur-md rounded-xl p-4 border border-white/20 flex items-center justify-between shadow-2xl">
-                  <div className="flex items-center gap-4">
-                     <div className="w-8 h-8 bg-red-500 rounded-lg flex items-center justify-center animate-pulse">
-                        <Play className="w-4 h-4 text-white fill-current" />
-                     </div>
-                     <div className="flex flex-col">
-                        <span className="text-red-500 text-[10px] font-bold uppercase tracking-widest">Auto Navigation Active</span>
-                        <span className="text-white text-[11px] font-medium">Following actual road path...</span>
-                     </div>
+            {isSimMode && (
+              <div className="absolute top-[9.5rem] left-3 right-3 z-[100] bg-slate-950/90 backdrop-blur-md rounded-2xl p-3 border border-white/10 flex items-center justify-between shadow-xl">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-8 h-8 bg-red-500 rounded-lg flex items-center justify-center animate-pulse shrink-0">
+                    <Play className="w-4 h-4 text-white fill-current" />
                   </div>
-                  <button onClick={() => setIsSimMode(false)} className="bg-white/10 text-white/50 hover:text-white px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest border border-white/10">Stop</button>
-               </div>
-             )}
-
-             <div className="absolute right-4 bottom-28 md:bottom-32 flex flex-col gap-4 z-[120]">
-                <div className="flex flex-col bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden">
-                   <button onClick={() => setZoom(z => Math.min(22, z + 1))} className="p-3 hover:bg-gray-50 border-b border-gray-100 text-gray-900 active:scale-90 transition-all" aria-label="Zoom in"><Plus className="w-5 h-5 stroke-[2.75]" /></button>
-                   <button onClick={() => setZoom(z => Math.max(8, z - 1))} className="p-3 hover:bg-gray-50 text-gray-900 active:scale-90 transition-all" aria-label="Zoom out"><Minus className="w-5 h-5 stroke-[2.75]" /></button>
+                  <div className="min-w-0">
+                    <span className="text-red-400 text-[10px] font-bold uppercase tracking-wide block">Simulation on</span>
+                    <span className="text-white/80 text-[11px] truncate block">Following route for testing</span>
+                  </div>
                 </div>
-                <button 
-                  onClick={() => {
-                    const nextSimState = !isSimMode;
-                    setIsSimMode(nextSimState);
-                    
-                    if (nextSimState) {
-                      toast.warning('Simulation Mode Active');
-                      // Initialize position if null
-                      if (!useDeliveryStore.getState().riderLocation && activeOrder) {
-                        const target = activeOrder.restaurantLocation || activeOrder.customerLocation;
-                        if (target) {
-                          setRiderLocation({ 
-                            lat: parseFloat(target.lat || target.latitude) + 0.001, 
-                            lng: parseFloat(target.lng || target.longitude) + 0.001, 
-                            heading: 0 
-                          });
-                        }
+                <button type="button" onClick={() => setIsSimMode(false)} className="shrink-0 bg-white/10 text-white px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase">Stop</button>
+              </div>
+            )}
+
+            <div className="absolute right-3 bottom-4 flex flex-col gap-2.5 z-[120]">
+              <div className="flex flex-col bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
+                <button type="button" onClick={() => setZoom(z => Math.min(22, z + 1))} className="p-3 hover:bg-slate-50 border-b border-slate-100 text-slate-900 active:scale-95" aria-label="Zoom in"><Plus className="w-5 h-5" /></button>
+                <button type="button" onClick={() => setZoom(z => Math.max(8, z - 1))} className="p-3 hover:bg-slate-50 text-slate-900 active:scale-95" aria-label="Zoom out"><Minus className="w-5 h-5" /></button>
+              </div>
+              <button type="button" onClick={handleCenterMap} className="w-12 h-12 bg-white rounded-full shadow-lg flex items-center justify-center text-slate-900 border border-slate-200 active:scale-95" aria-label="Center on my location">
+                <Target className="w-5 h-5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const nextSimState = !isSimMode;
+                  setIsSimMode(nextSimState);
+                  if (nextSimState) {
+                    toast.warning('Simulation mode active');
+                    if (!useDeliveryStore.getState().riderLocation && activeOrder) {
+                      const target = activeOrder.restaurantLocation || activeOrder.customerLocation;
+                      if (target) {
+                        setRiderLocation({
+                          lat: parseFloat(target.lat || target.latitude) + 0.001,
+                          lng: parseFloat(target.lng || target.longitude) + 0.001,
+                          heading: 0,
+                        });
                       }
                     }
-                  }}
-                  className={`w-14 h-14 rounded-full shadow-2xl flex items-center justify-center border border-gray-100 transition-all ${isSimMode ? 'bg-red-500 text-white' : 'bg-white text-green-500'}`}
-                >
-                  <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center ${isSimMode ? 'border-white' : 'border-green-500'}`}>
-                    <Play className={`w-4 h-4 fill-current ml-0.5 ${isSimMode ? 'animate-pulse' : ''}`} />
-                  </div>
-                </button>
-                <button 
-                   onClick={() => mapRef.current?.setOptions({ gestureHandling: 'greedy' })} 
-                   className="w-14 h-14 bg-white rounded-full shadow-2xl flex items-center justify-center text-blue-600 border border-gray-100 active:scale-90 transition-all"
-                >
-                  <div className="w-8 h-8 rounded-full border-2 border-blue-600 flex items-center justify-center"><Navigation2 className="w-4 h-4" /></div>
-                </button>
-                <button 
-                  onClick={handleCenterMap}
-                  className="w-14 h-14 bg-white rounded-full shadow-2xl flex items-center justify-center text-gray-900 border border-gray-100 group active:scale-90 transition-all"
-                >
-                  <Target className="w-7 h-7" />
-                </button>
-             </div>
+                  }
+                }}
+                className={`w-12 h-12 rounded-full shadow-lg flex items-center justify-center border active:scale-95 ${isSimMode ? 'bg-red-500 text-white border-red-400' : 'bg-white text-emerald-600 border-slate-200'}`}
+                aria-label="Toggle simulation"
+              >
+                <Play className={`w-4 h-4 fill-current ml-0.5 ${isSimMode ? 'animate-pulse' : ''}`} />
+              </button>
+            </div>
+
            </div>
          ) : currentTab === 'pocket' ? (
            <React.Suspense fallback={<div className="min-h-[50vh] flex flex-col items-center justify-center font-poppins"><div className="w-10 h-10 border-4 border-[#FF6A00] border-t-transparent rounded-full animate-spin mb-4" /><p className="text-xs font-semibold text-gray-500">Loading Pocket...</p></div>}>
@@ -1293,64 +1411,73 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
          </div>
       </BottomPopup>
 
-      {/* Floating Minimize/Restore Toggle - Above navbar */}
       {isModalMinimized && (activeOrder || incomingOrder || showVerification) && (
-        <motion.div 
-           initial={{ y: 100, opacity: 0 }}
-           animate={{ y: 0, opacity: 1 }}
-           className="fixed bottom-[100px] inset-x-0 z-[300] px-6"
+        <motion.div
+          initial={{ y: 100, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          className="fixed bottom-[calc(5.25rem+env(safe-area-inset-bottom))] inset-x-0 z-[300] px-4 lg:max-w-[430px] lg:left-1/2 lg:-translate-x-1/2"
         >
-           <button 
-             onClick={() => setIsModalMinimized(false)}
-             className="w-full bg-gray-900/90 text-white rounded-2xl py-4 flex items-center justify-between px-6 shadow-2xl backdrop-blur-md border border-white/10"
-           >
-              <div className="flex flex-col items-start gap-0.5">
-                 <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Order Action Pending</span>
-                 <span className="text-xs font-bold uppercase tracking-wider">Tap to open delivery panel</span>
-              </div>
-              <div className="bg-red-500 p-2 rounded-xl text-white">
-                 <Plus className="w-5 h-5" />
-              </div>
-           </button>
+          <button
+            type="button"
+            onClick={() => setIsModalMinimized(false)}
+            className="w-full bg-slate-900/95 text-white rounded-2xl py-3.5 flex items-center justify-between px-5 shadow-2xl backdrop-blur-md border border-white/10"
+          >
+            <div className="flex flex-col items-start gap-0.5">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Order action pending</span>
+              <span className="text-xs font-semibold">Tap to open delivery panel</span>
+            </div>
+            <div className="bg-primary-orange p-2 rounded-xl text-white">
+              <Plus className="w-5 h-5" />
+            </div>
+          </button>
         </motion.div>
       )}
 
-      {/* ─── 3. BOTTOM NAV (Fixed - Compact Pro) ─── */}
-      <div className="bg-white border-t border-gray-100 px-8 py-3 pb-6 flex justify-between items-center z-[200] shadow-[0_-5px_20px_rgba(0,0,0,0.05)]">
-         <button onClick={() => navigate('/food/delivery/feed')} className={`flex flex-col items-center gap-1 transition-all ${currentTab === 'feed' ? 'text-gray-950 scale-110' : 'text-gray-400 opacity-70'}`}>
-            <LayoutGrid className="w-6 h-6" /><span className="text-[11px] font-medium font-sans">Feed</span>
-         </button>
-         <button onClick={() => navigate('/food/delivery/pocket')} className={`flex flex-col items-center gap-1 transition-all ${currentTab === 'pocket' ? 'text-gray-950 scale-110' : 'text-gray-400 opacity-70'}`}>
-            <Wallet className="w-6 h-6" /><span className="text-[11px] font-medium font-sans">Pocket</span>
-         </button>
-         <button onClick={() => navigate('/food/delivery/history')} className={`flex flex-col items-center gap-1 transition-all ${currentTab === 'history' ? 'text-gray-950 scale-110' : 'text-gray-400 opacity-70'}`}>
-            <History className="w-6 h-6" /><span className="text-[11px] font-medium font-sans">Trip History</span>
-         </button>
-         <button onClick={() => navigate('/food/delivery/profile')} className={`flex flex-col items-center gap-1 transition-all ${currentTab === 'profile' ? 'text-gray-950 scale-110' : 'text-gray-400 opacity-70'}`}>
-            <UserIcon className="w-6 h-6" /><span className="text-[11px] font-medium font-sans">Profile</span>
-         </button>
-      </div>
-      <SubscriptionConfirmationModal 
+      <nav className="shrink-0 z-[200] bg-white/95 backdrop-blur-md border-t border-slate-200 px-2 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-8px_24px_rgba(15,23,42,0.06)]">
+        <div className="grid grid-cols-4 gap-1">
+          {[
+            { key: 'feed', label: 'Feed', path: '/food/delivery/feed', Icon: LayoutGrid },
+            { key: 'pocket', label: 'Pocket', path: '/food/delivery/pocket', Icon: Wallet },
+            { key: 'history', label: 'History', path: '/food/delivery/history', Icon: History },
+            { key: 'profile', label: 'Profile', path: '/food/delivery/profile', Icon: UserIcon },
+          ].map(({ key, label, path, Icon }) => {
+            const active = currentTab === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => navigate(path)}
+                className={`flex flex-col items-center gap-1 py-2 rounded-xl transition ${active ? 'text-primary-orange bg-orange-50' : 'text-slate-400'}`}
+              >
+                <Icon className="w-5 h-5" strokeWidth={active ? 2.5 : 2} />
+                <span className={`text-[10px] ${active ? 'font-bold' : 'font-medium'}`}>{label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </nav>
+
+      <SubscriptionConfirmationModal
         isOpen={showSubModal}
         loading={isProcessingToggle}
+        data={eligibilityData}
         onClose={() => setShowSubModal(false)}
-        onConfirm={async () => {
-          setIsProcessingToggle(true);
-          try {
-            await deliveryAPI.updateOnlineStatus(true);
-            setOnline(true);
-            setShowSubModal(false);
-            navigator.geolocation.getCurrentPosition((pos) => {
-                deliveryAPI.updateLocation(pos.coords.latitude, pos.coords.longitude, true).catch(() => {});
-            }, (err) => console.warn('Online sync position failed:', err), { enableHighAccuracy: true });
-          } catch (err) {
-            toast.error(err.response?.data?.message || "Failed to activate pass");
-          } finally {
-            setIsProcessingToggle(false);
-          }
+        onConfirm={confirmPassAndGoOnline}
+      />
+      <LowBalanceBlockingModal
+        isOpen={showLowBalanceModal}
+        onClose={() => setShowLowBalanceModal(false)}
+        data={eligibilityData}
+        onRecharge={() => {
+          setShowLowBalanceModal(false);
+          navigate('/food/delivery/profile');
         }}
       />
-      
+      <CashLimitBlockingModal
+        isOpen={showCashLimitModal}
+        onClose={() => setShowCashLimitModal(false)}
+      />
+
       <VehicleSwitcherSheet 
         isOpen={showVehicleSwitcher}
         onClose={() => setShowVehicleSwitcher(false)}

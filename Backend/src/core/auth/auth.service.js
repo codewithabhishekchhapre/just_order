@@ -4,14 +4,14 @@ import { FoodUser } from "../users/user.model.js";
 import { FoodAdmin } from "../admin/admin.model.js";
 import { AdminResetOtp } from "../admin/adminResetOtp.model.js";
 import { FoodRestaurant } from "../../modules/food/restaurant/models/restaurant.model.js";
-import { FoodDeliveryPartner } from "../../modules/food/delivery/models/deliveryPartner.model.js";
+import { Driver } from '../models/driver.model.js';
 import { Seller } from "../../modules/quick-commerce/seller/models/seller.model.js";
 
 import { FoodReferralSettings } from "../../modules/food/admin/models/referralSettings.model.js";
 import { FoodReferralLog } from "../../modules/food/admin/models/referralLog.model.js";
 import { FoodUserWallet } from "../../modules/food/user/models/userWallet.model.js";
 import { createOrUpdateOtp, verifyOtp } from "../otp/otp.service.js";
-import { signAccessToken, signRefreshToken, verifyRefreshToken } from "./token.util.js";
+import { signAccessToken, signRefreshToken, verifyRefreshToken, signDeliveryDocsResubmitToken } from "./token.util.js";
 import { FoodRefreshToken } from "../refreshTokens/refreshToken.model.js";
 import { ValidationError, AuthError } from "./errors.js";
 import { config } from "../../config/env.js";
@@ -555,7 +555,7 @@ export const verifyDeliveryOtpAndLogin = async (phone, otp, fcmToken, platform) 
     return { needsRegistration: true, phone };
   }
 
-  const deliveryPartner = await FoodDeliveryPartner.findOne({
+  const deliveryPartner = await Driver.findOne({
     $or: [
       { phone: normalized },
       { phone: { $regex: new RegExp(normalized + "$") } },
@@ -567,7 +567,7 @@ export const verifyDeliveryOtpAndLogin = async (phone, otp, fcmToken, platform) 
   }
 
   if (deliveryPartner.isActive === false || deliveryPartner.isDeleted === true || deliveryPartner.accountStatus === 'deleted') {
-    if (deliveryPartner.status !== 'rejected') {
+    if (!['rejected', 'documents_required', 'pending'].includes(deliveryPartner.status)) {
       throw new AuthError(
         "Your delivery account has been deleted/deactivated by admin. Please contact support.",
       );
@@ -598,12 +598,25 @@ export const verifyDeliveryOtpAndLogin = async (phone, otp, fcmToken, platform) 
 
   if (deliveryPartner.status && deliveryPartner.status !== "approved") {
     const isRejected = deliveryPartner.status === "rejected";
-    if (isRejected) {
+    const documentsRequired = deliveryPartner.status === "documents_required";
+    if (isRejected || documentsRequired) {
+      const docsResubmitToken = documentsRequired
+        ? signDeliveryDocsResubmitToken(deliveryPartner.phone || normalized)
+        : undefined;
       return {
         pendingApproval: true,
-        isRejected: true,
-        rejectionReason: deliveryPartner.rejectionReason || "Application rejected by admin",
-        message: "Your application was rejected.",
+        isRejected: !documentsRequired,
+        documentsRequired,
+        documentsRequested: deliveryPartner.documentsRequested || [],
+        docsResubmitToken,
+        rejectionReason:
+          deliveryPartner.rejectionReason ||
+          (documentsRequired
+            ? "Please re-upload the requested documents"
+            : "Application rejected by admin"),
+        message: documentsRequired
+          ? "Please re-upload the requested documents."
+          : "Your application was rejected.",
       };
     }
     return {
@@ -649,7 +662,7 @@ export const logout = async (refreshToken, fcmToken, platform) => {
     // We try to remove the token from all 4 possible models regardless of the user ID, 
     // ensuring no stale connections are left across any role or app the user was logged into.
     const field = platform === "mobile" ? "fcmTokenMobile" : "fcmTokens";
-    const models = [FoodUser, FoodRestaurant, FoodDeliveryPartner, FoodAdmin];
+    const models = [FoodUser, FoodRestaurant, Driver, FoodAdmin];
     
     try {
       await Promise.all(
@@ -697,7 +710,7 @@ export const logoutAll = async (refreshToken, fcmToken, platform) => {
   // 2. Cleanup FCM token globally if provided
   if (fcmToken) {
     const field = platform === "mobile" ? "fcmTokenMobile" : "fcmTokens";
-    const models = [FoodUser, FoodRestaurant, FoodDeliveryPartner, FoodAdmin];
+    const models = [FoodUser, FoodRestaurant, Driver, FoodAdmin];
     try {
       await Promise.all(
         models.map((model) =>
@@ -801,7 +814,7 @@ export const getProfile = async (userId, role) => {
       }
       break;
     case ROLES.DELIVERY_PARTNER: {
-      const partner = await FoodDeliveryPartner.findById(id).lean();
+      const partner = await Driver.findById(id).lean();
       if (!partner) break;
       const deliveryId = partner._id
         ? `DP-${partner._id.toString().slice(-8).toUpperCase()}`

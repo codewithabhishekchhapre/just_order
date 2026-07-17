@@ -1,7 +1,7 @@
 import { verifyAccessToken } from './token.util.js';
 import { sendError } from '../../utils/response.js';
 import { FoodUser } from '../users/user.model.js';
-import { FoodDeliveryPartner } from '../../modules/food/delivery/models/deliveryPartner.model.js';
+import { Driver } from '../models/driver.model.js';
 import { FoodAdmin } from '../admin/admin.model.js';
 import { AdminRole } from '../admin/role.model.js';
 
@@ -37,7 +37,7 @@ export const authMiddleware = (req, res, next) => {
             return;
         }
         if (decoded.role === 'DELIVERY_PARTNER') {
-            FoodDeliveryPartner.findById(decoded.userId).select('isActive').lean().then((doc) => {
+            Driver.findById(decoded.userId).select('isActive').lean().then((doc) => {
                 if (!doc || doc.isActive === false) {
                     return sendError(res, 401, 'Delivery account is inactive');
                 }

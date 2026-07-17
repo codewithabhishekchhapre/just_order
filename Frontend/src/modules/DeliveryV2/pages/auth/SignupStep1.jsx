@@ -1,707 +1,411 @@
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect } from "react"
 import { useNavigate, useLocation } from "react-router-dom"
-import { ArrowLeft, Upload, X, Check, Camera, Image as ImageIcon } from "lucide-react"
+import { ArrowLeft, Bike } from "lucide-react"
 import { toast } from "sonner"
-import { openCamera, openGallery } from "@food/utils/imageUploadUtils"
 import useDeliveryBackNavigation from "../../hooks/useDeliveryBackNavigation"
-import { usePorterVehicles } from "../../../porter/admin/utils/vehicleStore"
-const debugLog = (...args) => {}
-const debugWarn = (...args) => {}
-const debugError = (...args) => {}
+import {
+  VEHICLE_OPTIONS,
+  emptySignupDetails,
+  loadSignupDetails,
+  saveSignupDetails,
+  validateSignupDetails,
+  isMotorizedVehicle,
+} from "../../utils/signupDraft"
+import { DeliveryStepper, DeliveryPageHeader, DeliveryPrimaryButton } from "../../components/ui/deliveryUi"
 
-const DB_NAME = "DeliverySignupDB"
-const STORE_NAME = "documents"
-
-let cachedDB = null
-const initDB = () => {
-  return new Promise((resolve) => {
-    if (cachedDB) {
-      return resolve(cachedDB)
-    }
-    // WebView mein indexedDB available nahi bhi ho sakta
-    if (typeof indexedDB === 'undefined' || !indexedDB) {
-      return resolve(null)
-    }
-    // Safety timeout: WebView mein indexedDB.open() kabhi kabhi hang karta hai
-    // 2 seconds ke baad null return kar do taaki UI stuck na rahe
-    const timeoutId = setTimeout(() => resolve(null), 2000)
-    try {
-      const request = indexedDB.open(DB_NAME, 1)
-      request.onupgradeneeded = (e) => {
-        const db = e.target.result
-        if (!db.objectStoreNames.contains(STORE_NAME)) {
-          db.createObjectStore(STORE_NAME)
-        }
-      }
-      request.onsuccess = (e) => {
-        clearTimeout(timeoutId)
-        cachedDB = e.target.result
-        resolve(cachedDB)
-      }
-      request.onerror = () => {
-        clearTimeout(timeoutId)
-        resolve(null)
-      }
-    } catch (e) {
-      clearTimeout(timeoutId)
-      resolve(null)
-    }
-  })
-}
-
-const saveFileToDB = async (key, file) => {
-  const db = await initDB()
-  if (!db) return
-  return new Promise((resolve) => {
-    try {
-      const transaction = db.transaction(STORE_NAME, "readwrite")
-      const store = transaction.objectStore(STORE_NAME)
-      store.put(file, key)
-      transaction.oncomplete = () => resolve()
-      transaction.onerror = () => resolve()
-    } catch (e) {
-      resolve()
-    }
-  })
-}
-
-const getFileFromDB = async (key) => {
-  const db = await initDB()
-  if (!db) return null
-  return new Promise((resolve) => {
-    try {
-      const transaction = db.transaction(STORE_NAME, "readonly")
-      const store = transaction.objectStore(STORE_NAME)
-      const request = store.get(key)
-      request.onsuccess = () => resolve(request.result)
-      request.onerror = () => resolve(null)
-    } catch (e) {
-      resolve(null)
-    }
-  })
-}
-
-const removeFileFromDB = async (key) => {
-  const db = await initDB()
-  if (!db) return
-  try {
-    const transaction = db.transaction(STORE_NAME, "readwrite")
-    transaction.objectStore(STORE_NAME).delete(key)
-  } catch (e) {
-    debugError("Error removing file from DB:", e)
-  }
-}
-
-
+const fieldClass = (hasError) =>
+  `w-full min-h-[48px] px-4 py-3 text-base border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-orange/30 ${
+    hasError ? "border-red-500" : "border-gray-300"
+  }`
 
 export default function SignupStep1() {
   const navigate = useNavigate()
   const goBack = useDeliveryBackNavigation()
-  const [porterVehicles] = usePorterVehicles()
   const location = useLocation()
-  const searchParams = new URLSearchParams(location.search)
-  const queryRef = searchParams.get("ref") || ""
+  const queryRef = new URLSearchParams(location.search).get("ref") || ""
 
   const [formData, setFormData] = useState(() => {
-    const saved = sessionStorage.getItem("deliverySignupDetails")
-    const base = {
-      name: "",
-      phone: "",
-      countryCode: "+91",
-      ref: queryRef,
-      email: "",
-      address: "",
-      city: "",
-      state: "",
-      vehicles: [],
-      drivingLicenseNumber: "",
-      panNumber: "",
-      aadharNumber: ""
-    }
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved)
-        // Ensure vehicles is an array even if old data had vehicleType
-        const vehicles = Array.isArray(parsed.vehicles) ? parsed.vehicles : [];
-        return { ...base, ...parsed, ref: parsed.ref || queryRef, vehicles }
-      } catch (e) {
-        debugError("Error parsing saved details:", e)
+    const saved = loadSignupDetails()
+    const authRaw = sessionStorage.getItem("deliveryAuthData")
+    let phone = ""
+    let countryCode = "+91"
+    try {
+      if (authRaw) {
+        const auth = JSON.parse(authRaw)
+        phone = String(auth.phone || "").replace(/\D/g, "").slice(-10)
+        countryCode = auth.countryCode || "+91"
       }
+    } catch {
+      /* ignore */
     }
-    return base
+    return emptySignupDetails({
+      ...(saved || {}),
+      phone: saved?.phone || phone,
+      countryCode: saved?.countryCode || countryCode,
+      ref: saved?.ref || queryRef,
+    })
   })
   const [errors, setErrors] = useState({})
   const [isSubmitting, setIsSubmitting] = useState(false)
-  
-  const [showAddVehicle, setShowAddVehicle] = useState(false)
-  const [newVehicle, setNewVehicle] = useState({
-    vehicleId: "",
-    registrationNumber: "",
-    model: ""
-  })
+  const [keyboardInset, setKeyboardInset] = useState(0)
 
-  const handleAddVehicle = () => {
-    if (!newVehicle.vehicleId) {
-      toast.error("Please select a vehicle category");
-      return;
-    }
-    
-    const selectedMaster = porterVehicles.find(v => v.id === newVehicle.vehicleId);
-    if (!selectedMaster) return;
+  const motorized = isMotorizedVehicle(formData.vehicleType)
 
-    const isBicycle = selectedMaster.category?.toLowerCase() === "bicycle";
-    // Future ready registration requirement
-    const registrationRequired = selectedMaster.registrationRequired !== undefined ? selectedMaster.registrationRequired : !isBicycle;
-
-    if (registrationRequired && !newVehicle.registrationNumber.trim()) {
-      toast.error("Registration Number is required for this vehicle");
-      return;
-    }
-
-    if (registrationRequired && !/^[A-Z]{2}[0-9]{1,2}[A-Z]{1,2}[0-9]{4}$/.test(newVehicle.registrationNumber.trim().toUpperCase())) {
-      toast.error("Invalid Indian vehicle number format (e.g., MH12AB1234)");
-      return;
-    }
-
-    setFormData(prev => ({
-      ...prev,
-      vehicles: [...prev.vehicles, {
-        id: Date.now().toString(),
-        vehicleId: newVehicle.vehicleId,
-        registrationNumber: newVehicle.registrationNumber.trim().toUpperCase(),
-        model: newVehicle.model.trim(),
-        status: "Draft"
-      }]
-    }));
-
-    setNewVehicle({ vehicleId: "", registrationNumber: "", model: "" });
-    setShowAddVehicle(false);
-    toast.success("Vehicle added successfully");
-    if (errors.vehicles) {
-      setErrors(prev => ({ ...prev, vehicles: "" }));
-    }
-  }
-
-  const handleRemoveVehicle = (id) => {
-    setFormData(prev => ({
-      ...prev,
-      vehicles: prev.vehicles.filter(v => v.id !== id)
-    }));
-  }
-
-  const sanitizeLocationValue = (value) =>
-    value.replace(/[^A-Za-z\s.-]/g, "").replace(/\s{2,}/g, " ")
-
-  const sanitizeNameValue = (value) =>
-    value.replace(/[^A-Za-z\s]/g, "").replace(/\s{2,}/g, " ")
-
-  const isValidLocationValue = (value) =>
-    /^[A-Za-z][A-Za-z\s.-]*[A-Za-z.]$/.test(value.trim())
-
-  const isValidNameValue = (value) =>
-    /^[A-Za-z][A-Za-z\s]*[A-Za-z]$/.test(value.trim())
-
-  const isValidEmailValue = (value) => {
-    const normalizedValue = value.trim().toLowerCase()
-    // General email regex
-    if (!/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(normalizedValue)) {
-      return false
-    }
-
-    const [, domain = ""] = normalizedValue.split("@")
-    
-    // Catch common typos for Gmail
-    const gmailTypos = [
-      "gnail.com", "gmal.com", "gmaill.com", "gamil.com", "gmial.com", 
-      "gmail.co", "gmail.con", "gmail.cm", "g-mail.com"
-    ]
-    
-    if (gmailTypos.includes(domain)) {
-      return false
-    }
-
-    // If it starts with gmail. but isn't gmail.com (e.g. gmail.in is usually not a thing)
-    if (domain.startsWith("gmail.") && domain !== "gmail.com") {
-      return false
-    }
-
-    return true
-  }
-
-  const sanitizeEmailValue = (value) =>
-    value.replace(/\s/g, "").toLowerCase()
-
-  // Save data to session storage whenever formData changes
   useEffect(() => {
-    sessionStorage.setItem("deliverySignupDetails", JSON.stringify(formData))
+    saveSignupDetails(formData)
   }, [formData])
 
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv) return undefined
+    const onResize = () => {
+      const inset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop)
+      setKeyboardInset(inset > 80 ? inset : 0)
+    }
+    vv.addEventListener("resize", onResize)
+    vv.addEventListener("scroll", onResize)
+    return () => {
+      vv.removeEventListener("resize", onResize)
+      vv.removeEventListener("scroll", onResize)
+    }
+  }, [])
+
+  const setField = (name, value) => {
+    setFormData((prev) => ({ ...prev, [name]: value }))
+    if (errors[name]) setErrors((prev) => ({ ...prev, [name]: "" }))
+  }
+
   const handleChange = (e) => {
-    const { name, value } = e.target
-    let updatedValue = value
+    const { name, value, type, checked } = e.target
+    let next = type === "checkbox" ? checked : value
 
     if (name === "drivingLicenseNumber") {
-      updatedValue = updatedValue.replace(/[^A-Z0-9]/g, "").slice(0, 16)
+      next = String(value).toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 16)
     }
-
-    // Restrict Aadhaar to numeric only and format as XXXX XXXX XXXX
     if (name === "aadharNumber") {
       const digits = value.replace(/\D/g, "").slice(0, 12)
-      updatedValue = digits.replace(/(\d{4})(?=\d)/g, "$1 ")
+      next = digits.replace(/(\d{4})(?=\d)/g, "$1 ")
     }
-
-    if (name === "city" || name === "state") {
-      updatedValue = sanitizeLocationValue(value)
+    if (name === "vehicleNumber") {
+      next = String(value).toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 10)
     }
-
+    if (name === "bankIfscCode") {
+      next = String(value).toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 11)
+    }
+    if (name === "bankAccountNumber") {
+      next = String(value).replace(/\D/g, "").slice(0, 18)
+    }
+    if (name === "emergencyContactPhone") {
+      next = String(value).replace(/\D/g, "").slice(0, 10)
+    }
     if (name === "email") {
-      updatedValue = sanitizeEmailValue(value)
+      next = String(value).replace(/\s/g, "").toLowerCase()
+    }
+    if (name === "name" || name === "bankAccountHolderName" || name === "emergencyContactName") {
+      next = String(value).replace(/[^A-Za-z\s]/g, "").replace(/\s{2,}/g, " ")
     }
 
-    setFormData(prev => ({
+    setField(name, next)
+  }
+
+  const handleVehicleSelect = (id) => {
+    setFormData((prev) => ({
       ...prev,
-      [name]: updatedValue
+      vehicleType: id,
+      ...(id === "bicycle"
+        ? { vehicleNumber: "", drivingLicenseNumber: "", drivingLicenseExpiry: "" }
+        : {}),
     }))
-    // Clear error for this field
-    if (errors[name]) {
-      setErrors(prev => ({
-        ...prev,
-        [name]: ""
-      }))
-    }
+    if (errors.vehicleType) setErrors((prev) => ({ ...prev, vehicleType: "" }))
   }
 
-  const validate = () => {
-    const newErrors = {}
-
-    if (!formData.name.trim()) {
-      newErrors.name = "Name is required"
-    } else if (!isValidNameValue(formData.name)) {
-      newErrors.name = "Name can contain letters only"
-    }
-
-    if (formData.email && !isValidEmailValue(formData.email)) {
-      newErrors.email = "Enter a valid email address. Gmail must be gmail.com"
-    }
-
-    if (!formData.address.trim()) {
-      newErrors.address = "Address is required"
-    }
-
-    if (!formData.city.trim()) {
-      newErrors.city = "City is required"
-    } else if (!isValidLocationValue(formData.city)) {
-      newErrors.city = "City can contain letters only"
-    }
-
-    if (!formData.state.trim()) {
-      newErrors.state = "State is required"
-    } else if (!isValidLocationValue(formData.state)) {
-      newErrors.state = "State can contain letters only"
-    }
-
-    if (formData.vehicles.length === 0) {
-      newErrors.vehicles = "Please add at least one vehicle"
-    }
-
-    const requiresDl = formData.vehicles.some(v => {
-      const master = porterVehicles.find(p => p.id === v.vehicleId);
-      const cat = master?.category?.toLowerCase() || "";
-      return cat !== "bicycle" && cat !== "electric bike" && cat !== "electric_bike";
-    });
-
-    if (requiresDl) {
-      if (!formData.drivingLicenseNumber.trim()) {
-        newErrors.drivingLicenseNumber = "Driving license number is required"
-      } else if (!/^[A-Z]{2}[0-9]{2}[0-9]{4}[0-9]{7}$/.test(formData.drivingLicenseNumber)) {
-        newErrors.drivingLicenseNumber = "Invalid DL format (e.g., MH1220110012345)"
-      }
-    } else {
-      if (formData.drivingLicenseNumber.trim()) {
-        if (!/^[A-Z]{2}[0-9]{2}[0-9]{4}[0-9]{7}$/.test(formData.drivingLicenseNumber)) {
-          newErrors.drivingLicenseNumber = "Invalid DL format (e.g., MH1220110012345)"
-        }
-      }
-    }
-
-    if (!formData.panNumber.trim()) {
-      newErrors.panNumber = "PAN number is required"
-    } else if (!/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(formData.panNumber.replace(/\s/g, ""))) {
-      newErrors.panNumber = "Invalid PAN format (e.g., ABCDE1234F)"
-    }
-
-    const aadharClean = formData.aadharNumber.replace(/\s/g, "")
-    if (!aadharClean) {
-      newErrors.aadharNumber = "Aadhar number is required"
-    } else if (!/^\d{12}$/.test(aadharClean)) {
-      newErrors.aadharNumber = "Aadhar number must be 12 digits"
-    }
-
-    setErrors(newErrors)
-    return Object.keys(newErrors).length === 0
-  }
-
-  const handleSubmit = async (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault()
+    if (isSubmitting) return
 
-    if (!validate()) {
+    const nextErrors = validateSignupDetails(formData)
+    setErrors(nextErrors)
+    if (Object.keys(nextErrors).length) {
       toast.error("Please fill all required fields correctly")
+      const firstKey = Object.keys(nextErrors)[0]
+      document.querySelector(`[name="${firstKey}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" })
       return
     }
 
     setIsSubmitting(true)
-
     try {
       const details = {
+        ...formData,
         name: formData.name.trim(),
-        phone: String(formData.phone || "").replace(/\D/g, "").slice(0, 15),
-        countryCode: formData.countryCode || "+91",
-        ref: String(formData.ref || "").trim() || "",
         email: formData.email?.trim() || "",
-        address: formData.address.trim(),
-        city: formData.city.trim(),
-        state: formData.state.trim(),
-        vehicles: formData.vehicles,
+        aadharNumber: formData.aadharNumber.replace(/\s/g, ""),
         drivingLicenseNumber: formData.drivingLicenseNumber.trim().toUpperCase(),
-        panNumber: formData.panNumber.trim().toUpperCase(),
-        aadharNumber: formData.aadharNumber.replace(/\s/g, "")
+        vehicleNumber: formData.vehicleNumber.trim().toUpperCase(),
+        vehicleBrand: formData.vehicleBrand.trim(),
+        vehicleModel: formData.vehicleModel.trim(),
+        bankIfscCode: formData.bankIfscCode.trim().toUpperCase(),
+        bankAccountNumber: formData.bankAccountNumber.replace(/\s/g, ""),
+        bankAccountHolderName: formData.bankAccountHolderName.trim(),
+        emergencyContactName: formData.emergencyContactName.trim(),
+        emergencyContactPhone: formData.emergencyContactPhone.replace(/\D/g, "").slice(0, 10),
+        phone: String(formData.phone || "").replace(/\D/g, "").slice(0, 15),
       }
-      sessionStorage.setItem("deliverySignupDetails", JSON.stringify(details))
+      saveSignupDetails(details)
       toast.success("Details saved")
       navigate("/food/delivery/signup/documents")
-    } catch (error) {
-      debugError("Error saving details:", error)
+    } catch {
       toast.error("Failed to save. Please try again.")
     } finally {
       setIsSubmitting(false)
     }
   }
 
-  const requiresDl = formData.vehicles.some(v => {
-    const master = porterVehicles.find(p => p.id === v.vehicleId);
-    const cat = master?.category?.toLowerCase() || "";
-    return cat !== "bicycle" && cat !== "electric bike" && cat !== "electric_bike";
-  });
+  const rejectionReason = sessionStorage.getItem("deliveryRejectionReason")
+  const documentsRequested = (() => {
+    try {
+      return JSON.parse(sessionStorage.getItem("deliveryDocumentsRequested") || "[]")
+    } catch {
+      return []
+    }
+  })()
 
   return (
-    <div className="min-h-screen bg-gray-100">
-      {/* Header */}
-      <div className="bg-white px-4 py-3 flex items-center gap-4 border-b border-gray-200">
+    <div
+      className="min-h-screen bg-slate-50 flex flex-col"
+      style={{ paddingBottom: keyboardInset ? keyboardInset + 16 : undefined }}
+    >
+      <header className="sticky top-0 z-20 bg-white/95 backdrop-blur px-3 sm:px-4 py-3 flex items-center gap-3 border-b border-slate-200 safe-area-top">
         <button
+          type="button"
           onClick={goBack}
-          className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+          className="p-2 -ml-1 hover:bg-gray-100 rounded-full transition-colors shrink-0"
+          aria-label="Go back"
         >
           <ArrowLeft className="w-5 h-5" />
         </button>
-        <h1 className="text-lg font-medium">Complete Your Profile</h1>
-      </div>
-
-      {/* Content */}
-      <div className="px-4 py-6">
-        <div className="mb-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-2">Basic Details</h2>
-          <p className="text-sm text-gray-600">Please provide your information to continue</p>
+        <div className="min-w-0">
+          <h1 className="text-base sm:text-lg font-semibold text-gray-900 truncate">Partner Onboarding</h1>
+          <p className="text-xs text-gray-500 truncate">Step 1 of 2 · Personal & vehicle details</p>
         </div>
+      </header>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Name */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Full Name <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              name="name"
-              value={formData.name}
-              onChange={handleChange}
-              inputMode="text"
-              className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 ${errors.name ? "border-red-500" : "border-gray-300"
-                }`}
-              placeholder="Enter your full name"
-            />
-            {errors.name && <p className="text-red-500 text-sm mt-1">{errors.name}</p>}
-          </div>
+      <main className="flex-1 w-full max-w-lg mx-auto px-3 sm:px-4 py-4 sm:py-6">
+        <DeliveryStepper step={1} />
 
-          {/* Email */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Email (Optional)
-            </label>
-            <input
-              type="email"
-              name="email"
-              value={formData.email}
-              onChange={handleChange}
-              autoCapitalize="none"
-              autoCorrect="off"
-              autoComplete="email"
-              inputMode="email"
-              className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 ${errors.email ? "border-red-500" : "border-gray-300"
-                }`}
-              placeholder="Enter your email"
-            />
-            {errors.email && <p className="text-red-500 text-sm mt-1">{errors.email}</p>}
-          </div>
-
-          {/* Address */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Address <span className="text-red-500">*</span>
-            </label>
-            <textarea
-              name="address"
-              value={formData.address}
-              onChange={handleChange}
-              rows={3}
-              className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 ${errors.address ? "border-red-500" : "border-gray-300"
-                }`}
-              placeholder="Enter your address"
-            />
-            {errors.address && <p className="text-red-500 text-sm mt-1">{errors.address}</p>}
-          </div>
-
-          {/* City and State */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                City <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                name="city"
-                value={formData.city}
-                onChange={handleChange}
-                className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 ${errors.city ? "border-red-500" : "border-gray-300"
-                  }`}
-                placeholder="City"
-              />
-              {errors.city && <p className="text-red-500 text-sm mt-1">{errors.city}</p>}
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                State <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                name="state"
-                value={formData.state}
-                onChange={handleChange}
-                className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 ${errors.state ? "border-red-500" : "border-gray-300"
-                  }`}
-                placeholder="State"
-              />
-              {errors.state && <p className="text-red-500 text-sm mt-1">{errors.state}</p>}
-            </div>
-          </div>
-
-          {/* My Vehicles Section */}
-          <div className="pt-4 border-t border-gray-200">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold text-gray-900">My Vehicles</h3>
-            </div>
-            
-            {formData.vehicles.length === 0 ? (
-              <div className="text-center py-6 bg-gray-50 rounded-lg border border-gray-200">
-                <p className="text-sm text-gray-500">No vehicles added yet.</p>
-                {errors.vehicles && <p className="text-red-500 text-sm mt-1">{errors.vehicles}</p>}
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {formData.vehicles.map(v => {
-                  const master = porterVehicles.find(p => p.id === v.vehicleId);
-                  return (
-                    <div key={v.id} className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm relative">
-                      <button 
-                        type="button" 
-                        onClick={() => handleRemoveVehicle(v.id)}
-                        className="absolute top-3 right-3 text-gray-400 hover:text-red-500 transition-colors"
-                      >
-                        <X className="w-5 h-5" />
-                      </button>
-                      <div className="flex items-start gap-4">
-                        <div className="w-16 h-16 bg-gray-50 rounded-lg flex items-center justify-center p-2 border border-gray-100 shrink-0">
-                          {master?.image ? (
-                            <img src={master.image} alt={master.name} className="w-full h-full object-contain" />
-                          ) : (
-                            <Truck className="w-8 h-8 text-gray-400" />
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <h4 className="font-bold text-gray-900 text-base truncate">{master?.name || "Unknown Vehicle"}</h4>
-                          <p className="text-xs text-gray-500 mt-0.5">{master?.category || ""}</p>
-                          
-                          <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
-                            <div>
-                              <span className="text-gray-500 text-xs block">Reg. Number</span>
-                              <span className="font-medium text-gray-900">{v.registrationNumber || "N/A"}</span>
-                            </div>
-                            <div>
-                              <span className="text-gray-500 text-xs block">Status</span>
-                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
-                                {v.status}
-                              </span>
-                            </div>
-                          </div>
-                          
-                          {master?.supportedServices && master.supportedServices.length > 0 && (
-                            <div className="mt-3 flex flex-wrap gap-1.5">
-                              {master.supportedServices.map(service => (
-                                <span key={service} className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full text-xs font-medium capitalize">
-                                  {service}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
+        {(rejectionReason || documentsRequested.length > 0) && (
+          <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+            {rejectionReason && <p className="font-medium">{rejectionReason}</p>}
+            {documentsRequested.length > 0 && (
+              <p className="mt-1 text-xs">Re-upload required: {documentsRequested.join(", ")}</p>
             )}
+          </div>
+        )}
 
-            {!showAddVehicle ? (
-              <button
-                type="button"
-                onClick={() => setShowAddVehicle(true)}
-                className="mt-4 w-full py-3 rounded-lg border-2 border-dashed border-green-500 text-green-600 font-medium hover:bg-green-50 transition-colors flex items-center justify-center gap-2"
-              >
-                <span>+ Add Another Vehicle</span>
-              </button>
-            ) : (
-              <div className="mt-4 bg-gray-50 p-4 rounded-xl border border-gray-200">
-                <div className="flex items-center justify-between mb-4">
-                  <h4 className="font-bold text-gray-900">Add New Vehicle</h4>
-                  <button type="button" onClick={() => setShowAddVehicle(false)} className="text-gray-500 hover:text-gray-700">
-                    <X className="w-5 h-5" />
-                  </button>
-                </div>
-                
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Select Vehicle <span className="text-red-500">*</span>
-                    </label>
-                    <select
-                      value={newVehicle.vehicleId}
-                      onChange={(e) => setNewVehicle(p => ({ ...p, vehicleId: e.target.value }))}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
-                    >
-                      <option value="">Choose from list...</option>
-                      {porterVehicles.filter(pv => !formData.vehicles.some(v => v.vehicleId === pv.id)).map(pv => (
-                        <option key={pv.id} value={pv.id}>{pv.name} ({pv.category})</option>
-                      ))}
-                    </select>
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Registration Number
-                    </label>
-                    <input
-                      type="text"
-                      value={newVehicle.registrationNumber}
-                      onChange={(e) => setNewVehicle(p => ({ ...p, registrationNumber: e.target.value.toUpperCase().slice(0, 10) }))}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
-                      placeholder="e.g., MH12AB1234"
-                    />
-                  </div>
+        <form onSubmit={handleSubmit} className="space-y-5" noValidate>
+          <section className="bg-white rounded-2xl border border-gray-100 p-4 sm:p-5 space-y-4 shadow-sm">
+            <h2 className="text-base font-bold text-gray-900">Personal information</h2>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Vehicle Model (Optional)
-                    </label>
-                    <input
-                      type="text"
-                      value={newVehicle.model}
-                      onChange={(e) => setNewVehicle(p => ({ ...p, model: e.target.value }))}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
-                      placeholder="e.g., 2022 Edition"
-                    />
-                  </div>
-                  
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Full name <span className="text-red-500">*</span>
+              </label>
+              <input name="name" value={formData.name} onChange={handleChange} className={fieldClass(errors.name)} placeholder="As on Aadhaar" autoComplete="name" />
+              {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name}</p>}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Mobile number</label>
+              <input
+                value={`${formData.countryCode} ${formData.phone}`}
+                disabled
+                className="w-full min-h-[48px] px-4 py-3 text-base border border-gray-200 rounded-xl bg-gray-50 text-gray-600"
+              />
+              <p className="text-xs text-gray-400 mt-1">Verified via OTP</p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Email (optional)</label>
+              <input name="email" type="email" value={formData.email} onChange={handleChange} className={fieldClass(errors.email)} placeholder="you@example.com" autoComplete="email" inputMode="email" />
+              {errors.email && <p className="text-red-500 text-xs mt-1">{errors.email}</p>}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Date of birth <span className="text-red-500">*</span>
+              </label>
+              <input name="dateOfBirth" type="date" value={formData.dateOfBirth} onChange={handleChange} max={new Date(new Date().setFullYear(new Date().getFullYear() - 18)).toISOString().slice(0, 10)} className={fieldClass(errors.dateOfBirth)} />
+              {errors.dateOfBirth && <p className="text-red-500 text-xs mt-1">{errors.dateOfBirth}</p>}
+            </div>
+          </section>
+
+          <section className="bg-white rounded-2xl border border-gray-100 p-4 sm:p-5 space-y-4 shadow-sm">
+            <h2 className="text-base font-bold text-gray-900">Identity</h2>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Aadhaar number <span className="text-red-500">*</span>
+              </label>
+              <input name="aadharNumber" value={formData.aadharNumber} onChange={handleChange} className={fieldClass(errors.aadharNumber)} placeholder="XXXX XXXX XXXX" inputMode="numeric" />
+              {errors.aadharNumber && <p className="text-red-500 text-xs mt-1">{errors.aadharNumber}</p>}
+            </div>
+          </section>
+
+          <section className="bg-white rounded-2xl border border-gray-100 p-4 sm:p-5 space-y-4 shadow-sm">
+            <h2 className="text-base font-bold text-gray-900">Vehicle</h2>
+            <div className="grid grid-cols-3 gap-2 sm:gap-3">
+              {VEHICLE_OPTIONS.map((v) => {
+                const selected = formData.vehicleType === v.id
+                return (
                   <button
+                    key={v.id}
                     type="button"
-                    onClick={handleAddVehicle}
-                    className="w-full py-3 rounded-lg font-bold text-white bg-gray-900 hover:bg-black transition-colors"
+                    onClick={() => handleVehicleSelect(v.id)}
+                    className={`flex flex-col items-center justify-center gap-1 min-h-[88px] rounded-xl border-2 px-2 py-3 transition-all ${
+                      selected
+                        ? "border-primary-orange bg-orange-50 text-orange-800"
+                        : "border-gray-200 bg-white text-gray-700 hover:border-gray-300"
+                    }`}
                   >
-                    Confirm Vehicle
+                    <span className="text-2xl" aria-hidden>{v.icon}</span>
+                    <span className="text-xs sm:text-sm font-semibold">{v.label}</span>
+                    {selected && <Bike className="w-3.5 h-3.5 text-primary-orange" />}
                   </button>
+                )
+              })}
+            </div>
+            {errors.vehicleType && <p className="text-red-500 text-xs">{errors.vehicleType}</p>}
+
+            {motorized && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Vehicle brand <span className="text-red-500">*</span>
+                  </label>
+                  <input name="vehicleBrand" value={formData.vehicleBrand} onChange={handleChange} className={fieldClass(errors.vehicleBrand)} placeholder="e.g. Honda" />
+                  {errors.vehicleBrand && <p className="text-red-500 text-xs mt-1">{errors.vehicleBrand}</p>}
                 </div>
-              </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Vehicle model <span className="text-red-500">*</span>
+                  </label>
+                  <input name="vehicleModel" value={formData.vehicleModel} onChange={handleChange} className={fieldClass(errors.vehicleModel)} placeholder="e.g. Activa 6G" />
+                  {errors.vehicleModel && <p className="text-red-500 text-xs mt-1">{errors.vehicleModel}</p>}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Vehicle number <span className="text-red-500">*</span>
+                  </label>
+                  <input name="vehicleNumber" value={formData.vehicleNumber} onChange={handleChange} className={fieldClass(errors.vehicleNumber)} placeholder="MH12AB1234" />
+                  {errors.vehicleNumber && <p className="text-red-500 text-xs mt-1">{errors.vehicleNumber}</p>}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Driving license number <span className="text-red-500">*</span>
+                  </label>
+                  <input name="drivingLicenseNumber" value={formData.drivingLicenseNumber} onChange={handleChange} className={fieldClass(errors.drivingLicenseNumber)} placeholder="MH1220110012345" />
+                  {errors.drivingLicenseNumber && <p className="text-red-500 text-xs mt-1">{errors.drivingLicenseNumber}</p>}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    License expiry <span className="text-red-500">*</span>
+                  </label>
+                  <input name="drivingLicenseExpiry" type="date" value={formData.drivingLicenseExpiry} onChange={handleChange} min={new Date().toISOString().slice(0, 10)} className={fieldClass(errors.drivingLicenseExpiry)} />
+                  {errors.drivingLicenseExpiry && <p className="text-red-500 text-xs mt-1">{errors.drivingLicenseExpiry}</p>}
+                </div>
+              </>
             )}
-          </div>
 
-          {/* Driving License Number */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Driving License Number {requiresDl && <span className="text-red-500">*</span>}
-            </label>
-            <input
-              type="text"
-              name="drivingLicenseNumber"
-              value={formData.drivingLicenseNumber}
-              onChange={handleChange}
-              maxLength={16}
-              className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 uppercase ${errors.drivingLicenseNumber ? "border-red-500" : "border-gray-300"
-                }`}
-              placeholder="e.g., MH1220110012345"
-            />
-            {errors.drivingLicenseNumber && <p className="text-red-500 text-sm mt-1">{errors.drivingLicenseNumber}</p>}
-          </div>
+            {formData.vehicleType === "bicycle" && (
+              <p className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
+                Bicycle partners do not need RC, insurance, or a driving license.
+              </p>
+            )}
+          </section>
 
-          {/* PAN Number */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              PAN Number <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              name="panNumber"
-              value={formData.panNumber}
-              onChange={handleChange}
-              maxLength={10}
-              className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 uppercase ${errors.panNumber ? "border-red-500" : "border-gray-300"
-                }`}
-              placeholder="ABCDE1234F"
-            />
-            {errors.panNumber && <p className="text-red-500 text-sm mt-1">{errors.panNumber}</p>}
-          </div>
+          <section className="bg-white rounded-2xl border border-gray-100 p-4 sm:p-5 space-y-4 shadow-sm">
+            <h2 className="text-base font-bold text-gray-900">Bank details</h2>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Account holder name <span className="text-red-500">*</span>
+              </label>
+              <input name="bankAccountHolderName" value={formData.bankAccountHolderName} onChange={handleChange} className={fieldClass(errors.bankAccountHolderName)} placeholder="Name as in bank account" />
+              {errors.bankAccountHolderName && <p className="text-red-500 text-xs mt-1">{errors.bankAccountHolderName}</p>}
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Account number <span className="text-red-500">*</span>
+              </label>
+              <input name="bankAccountNumber" value={formData.bankAccountNumber} onChange={handleChange} className={fieldClass(errors.bankAccountNumber)} placeholder="9–18 digit account number" inputMode="numeric" />
+              {errors.bankAccountNumber && <p className="text-red-500 text-xs mt-1">{errors.bankAccountNumber}</p>}
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                IFSC code <span className="text-red-500">*</span>
+              </label>
+              <input name="bankIfscCode" value={formData.bankIfscCode} onChange={handleChange} className={fieldClass(errors.bankIfscCode)} placeholder="SBIN0001234" />
+              {errors.bankIfscCode && <p className="text-red-500 text-xs mt-1">{errors.bankIfscCode}</p>}
+            </div>
+          </section>
 
-          {/* Aadhar Number */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Aadhar Number <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              name="aadharNumber"
-              value={formData.aadharNumber}
-              onChange={handleChange}
-              maxLength={14}
-              inputMode="numeric"
-              className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 ${errors.aadharNumber ? "border-red-500" : "border-gray-300"
-                }`}
-              placeholder="1234 5678 9012"
-            />
-            {errors.aadharNumber && <p className="text-red-500 text-sm mt-1">{errors.aadharNumber}</p>}
-          </div>
+          <section className="bg-white rounded-2xl border border-gray-100 p-4 sm:p-5 space-y-4 shadow-sm">
+            <h2 className="text-base font-bold text-gray-900">Emergency contact</h2>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Name <span className="text-red-500">*</span>
+              </label>
+              <input name="emergencyContactName" value={formData.emergencyContactName} onChange={handleChange} className={fieldClass(errors.emergencyContactName)} placeholder="Contact person name" />
+              {errors.emergencyContactName && <p className="text-red-500 text-xs mt-1">{errors.emergencyContactName}</p>}
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Mobile number <span className="text-red-500">*</span>
+              </label>
+              <input name="emergencyContactPhone" value={formData.emergencyContactPhone} onChange={handleChange} className={fieldClass(errors.emergencyContactPhone)} placeholder="10-digit mobile" inputMode="tel" />
+              {errors.emergencyContactPhone && <p className="text-red-500 text-xs mt-1">{errors.emergencyContactPhone}</p>}
+            </div>
+          </section>
 
-          {/* Submit Button */}
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className={`w-full py-4 rounded-lg font-bold text-white text-base transition-colors mt-6 ${isSubmitting
-              ? "bg-gray-400 cursor-not-allowed"
-              : "bg-[#00B761] hover:bg-[#00A055]"
-              }`}
-          >
-            {isSubmitting ? "Saving..." : "Continue"}
-          </button>
+          <section className="bg-white rounded-2xl border border-gray-100 p-4 sm:p-5 space-y-3 shadow-sm">
+            <h2 className="text-base font-bold text-gray-900">Agreements</h2>
+            {[
+              { name: "partnerAgreement", label: "I agree to the Driver Partner Agreement" },
+              { name: "termsAccepted", label: "I accept the Terms & Conditions" },
+              { name: "privacyAccepted", label: "I accept the Privacy Policy" },
+            ].map((item) => (
+              <label key={item.name} className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  name={item.name}
+                  checked={!!formData[item.name]}
+                  onChange={handleChange}
+                  className="mt-1 w-5 h-5 rounded border-gray-300 text-primary-orange focus:ring-primary-orange/30 shrink-0"
+                />
+                <span className="text-sm text-gray-700 leading-snug">
+                  {item.label} <span className="text-red-500">*</span>
+                  {errors[item.name] && <span className="block text-red-500 text-xs mt-0.5">{errors[item.name]}</span>}
+                </span>
+              </label>
+            ))}
+          </section>
+
+          <div className="h-20" />
         </form>
+      </main>
+
+      <div
+        className="fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur border-t border-gray-200 px-3 sm:px-4 py-3 safe-area-bottom"
+        style={{ paddingBottom: keyboardInset ? 12 : undefined }}
+      >
+        <div className="max-w-lg mx-auto">
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={isSubmitting}
+            className="w-full min-h-[52px] rounded-xl bg-primary-orange text-white font-semibold text-base disabled:opacity-60 disabled:cursor-not-allowed active:scale-[0.99] transition"
+          >
+            {isSubmitting ? "Saving…" : "Continue"}
+          </button>
+        </div>
       </div>
     </div>
   )
 }
-
-

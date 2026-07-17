@@ -64,12 +64,10 @@ export async function createOnboardingPaymentOrder(req, res, next) {
 
             if (existingPayment) {
                 return sendResponse(res, 201, 'Onboarding fee already paid', {
-                    orderId: `mock_ord_bypassed_${Date.now()}`,
+                    alreadyPaid: true,
+                    bypassPayment: true,
                     amount: config.price,
-                    currency: 'INR',
-                    keyId: getRazorpayKeyId(),
-                    isMock: true,
-                    alreadyPaid: true
+                    currency: 'INR'
                 });
             }
         }
@@ -78,13 +76,19 @@ export async function createOnboardingPaymentOrder(req, res, next) {
         const amountPaise = Math.round(price * 100);
 
         let orderId = '';
+        let isMock = false;
         if (isRazorpayConfigured()) {
             const receipt = `onb_${role.toLowerCase().slice(0, 3)}_${Date.now()}`;
             const order = await createRazorpayOrder(amountPaise, 'INR', receipt);
             orderId = order.id;
         } else {
+            const { config: envConfig } = await import('../../../config/env.js');
+            if (envConfig.nodeEnv === 'production') {
+                throw new ValidationError('Payment gateway is not configured. Please contact support.');
+            }
             // Mock order creation for development environments without Razorpay keys
             orderId = `mock_ord_${role.toLowerCase().slice(0, 3)}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+            isMock = true;
         }
 
         // Create a pending payment log in the database
@@ -105,7 +109,7 @@ export async function createOnboardingPaymentOrder(req, res, next) {
             amount: price,
             currency: 'INR',
             keyId: getRazorpayKeyId(),
-            isMock: !isRazorpayConfigured()
+            isMock
         });
     } catch (error) {
         next(error);

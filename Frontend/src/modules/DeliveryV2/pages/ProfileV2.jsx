@@ -112,9 +112,9 @@ export const ProfileV2 = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center font-poppins">
-        <div className="flex items-center gap-2 text-gray-700">
-          <Loader2 className="w-5 h-5 animate-spin" />
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="flex items-center gap-2 text-slate-700">
+          <Loader2 className="w-5 h-5 animate-spin text-primary-orange" />
           <span className="text-sm font-medium">Loading profile...</span>
         </div>
       </div>
@@ -149,8 +149,12 @@ export const ProfileV2 = () => {
             <p className="text-gray-600 text-sm md:text-base mb-3 font-medium">{profile?.deliveryId || ""}</p>
           </div>
           <div className="relative shrink-0 ml-4">
-            {profile?.profileImage?.url ? (
-              <img src={profile.profileImage.url} alt="Profile" className="w-20 h-20 md:w-24 md:h-24 rounded-full object-cover border-2 border-gray-200" />
+            {profile?.profileImage?.url || profile?.profilePhoto ? (
+              <img
+                src={profile.profileImage?.url || profile.profilePhoto}
+                alt="Profile"
+                className="w-20 h-20 md:w-24 md:h-24 rounded-full object-cover border-2 border-gray-200"
+              />
             ) : (
               <div className="w-20 h-20 md:w-24 md:h-24 rounded-full bg-gray-100 flex items-center justify-center border-2 border-gray-200">
                 <User className="w-10 h-10 md:w-12 md:h-12 text-gray-400" />

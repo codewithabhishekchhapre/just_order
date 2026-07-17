@@ -1,9 +1,13 @@
 import { useState, useEffect, useRef } from "react"
 import { useNavigate } from "react-router-dom"
-import { ArrowLeft, Loader2, X } from "lucide-react"
+import { Loader2, X } from "lucide-react"
 import AnimatedPage from "@food/components/user/AnimatedPage"
 import { Input } from "@food/components/ui/input"
-import { Button } from "@food/components/ui/button"
+import {
+  DeliveryPageHeader,
+  DeliveryPrimaryButton,
+  DeliveryField,
+} from "../../components/ui/deliveryUi"
 import { deliveryAPI } from "@food/api"
 import { setAuthData as storeAuthData } from "@food/utils/auth"
 const debugLog = (...args) => {}
@@ -25,6 +29,7 @@ export default function DeliveryOTP() {
   const [verifiedOtp, setVerifiedOtp] = useState("")
   const [pendingMessage, setPendingMessage] = useState("")
   const [isRejected, setIsRejected] = useState(false)
+  const [documentsRequired, setDocumentsRequired] = useState(false)
   const [rejectionReason, setRejectionReason] = useState("")
   const [deviceToken, setDeviceToken] = useState(null)
   const [activePlatform, setActivePlatform] = useState("web")
@@ -237,7 +242,26 @@ export default function DeliveryOTP() {
         setError("")
         setPendingMessage(data.message || "Your account is pending admin verification. You will be notified once approved.")
         setIsRejected(data.isRejected || false)
+        setDocumentsRequired(Boolean(data.documentsRequired))
         setRejectionReason(data.rejectionReason || "")
+        if (data.rejectionReason) {
+          sessionStorage.setItem("deliveryRejectionReason", data.rejectionReason)
+        }
+        if (Array.isArray(data.documentsRequested) && data.documentsRequested.length) {
+          sessionStorage.setItem("deliveryDocumentsRequested", JSON.stringify(data.documentsRequested))
+        } else {
+          sessionStorage.removeItem("deliveryDocumentsRequested")
+        }
+        if (data.docsResubmitToken) {
+          sessionStorage.setItem("deliveryDocsResubmitToken", data.docsResubmitToken)
+        } else {
+          sessionStorage.removeItem("deliveryDocsResubmitToken")
+        }
+        if (data.documentsRequired) {
+          sessionStorage.setItem("deliveryDocumentsRequired", "true")
+        } else {
+          sessionStorage.removeItem("deliveryDocumentsRequired")
+        }
         return
       }
 
@@ -492,81 +516,72 @@ export default function DeliveryOTP() {
 
   return (
     <>
-      <AnimatedPage className="min-h-screen bg-white flex flex-col">
-      {/* Header */}
-      <div className="relative flex items-center justify-center py-4 px-4 border-b border-gray-200">
-        <button
-          onClick={() => navigate("/food/delivery/login")}
-          className="absolute left-4 top-1/2 -translate-y-1/2"
-          aria-label="Go back"
-        >
-          <ArrowLeft className="h-5 w-5 text-black" />
-        </button>
-        <h1 className="text-lg font-bold text-black">OTP Verification</h1>
-      </div>
+      <AnimatedPage className="min-h-screen bg-slate-50 flex flex-col">
+      <DeliveryPageHeader title="OTP Verification" onBack={() => navigate("/food/delivery/login")} />
 
       {/* Main Content */}
       <div className="flex flex-col justify-center px-6 pt-8 pb-12">
         <div className="max-w-md mx-auto w-full space-y-8">
           {/* Message */}
           <div className="text-center space-y-2">
-            <p className="text-base text-black">
+            <p className="text-base text-slate-600">
               {showNameInput
                 ? "You're almost done! Please tell us your name to complete registration."
                 : "We have sent a verification code to"}
             </p>
             {!showNameInput && (
-              <p className="text-base text-black font-medium">
+              <p className="text-base text-slate-900 font-semibold">
                 {getPhoneNumber()}
               </p>
             )}
           </div>
 
-          {/* Pending approval message – already registered, waiting for admin */}
+          {/* Pending / documents-required message */}
           {!isRejected && pendingMessage && (
-            <div className={`rounded-xl border p-5 text-center space-y-4 shadow-sm bg-amber-50 border-amber-100`}>
+            <div className={`rounded-xl border p-5 text-center space-y-4 shadow-sm ${documentsRequired ? "bg-orange-50 border-orange-100" : "bg-amber-50 border-amber-100"}`}>
               <div className="space-y-2">
-                <p className={`text-sm font-semibold ${isRejected ? "text-red-800" : "text-amber-800"}`}>
-                  {isRejected ? "Application Rejected" : "Pending Verification"}
+                <p className={`text-sm font-semibold ${documentsRequired ? "text-orange-800" : "text-amber-800"}`}>
+                  {documentsRequired ? "Documents Required" : "Pending Verification"}
                 </p>
-                <p className={`text-sm leading-relaxed ${isRejected ? "text-red-700" : "text-amber-700"}`}>
+                <p className={`text-sm leading-relaxed ${documentsRequired ? "text-orange-700" : "text-amber-700"}`}>
                   {pendingMessage}
                 </p>
-                {isRejected && rejectionReason && (
-                  <div className="mt-2 p-3 bg-white/50 rounded-lg border border-red-200">
-                    <p className="text-xs font-medium text-red-600 uppercase tracking-wider mb-1">Reason</p>
-                    <p className="text-sm text-red-800 italic">"{rejectionReason}"</p>
+                {documentsRequired && rejectionReason && (
+                  <div className="mt-2 p-3 bg-white/50 rounded-lg border border-orange-200">
+                    <p className="text-xs font-medium text-orange-600 uppercase tracking-wider mb-1">Reason</p>
+                    <p className="text-sm text-orange-900 italic">"{rejectionReason}"</p>
                   </div>
                 )}
               </div>
 
               <div className="flex flex-col gap-2 pt-2">
-                {isRejected ? (
-                  <button
+                {documentsRequired ? (
+                  <DeliveryPrimaryButton
                     type="button"
                     onClick={() => {
                       const phone = authData?.phone
                       const digits = String(phone || "").replace(/\D/g, "")
                       sessionStorage.setItem("deliveryNeedsRegistration", "true")
                       sessionStorage.setItem("deliveryIsRejected", "true")
-                      const details = {
-                        name: "",
-                        phone: digits.slice(-10),
-                        countryCode: "+91",
+                      sessionStorage.setItem("deliveryDocumentsRequired", "true")
+                      if (rejectionReason) {
+                        sessionStorage.setItem("deliveryRejectionReason", rejectionReason)
                       }
-                      sessionStorage.setItem("deliverySignupDetails", JSON.stringify(details))
-                      navigate("/food/delivery/signup/details", { replace: true })
+                      sessionStorage.setItem(
+                        "deliverySignupDetails",
+                        JSON.stringify({ name: "", phone: digits.slice(-10), countryCode: "+91" })
+                      )
+                      navigate("/food/delivery/signup/documents", { replace: true })
                     }}
-                    className="w-full py-3 bg-red-600 text-white rounded-lg font-bold text-sm hover:bg-red-700 shadow-md transition-all active:scale-95"
                   >
-                    Re-apply Now
-                  </button>
+                    Re-upload Documents
+                  </DeliveryPrimaryButton>
                 ) : null}
-                
+
                 <button
                   type="button"
                   onClick={() => navigate("/food/delivery/login", { replace: true })}
-                  className={`text-sm font-medium underline transition-colors ${isRejected ? "text-red-600 hover:text-red-800" : "text-amber-700 hover:text-amber-900"}`}
+                  className={`text-sm font-medium underline transition-colors ${documentsRequired ? "text-orange-700 hover:text-orange-900" : "text-amber-700 hover:text-amber-900"}`}
                 >
                   Back to login
                 </button>
@@ -599,18 +614,18 @@ export default function DeliveryOTP() {
                     disabled={isLoading}
                     autoComplete="off"
                     autoFocus={false}
-                    className="w-12 h-12 text-center text-lg font-semibold p-0 border border-black rounded-md focus-visible:ring-0 focus-visible:border-black bg-white"
+                    className="w-12 h-12 text-center text-lg font-semibold p-0 border border-slate-200 rounded-xl focus-visible:ring-2 focus-visible:ring-primary-orange/30 focus-visible:border-primary-orange bg-white"
                   />
                 ))}
               </div>
 
               {/* Resend Section */}
               <div className="text-center space-y-1">
-                <p className="text-sm text-black">
+                <p className="text-sm text-slate-600">
                   Didn't get the OTP?
                 </p>
                 {resendTimer > 0 ? (
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-slate-500">
                     Resend SMS in {resendTimer}s
                   </p>
                 ) : (
@@ -618,7 +633,7 @@ export default function DeliveryOTP() {
                     type="button"
                     onClick={handleResend}
                     disabled={isLoading}
-                    className="text-sm text-gray-500 hover:text-gray-700 disabled:opacity-50"
+                    className="text-sm text-primary-orange font-semibold hover:underline disabled:opacity-50"
                   >
                     Resend SMS
                   </button>
@@ -630,11 +645,9 @@ export default function DeliveryOTP() {
           {/* Name Input (shown only after OTP verified and user is new) */}
           {showNameInput && (
             <div className="space-y-3">
-              <div className="space-y-1">
-                <label className="block text-sm font-medium text-black text-left">
-                  Full name
-                </label>
+              <DeliveryField label="Full name" required error={nameError} htmlFor="delivery-name">
                 <Input
+                  id="delivery-name"
                   type="text"
                   value={name}
                   onChange={(e) => {
@@ -643,30 +656,20 @@ export default function DeliveryOTP() {
                   }}
                   disabled={isLoading}
                   placeholder="Enter your name"
-                  className={`h-11 border ${nameError ? "border-red-500" : "border-gray-300"
-                    }`}
+                  className={`h-11 rounded-xl ${nameError ? "border-red-500" : "border-slate-200"}`}
                 />
-                {nameError && (
-                  <p className="text-xs text-red-500 text-left">
-                    {nameError}
-                  </p>
-                )}
-              </div>
+              </DeliveryField>
 
-              <Button
-                onClick={handleSubmitName}
-                disabled={isLoading}
-                className="w-full h-11 bg-[#00B761] hover:bg-[#00A055] text-white font-semibold"
-              >
-                {isLoading ? "Continuing..." : "Continue"}
-              </Button>
+              <DeliveryPrimaryButton onClick={handleSubmitName} loading={isLoading} disabled={isLoading}>
+                Continue
+              </DeliveryPrimaryButton>
             </div>
           )}
 
           {/* Loading Spinner */}
           {isLoading && !showNameInput && (
             <div className="flex justify-center pt-4">
-              <Loader2 className="h-6 w-6 text-green-500 animate-spin" />
+              <Loader2 className="h-6 w-6 text-primary-orange animate-spin" />
             </div>
           )}
         </div>
@@ -712,21 +715,37 @@ export default function DeliveryOTP() {
                   const digits = String(phone || "").replace(/\D/g, "");
                   sessionStorage.setItem("deliveryNeedsRegistration", "true");
                   sessionStorage.setItem("deliveryIsRejected", "true");
+                  if (rejectionReason) {
+                    sessionStorage.setItem("deliveryRejectionReason", rejectionReason);
+                  }
                   const details = {
                     name: "",
                     phone: digits.slice(-10),
                     countryCode: "+91",
                   };
                   sessionStorage.setItem("deliverySignupDetails", JSON.stringify(details));
+                  let requested = [];
                   try {
-                    // Clear IndexedDB for fresh documents
-                    indexedDB.deleteDatabase("DeliverySignupDB");
-                  } catch (e) {
-                    console.error("Failed to delete IndexedDB:", e);
+                    requested = JSON.parse(sessionStorage.getItem("deliveryDocumentsRequested") || "[]");
+                  } catch {
+                    requested = [];
+                  }
+                  // Full reject: clear drafts and restart. Partial request: keep only phone + requested docs.
+                  if (!(Array.isArray(requested) && requested.length > 0)) {
+                    try {
+                      indexedDB.deleteDatabase("DeliverySignupDB");
+                    } catch (e) {
+                      console.error("Failed to delete IndexedDB:", e);
+                    }
+                    sessionStorage.removeItem("deliveryDocumentsRequested");
                   }
                   setIsRejected(false);
                   setPendingMessage("");
-                  navigate("/food/delivery/signup/details", { replace: true });
+                  if (Array.isArray(requested) && requested.length > 0) {
+                    navigate("/food/delivery/signup/documents", { replace: true });
+                  } else {
+                    navigate("/food/delivery/signup/details", { replace: true });
+                  }
                 }}
                 className="w-full h-14 bg-gradient-to-r from-rose-600 to-red-500 hover:from-rose-700 hover:to-red-600 text-white rounded-2xl font-black text-sm tracking-widest uppercase shadow-lg shadow-orange-500/20 active:scale-[0.98] transition-all"
               >

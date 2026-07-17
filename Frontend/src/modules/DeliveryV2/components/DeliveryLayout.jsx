@@ -1,5 +1,6 @@
-import { useLocation } from "react-router-dom"
+import { useNavigate, useLocation } from "react-router-dom"
 import { useEffect, useState } from "react"
+import { User, Loader2 } from "lucide-react"
 import { loadBusinessSettings, setAppType } from "@common/utils/businessSettings"
 import BottomNavigation from "./BottomNavigation"
 import { getUnreadDeliveryNotificationCount } from "@food/utils/deliveryNotifications"
@@ -13,14 +14,14 @@ export default function DeliveryLayout({
   onGigClick
 }) {
   const location = useLocation()
+  const navigate = useNavigate()
   const [requestBadgeCount, setRequestBadgeCount] = useState(() =>
     getUnreadDeliveryNotificationCount()
   )
   const [approvalStatus, setApprovalStatus] = useState("loading")
 
   useEffect(() => {
-    // Initialize delivery app settings and favicon
-    setAppType('delivery')
+    setAppType("delivery")
     loadBusinessSettings()
 
     let cancelled = false
@@ -58,28 +59,39 @@ export default function DeliveryLayout({
 
   const showBottomNav = [
     "/food/delivery",
-    "/food/delivery/requests",
-    "/food/delivery/trip-history",
-    "/food/delivery/profile"
+    "/food/delivery/feed",
+    "/food/delivery/pocket",
+    "/food/delivery/history",
+    "/food/delivery/profile",
   ].includes(location.pathname)
 
   if (approvalStatus === "loading") {
     return (
-      <main className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="animate-pulse text-gray-500">Loading...</div>
+      <main className="min-h-screen flex flex-col items-center justify-center bg-slate-50 gap-3">
+        <Loader2 className="w-8 h-8 text-primary-orange animate-spin" />
+        <p className="text-sm text-slate-500">Loading your account…</p>
       </main>
     )
   }
 
   if (approvalStatus !== "approved") {
     return (
-      <main className="min-h-screen flex flex-col items-center justify-center bg-gray-50 px-4">
-        <div className="max-w-md w-full text-center space-y-4 rounded-xl bg-white p-6 shadow-sm border border-gray-200">
-          <h1 className="text-xl font-semibold text-gray-900">Pending Admin Approval</h1>
-          <p className="text-gray-600 text-sm">
+      <main className="min-h-screen flex flex-col items-center justify-center bg-slate-50 px-4">
+        <div className="max-w-md w-full text-center space-y-4 rounded-2xl bg-white p-6 shadow-sm border border-slate-200">
+          <div className="w-14 h-14 rounded-2xl bg-orange-50 text-primary-orange flex items-center justify-center mx-auto">
+            <User className="w-7 h-7" />
+          </div>
+          <h1 className="text-xl font-bold text-slate-900">Pending Admin Approval</h1>
+          <p className="text-slate-600 text-sm leading-relaxed">
             Your profile has been submitted. You will get full access once admin approves your account.
           </p>
-          <p className="text-gray-500 text-xs">You can log out and sign in again to check status.</p>
+          <button
+            type="button"
+            onClick={() => navigate("/food/delivery/login", { replace: true })}
+            className="w-full h-11 rounded-xl bg-primary-orange text-white text-sm font-semibold hover:bg-primary-orange/90"
+          >
+            Back to login
+          </button>
         </div>
       </main>
     )
@@ -87,9 +99,7 @@ export default function DeliveryLayout({
 
   return (
     <>
-      <main>
-        {children}
-      </main>
+      <main>{children}</main>
       {showBottomNav && (
         <BottomNavigation
           showGig={showGig}
@@ -102,4 +112,3 @@ export default function DeliveryLayout({
     </>
   )
 }
-

@@ -15,7 +15,7 @@ import {
   passReturnQualityCheckAndRefund,
 } from './quickReturnFinance.service.js';
 import { tryAutoAssign, renotifyExistingReturnPickupOffers } from '../../food/orders/services/order-dispatch.service.js';
-import { FoodDeliveryPartner } from '../../food/delivery/models/deliveryPartner.model.js';
+import { Driver } from '../../../core/models/driver.model.js';
 import { DISPATCH_DOCUMENT_TYPES } from '../utils/dispatchDocument.constants.js';
 import { stampReturnOtps, applyReturnPickupPricingToDoc } from '../utils/returnPickup.helpers.js';
 import {
@@ -645,7 +645,7 @@ const isReturnDispatchRetryable = (dispatch = {}) => {
 };
 
 const countOnlineDeliveryPartners = async () =>
-  FoodDeliveryPartner.countDocuments({
+  Driver.countDocuments({
     availabilityStatus: 'online',
     status: {
       $in: process.env.NODE_ENV === 'production' ? ['approved'] : ['approved', 'pending'],

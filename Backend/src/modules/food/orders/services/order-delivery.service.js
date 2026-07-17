@@ -3,7 +3,7 @@ import * as walletService from '../../subscriptions/services/wallet.service.js';
 import { FoodOrder } from '../models/order.model.js';
 import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { FoodTransaction } from '../models/foodTransaction.model.js';
-import { FoodDeliveryPartner } from '../../delivery/models/deliveryPartner.model.js';
+import { Driver } from '../../../../core/models/driver.model.js';
 import { getDeliveryPartnerWallet } from "../../delivery/services/delivery.service.js";
 import { SellerOrder } from '../../../quick-commerce/seller/models/sellerOrder.model.js';
 import {
@@ -615,7 +615,7 @@ export async function confirmReachedPickupDelivery(orderId, deliveryPartnerId) {
     const restaurant = await FoodRestaurant.findById(order.restaurantId)
       .select('restaurantName')
       .lean();
-    const partner = await FoodDeliveryPartner.findById(deliveryPartnerId)
+    const partner = await Driver.findById(deliveryPartnerId)
       .select('name')
       .lean();
 

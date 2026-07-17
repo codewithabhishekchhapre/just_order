@@ -30,7 +30,7 @@ export const createFeedbackExperience = async (req, res) => {
             feedbackData.userModel = 'FoodRestaurant';
             feedbackData.restaurantId = userId;
         } else if (req.user?.role === 'DELIVERY_PARTNER') {
-            feedbackData.userModel = 'FoodDeliveryPartner';
+            feedbackData.userModel = 'Driver';
         } else {
             feedbackData.userModel = 'FoodUser';
         }

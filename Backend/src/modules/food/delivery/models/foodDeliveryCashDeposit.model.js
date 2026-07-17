@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 const foodDeliveryCashDepositSchema = new mongoose.Schema({
     deliveryPartnerId: {
         type: mongoose.Schema.Types.ObjectId,
-        ref: 'FoodDeliveryPartner',
+        ref: 'Driver',
         required: true,
         index: true
     },

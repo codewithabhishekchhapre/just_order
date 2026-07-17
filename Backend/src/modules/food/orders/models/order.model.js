@@ -48,10 +48,10 @@ const dispatchLegSchema = new mongoose.Schema(
         sourceName: { type: String, default: '', trim: true },
         deliveryFee: { type: Number, default: 0, min: 0 },
         riderEarning: { type: Number, default: 0, min: 0 },
-        deliveryPartnerId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodDeliveryPartner', default: null },
+        deliveryPartnerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Driver', default: null },
         assignedAt: { type: Date, default: null },
         partnerCandidates: [{
-            partnerId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodDeliveryPartner' },
+            partnerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Driver' },
             distanceKm: { type: Number, min: 0, default: null }
         }]
     },
@@ -210,12 +210,12 @@ const dispatchSchema = new mongoose.Schema(
             enum: ['unassigned', 'assigned', 'accepted', 'rejected', 'cancelled'],
             default: 'unassigned'
         },
-        deliveryPartnerId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodDeliveryPartner', default: null },
+        deliveryPartnerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Driver', default: null },
         assignedAt: { type: Date },
         acceptedAt: { type: Date },
         /** List of partners who were offered this order (to avoid repeats and track timeouts) */
         offeredTo: [{
-            partnerId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodDeliveryPartner' },
+            partnerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Driver' },
             at: { type: Date, default: Date.now },
             action: { type: String, enum: ['offered', 'rejected', 'timeout'], default: 'offered' }
         }]
@@ -395,6 +395,16 @@ const orderSchema = new mongoose.Schema(
         },
         note: { type: String, default: '', trim: true },
         sendCutlery: { type: Boolean, default: true },
+        /**
+         * Order preparation time in minutes (MAX of item preparation times).
+         * Restaurant may overwrite before / when accepting. Reused across customer, restaurant, driver, admin.
+         */
+        preparationTime: {
+            type: Number,
+            default: null,
+            min: 1,
+            max: 180
+        },
         deliveryFleet: { type: String, default: 'standard', trim: true },
         scheduledAt: { type: Date, default: null },
         riderEarning: { type: Number, default: 0, min: 0 },

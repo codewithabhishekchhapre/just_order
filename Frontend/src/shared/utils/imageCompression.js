@@ -19,8 +19,19 @@ export const compressImage = async (imageFile, options = {}) => {
 
   try {
     const compressedFile = await imageCompression(imageFile, finalOptions);
-    console.log(`Compressed from ${imageFile.size / 1024 / 1024}MB to ${compressedFile.size / 1024 / 1024}MB`);
-    return compressedFile;
+    // browser-image-compression may return a Blob — normalize to File for FormData uploads
+    if (typeof File !== 'undefined' && compressedFile instanceof File) {
+      return compressedFile;
+    }
+    if (typeof Blob !== 'undefined' && compressedFile instanceof Blob) {
+      const type = compressedFile.type || 'image/webp';
+      const baseName = (imageFile?.name || 'upload').replace(/\.[^.]+$/, '');
+      return new File([compressedFile], `${baseName}.webp`, {
+        type,
+        lastModified: Date.now(),
+      });
+    }
+    return imageFile;
   } catch (error) {
     console.error('Image compression failed:', error);
     return imageFile; // Return original if compression fails

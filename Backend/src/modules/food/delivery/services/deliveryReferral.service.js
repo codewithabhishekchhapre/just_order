@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 import { ValidationError } from '../../../../core/auth/errors.js';
-import { FoodDeliveryPartner } from '../models/deliveryPartner.model.js';
+import { Driver } from '../../../../core/models/driver.model.js';
 import { FoodReferralSettings } from '../../admin/models/referralSettings.model.js';
 import { DeliveryBonusTransaction } from '../../admin/models/deliveryBonusTransaction.model.js';
 
@@ -11,7 +11,7 @@ export const getDeliveryReferralStats = async (deliveryPartnerId) => {
     }
     const oid = new mongoose.Types.ObjectId(id);
     const [partner, settingsDoc, bonusAgg] = await Promise.all([
-        FoodDeliveryPartner.findById(oid).select('_id referralCount referralCode').lean(),
+        Driver.findById(oid).select('_id referralCount referralCode').lean(),
         FoodReferralSettings.findOne({ isActive: true }).sort({ createdAt: -1 }).lean(),
         DeliveryBonusTransaction.aggregate([
             { $match: { deliveryPartnerId: oid, reference: { $regex: /referral/i } } },

@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 import { FoodDeliveryCashDeposit } from '../models/foodDeliveryCashDeposit.model.js';
-import { registerDeliveryPartner, updateDeliveryPartnerProfile, updateDeliveryPartnerBankDetails, listSupportTicketsByPartner, createSupportTicket, getSupportTicketByIdAndPartner, updateDeliveryPartnerDetails, updateDeliveryPartnerProfilePhotoBase64, updateDeliveryAvailability, getDeliveryPartnerWallet, getDeliveryPartnerEarnings, getDeliveryPartnerTripHistory, getDeliveryPocketDetails, getActiveEarningAddonsForPartner, deleteDeliveryPartnerAccount } from '../services/delivery.service.js';
+import { registerDeliveryPartner, updateDeliveryPartnerProfile, updateDeliveryPartnerBankDetails, listSupportTicketsByPartner, createSupportTicket, getSupportTicketByIdAndPartner, updateDeliveryPartnerDetails, updateDeliveryPartnerProfilePhotoBase64, updateDeliveryAvailability, getDeliveryPartnerWallet, getDeliveryPartnerEarnings, getDeliveryPartnerTripHistory, getDeliveryPocketDetails, getActiveEarningAddonsForPartner, deleteDeliveryPartnerAccount, resubmitRequestedDocuments, getDeliveryOnboardingStatus } from '../services/delivery.service.js';
 import { createDeliveryCashDepositOrder, getDeliveryPartnerWalletEnhanced, requestDeliveryWithdrawal, verifyDeliveryCashDepositPayment, submitDeliveryManualDeposit } from '../services/deliveryFinance.service.js';
 import { getDeliveryCashLimitSettings, getDeliveryEmergencyHelp } from '../../admin/services/admin.service.js';
 import { DeliveryBonusTransaction } from '../../admin/models/deliveryBonusTransaction.model.js';
@@ -10,9 +10,55 @@ import { getDeliveryReferralStats } from '../services/deliveryReferral.service.j
 
 export const registerDeliveryPartnerController = async (req, res, next) => {
     try {
+        const phone = String(req.body?.phone || '').replace(/\D/g, '').slice(0, 15);
+        if (phone) {
+            const { Driver } = await import('../../../../core/models/driver.model.js');
+            const existing = await Driver.findOne({ phone }).select('status documentsRequested').lean();
+            if (
+                existing?.status === 'documents_required' &&
+                Array.isArray(existing.documentsRequested) &&
+                existing.documentsRequested.length > 0
+            ) {
+                const { verifyDeliveryDocsResubmitToken } = await import('../../../../core/auth/token.util.js');
+                try {
+                    verifyDeliveryDocsResubmitToken(
+                        req.body?.docsResubmitToken || req.headers['x-docs-resubmit-token'],
+                        phone
+                    );
+                } catch (err) {
+                    const { ValidationError } = await import('../../../../core/auth/errors.js');
+                    throw new ValidationError(
+                        err?.message || 'OTP verification required before re-uploading documents'
+                    );
+                }
+                const partner = await resubmitRequestedDocuments(existing._id, req.files);
+                return sendResponse(res, 200, 'Documents re-uploaded successfully. Pending verification.', partner);
+            }
+        }
         const validated = validateDeliveryRegisterDto(req.body);
         const partner = await registerDeliveryPartner(validated, req.files);
         return sendResponse(res, 201, 'Delivery partner registered successfully', partner);
+    } catch (error) {
+        if (error?.code === 11000) {
+            const { ValidationError } = await import('../../../../core/auth/errors.js');
+            const key = Object.keys(error.keyPattern || {})[0] || '';
+            const messages = {
+                phone: 'Delivery partner with this phone already exists',
+                aadharNumber: 'This Aadhaar number is already registered',
+                drivingLicenseNumber: 'This driving license number is already registered',
+                vehicleNumber: 'This vehicle number is already registered'
+            };
+            return next(new ValidationError(messages[key] || 'Duplicate record already exists'));
+        }
+        next(error);
+    }
+};
+
+export const getDeliveryOnboardingStatusController = async (req, res, next) => {
+    try {
+        const phone = req.query?.phone || req.body?.phone;
+        const data = await getDeliveryOnboardingStatus(phone);
+        return sendResponse(res, 200, 'Onboarding status fetched', data);
     } catch (error) {
         next(error);
     }

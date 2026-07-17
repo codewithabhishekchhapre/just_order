@@ -40,25 +40,54 @@ export const useDeliveryStore = create(
       },
 
       // --- Actions ---
+      /** Prefer explicit activeVehicleId; otherwise first approved / first listed vehicle. */
+      resolveActiveVehicleId: (state = get()) => {
+        if (state.activeVehicleId) return state.activeVehicleId;
+        const list = state.driverVehicles || [];
+        if (!list.length) return null;
+        const approved = list.find(
+          (v) =>
+            String(v.verificationStatus || "").toLowerCase() === "approved" ||
+            !v.verificationStatus
+        );
+        const pick = approved || list[0];
+        return pick?.vehicleId || pick?.id || null;
+      },
+
       toggleOnline: () => set((state) => {
-        if (!state.isOnline && !state.activeVehicleId) {
-          // Cannot go online without a selected vehicle
-          // This should be handled by UI, but we protect the store as well
-          console.warn("Cannot go online without an active vehicle");
-          return state;
+        if (!state.isOnline) {
+          const vehicleId = get().resolveActiveVehicleId(state);
+          if (!vehicleId) {
+            console.warn("Cannot go online without an active vehicle");
+            return state;
+          }
+          return { isOnline: true, activeVehicleId: vehicleId };
         }
-        return { isOnline: !state.isOnline };
+        return { isOnline: false };
       }),
       
       setOnline: (online) => set((state) => {
-        if (online && !state.activeVehicleId) {
-          console.warn("Cannot go online without an active vehicle");
-          return state;
+        if (online) {
+          const vehicleId = get().resolveActiveVehicleId(state);
+          if (!vehicleId) {
+            console.warn("Cannot go online without an active vehicle");
+            return state;
+          }
+          return { isOnline: true, activeVehicleId: vehicleId };
         }
-        return { isOnline: online };
+        return { isOnline: false };
       }),
 
-      setDriverVehicles: (vehicles) => set({ driverVehicles: vehicles }),
+      setDriverVehicles: (vehicles) => {
+        const list = Array.isArray(vehicles) ? vehicles : [];
+        const state = get();
+        const nextActive =
+          state.activeVehicleId &&
+          list.some((v) => (v.vehicleId || v.id) === state.activeVehicleId)
+            ? state.activeVehicleId
+            : get().resolveActiveVehicleId({ ...state, driverVehicles: list, activeVehicleId: null });
+        set({ driverVehicles: list, activeVehicleId: nextActive || state.activeVehicleId });
+      },
 
       setActiveVehicle: (id) => {
         const state = get();

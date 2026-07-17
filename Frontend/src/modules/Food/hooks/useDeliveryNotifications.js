@@ -999,6 +999,11 @@ export const useDeliveryNotifications = () => {
       setOrderStatusUpdate(statusData || null);
     });
 
+    socketRef.current.on('preparation_time_update', (statusData) => {
+      debugLog('⏱️ Delivery preparation time update:', statusData);
+      setOrderStatusUpdate(statusData || null);
+    });
+
     socketRef.current.on('order_cancelled', (statusData) => {
       debugLog('?? Delivery order cancelled event received via socket:', statusData);
       setOrderStatusUpdate({

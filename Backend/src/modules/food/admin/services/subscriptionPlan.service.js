@@ -340,18 +340,18 @@ export async function getSubscriptionHistory(query, res) {
         
         if (isEmail) {
             const rIds = await mongoose.model('FoodRestaurant').find({ ownerEmail: search }).distinct('_id');
-            const dIds = await mongoose.model('FoodDeliveryPartner').find({ email: search }).distinct('_id');
+            const dIds = await mongoose.model('Driver').find({ email: search }).distinct('_id');
             ownerIdsFilter = [...rIds, ...dIds];
         } else if (isPhone) {
             const rIds = await mongoose.model('FoodRestaurant').find({ ownerPhone: search }).distinct('_id');
-            const dIds = await mongoose.model('FoodDeliveryPartner').find({ phone: search }).distinct('_id');
+            const dIds = await mongoose.model('Driver').find({ phone: search }).distinct('_id');
             ownerIdsFilter = [...rIds, ...dIds];
         } else {
             const regex = { $regex: String(search).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
             const rIds = await mongoose.model('FoodRestaurant').find({
                 $or: [{ restaurantName: regex }, { ownerName: regex }]
             }).distinct('_id');
-            const dIds = await mongoose.model('FoodDeliveryPartner').find({ name: regex }).distinct('_id');
+            const dIds = await mongoose.model('Driver').find({ name: regex }).distinct('_id');
             ownerIdsFilter = [...rIds, ...dIds];
         }
     }

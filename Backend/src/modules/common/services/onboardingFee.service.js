@@ -53,12 +53,15 @@ export async function verifyAndConsumeOnboardingPayment({ role, paymentDetails =
         throw new ValidationError('razorpaySignature is required for onboarding fee payment');
     }
 
-    // 2. Check if this is a mock order ID
+    // 2. Check if this is a mock order ID (dev/test only)
     const isMock = String(razorpayOrderId).startsWith('mock_ord_');
     let isValid = false;
 
     if (isMock) {
-        // Automatically validate mock order IDs for developer convenience
+        const { config } = await import('../../../config/env.js');
+        if (config.nodeEnv === 'production') {
+            throw new ValidationError('Mock onboarding payments are not allowed in production');
+        }
         isValid = true;
     } else {
         // Validate signature using standard Razorpay helper

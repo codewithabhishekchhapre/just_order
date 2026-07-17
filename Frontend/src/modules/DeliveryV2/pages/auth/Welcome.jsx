@@ -157,7 +157,7 @@ export default function DeliveryWelcome() {
                // Navigate directly to delivery home page (map with hotspots)
                navigate("/food/delivery", { replace: true })
              }}
-             className="w-full bg-[#00B761] hover:bg-[#00A055] text-white font-bold py-4 rounded-lg mt-4 flex items-center justify-center gap-2 transition-colors"
+             className="w-full bg-primary-orange hover:bg-primary-orange/90 text-white font-bold py-4 rounded-xl mt-4 flex items-center justify-center gap-2 transition-colors shadow-md shadow-orange-500/20"
            >
             <span>Start earning</span>
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

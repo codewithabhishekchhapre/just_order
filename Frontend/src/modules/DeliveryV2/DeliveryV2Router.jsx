@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import ProtectedRoute from './components/ProtectedRoute';
 import { AuthPageGuard } from '@core/guards/RouteGuard';
 import Loader from "@food/components/Loader";
+import DeliveryShell from "./components/layout/DeliveryShell";
 import {
   loadBusinessSettings,
   getCachedSettings,
@@ -61,8 +62,9 @@ const DeliveryV2Router = () => {
   }, []);
 
   return (
-    <Suspense fallback={<Loader />}>
-      <Routes>
+    <DeliveryShell>
+        <Suspense fallback={<Loader />}>
+          <Routes>
         {/* Auth routes — redirect to home if already logged in */}
         <Route path="welcome" element={<AuthPageGuard module="delivery" home="/food/delivery"><Welcome /></AuthPageGuard>} />
         <Route path="login" element={<AuthPageGuard module="delivery" home="/food/delivery"><SignIn /></AuthPageGuard>} />
@@ -110,8 +112,9 @@ const DeliveryV2Router = () => {
 
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/food/delivery" replace />} />
-      </Routes>
-    </Suspense>
+          </Routes>
+        </Suspense>
+    </DeliveryShell>
   );
 };
 

@@ -102,12 +102,30 @@ export const useUserNotifications = () => {
           orderId: data.orderId,
           status: data.orderStatus,
           orderStatus: data.orderStatus, // Ensure compatibility with different UI checks
+          preparationTime: data.preparationTime,
           title,
           message,
           deliveryState: data.deliveryState,
           deliveryVerification: data.deliveryVerification,
           timestamp: new Date().toISOString()
         }
+      });
+      window.dispatchEvent(event);
+    });
+
+    socketRef.current.on('preparation_time_update', (data) => {
+      debugLog('⏱️ Preparation time update received:', data);
+      const event = new CustomEvent('orderStatusNotification', {
+        detail: {
+          orderMongoId: data.orderMongoId,
+          orderId: data.orderId,
+          status: data.orderStatus,
+          orderStatus: data.orderStatus,
+          preparationTime: data.preparationTime,
+          title: data.title || `Order #${data.orderId || ''} prep time updated`,
+          message: data.message || `Estimated preparation time is now ${data.preparationTime} minutes`,
+          timestamp: new Date().toISOString(),
+        },
       });
       window.dispatchEvent(event);
     });

@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import { FoodDeliveryPartner } from '../models/deliveryPartner.model.js';
+import { Driver } from '../../../../core/models/driver.model.js';
 import { FoodDeliveryCashDeposit } from '../models/foodDeliveryCashDeposit.model.js';
 import { DeliverySupportTicket } from '../models/supportTicket.model.js';
 import { DeliveryBonusTransaction } from '../../admin/models/deliveryBonusTransaction.model.js';
@@ -12,71 +12,159 @@ import { ValidationError } from '../../../../core/auth/errors.js';
 import { getDeliveryCashLimitSettings } from '../../admin/services/admin.service.js';
 import { ensureDailyPassEligibility, activateDailyPass } from '../../subscriptions/services/wallet.service.js';
 
+const pickFirstFile = (files, ...names) => {
+    for (const name of names) {
+        if (files?.[name]?.[0]) return files[name][0];
+    }
+    return null;
+};
+
+const assertUniqueIdentity = async ({ phone, aadharNumber, drivingLicenseNumber, vehicleNumber, excludeId }) => {
+    const exclude = excludeId
+        ? { _id: { $ne: excludeId } }
+        : {};
+
+    const phoneClash = await Driver.findOne({ phone, ...exclude }).select('_id status').lean();
+    if (phoneClash && !['rejected', 'documents_required'].includes(phoneClash.status)) {
+        throw new ValidationError('Delivery partner with this phone already exists');
+    }
+
+    if (aadharNumber) {
+        const aadhaarClash = await Driver.findOne({ aadharNumber, ...exclude }).select('_id').lean();
+        if (aadhaarClash) {
+            throw new ValidationError('This Aadhaar number is already registered');
+        }
+    }
+
+    if (drivingLicenseNumber) {
+        const dlClash = await Driver.findOne({ drivingLicenseNumber, ...exclude }).select('_id').lean();
+        if (dlClash) {
+            throw new ValidationError('This driving license number is already registered');
+        }
+    }
+
+    if (vehicleNumber) {
+        const vehicleClash = await Driver.findOne({ vehicleNumber, ...exclude }).select('_id').lean();
+        if (vehicleClash) {
+            throw new ValidationError('This vehicle number is already registered');
+        }
+    }
+};
+
+const uploadOnboardingImages = async (files) => {
+    const images = {};
+    const map = [
+        ['profilePhoto', 'profilePhoto', 'food/delivery/profile'],
+        ['aadharFront', 'aadharFront', 'food/delivery/aadhar'],
+        ['aadharBack', 'aadharBack', 'food/delivery/aadhar'],
+        ['drivingLicenseFront', 'drivingLicenseFront', 'food/delivery/license'],
+        ['drivingLicenseBack', 'drivingLicenseBack', 'food/delivery/license'],
+        ['rcPhoto', 'rcPhoto', 'food/delivery/rc'],
+        ['insurancePhoto', 'insurancePhoto', 'food/delivery/insurance'],
+        ['vehicleImage', 'vehicleImage', 'food/delivery/vehicle'],
+        ['panPhoto', 'panPhoto', 'food/delivery/pan']
+    ];
+
+    for (const [field, destKey, folder] of map) {
+        const aliases =
+            field === 'aadharFront' ? ['aadharFront', 'aadharPhoto'] :
+            field === 'drivingLicenseFront' ? ['drivingLicenseFront', 'drivingLicensePhoto'] :
+            [field];
+        const file = pickFirstFile(files, ...aliases);
+        if (file) {
+            images[destKey] = await uploadImageBuffer(file.buffer, folder);
+            // Keep legacy mirrors for admin UIs that still read old keys
+            if (field === 'aadharFront') images.aadharPhoto = images[destKey];
+            if (field === 'drivingLicenseFront') images.drivingLicensePhoto = images[destKey];
+        }
+    }
+    return images;
+};
+
 export const registerDeliveryPartner = async (payload, files) => {
     const {
-        name, phone, email, countryCode, address, city, state,
-        vehicleType, vehicleName, vehicleNumber, drivingLicenseNumber, panNumber, aadharNumber,
+        name, phone, email, countryCode, dateOfBirth,
+        vehicleType, vehicleName, vehicleNumber, drivingLicenseNumber, drivingLicenseExpiry,
+        aadharNumber,
+        bankAccountHolderName, bankAccountNumber, bankIfscCode,
+        emergencyContactName, emergencyContactPhone,
+        partnerAgreement, termsAccepted, privacyAccepted,
         fcmToken, platform, razorpayOrderId, razorpayPaymentId, razorpaySignature
     } = payload;
     const refRaw = typeof payload?.ref === 'string' ? String(payload.ref).trim() : '';
 
-    let partner;
+    const { validateDeliveryDocumentsRequired } = await import('../validators/delivery.validator.js');
 
-    const existing = await FoodDeliveryPartner.findOne({ phone });
+    let partner;
+    const existing = await Driver.findOne({ phone });
     if (existing) {
-        if (existing.status !== 'rejected') {
+        if (!['rejected', 'documents_required'].includes(existing.status)) {
             throw new ValidationError('Delivery partner with this phone already exists');
         }
-        // If rejected, allow update and bypass payment
         partner = existing;
     }
 
-    const images = {};
+    const isPartialReupload =
+        partner &&
+        partner.status === 'documents_required' &&
+        Array.isArray(partner.documentsRequested) &&
+        partner.documentsRequested.length > 0;
 
-    if (files?.profilePhoto?.[0]) {
-        images.profilePhoto = await uploadImageBuffer(files.profilePhoto[0].buffer, 'food/delivery/profile');
-    }
-    if (files?.aadharPhoto?.[0]) {
-        images.aadharPhoto = await uploadImageBuffer(files.aadharPhoto[0].buffer, 'food/delivery/aadhar');
-    }
-    if (files?.panPhoto?.[0]) {
-        images.panPhoto = await uploadImageBuffer(files.panPhoto[0].buffer, 'food/delivery/pan');
-    }
-    if (files?.drivingLicensePhoto?.[0]) {
-        images.drivingLicensePhoto = await uploadImageBuffer(
-            files.drivingLicensePhoto[0].buffer,
-            'food/delivery/license'
-        );
-    }
-    if (files?.vehicleImage?.[0]) {
-        images.vehicleImage = await uploadImageBuffer(
-            files.vehicleImage[0].buffer,
-            'food/delivery/vehicle'
-        );
-    }
+    validateDeliveryDocumentsRequired(files, vehicleType, {
+        allowPartial: isPartialReupload,
+        requestedDocs: isPartialReupload ? partner.documentsRequested : []
+    });
+
+    await assertUniqueIdentity({
+        phone,
+        aadharNumber,
+        drivingLicenseNumber: drivingLicenseNumber || undefined,
+        vehicleNumber: vehicleNumber || undefined,
+        excludeId: partner?._id
+    });
+
+    const images = await uploadOnboardingImages(files);
 
     const partnerData = {
         name,
         phone,
         email: email && String(email).trim() ? String(email).trim() : undefined,
         countryCode,
-        address,
-        city,
-        state,
+        dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : undefined,
         vehicleType,
-        vehicleName,
-        vehicleNumber,
-        drivingLicenseNumber,
-        panNumber,
+        vehicleName: vehicleName || vehicleType,
+        vehicleNumber: vehicleNumber || undefined,
+        drivingLicenseNumber: drivingLicenseNumber || undefined,
+        drivingLicenseExpiry: drivingLicenseExpiry ? new Date(drivingLicenseExpiry) : undefined,
         aadharNumber,
+        bankAccountHolderName,
+        bankAccountNumber,
+        bankIfscCode,
+        emergencyContactName,
+        emergencyContactPhone,
+        agreements: {
+            partnerAgreement: partnerAgreement === true,
+            termsAccepted: termsAccepted === true,
+            privacyAccepted: privacyAccepted === true,
+            acceptedAt: new Date()
+        },
         status: 'pending',
+        isActive: false,
+        availabilityStatus: 'offline',
+        documentsRequested: [],
+        rejectionReason: null,
+        rejectedAt: undefined,
+        onboardingStep: 'submitted',
+        registeredServices: {
+            food: {
+                status: 'pending',
+                appliedAt: new Date()
+            }
+        },
         ...images
     };
 
     if (partner) {
-        // Verify onboarding fee payment if required for re-onboarding.
-        // verifyAndConsumeOnboardingPayment automatically bypasses the check
-        // if the user already paid successfully in a prior attempt.
         const { verifyAndConsumeOnboardingPayment } = await import('../../../common/services/onboardingFee.service.js');
         await verifyAndConsumeOnboardingPayment({
             role: 'DELIVERY_PARTNER',
@@ -86,11 +174,12 @@ export const registerDeliveryPartner = async (payload, files) => {
         });
 
         Object.assign(partner, partnerData);
-        partner.rejectionReason = null;
-        partner.isActive = false;
-        partner.isVerified = false;
+        if (partner.registeredServices?.food) {
+            partner.registeredServices.food.status = 'pending';
+            partner.registeredServices.food.appliedAt = new Date();
+            partner.registeredServices.food.rejectionReason = undefined;
+        }
 
-        // Associate created partner ID with payment log if paid
         if (razorpayOrderId) {
             const { OnboardingPaymentLog } = await import('../../../common/models/onboardingPaymentLog.model.js');
             await OnboardingPaymentLog.updateOne(
@@ -99,7 +188,6 @@ export const registerDeliveryPartner = async (payload, files) => {
             );
         }
     } else {
-        // Verify onboarding fee payment if required
         const { verifyAndConsumeOnboardingPayment } = await import('../../../common/services/onboardingFee.service.js');
         await verifyAndConsumeOnboardingPayment({
             role: 'DELIVERY_PARTNER',
@@ -107,9 +195,8 @@ export const registerDeliveryPartner = async (payload, files) => {
             userDetails: { name, phone, email }
         });
 
-        partner = await FoodDeliveryPartner.create(partnerData);
+        partner = await Driver.create(partnerData);
 
-        // Associate created partner ID with payment log if paid
         if (razorpayOrderId) {
             const { OnboardingPaymentLog } = await import('../../../common/models/onboardingPaymentLog.model.js');
             await OnboardingPaymentLog.updateOne(
@@ -119,7 +206,6 @@ export const registerDeliveryPartner = async (payload, files) => {
         }
     }
 
-    // Update FCM token if provided
     if (fcmToken) {
         if (platform === 'mobile') {
             partner.fcmTokenMobile = [fcmToken];
@@ -128,28 +214,23 @@ export const registerDeliveryPartner = async (payload, files) => {
         }
     }
 
-    // Ensure referralCode exists for sharing.
     if (!partner.referralCode) {
         partner.referralCode = String(partner._id);
     }
 
-    // Store referredBy (no credit here; credit happens on admin approval).
     if (refRaw && String(refRaw) !== String(partner._id)) {
-        // Search by ID if it's a valid ObjectId, otherwise search by referralCode field
         let referrer = null;
         if (mongoose.Types.ObjectId.isValid(refRaw)) {
-            referrer = await FoodDeliveryPartner.findById(refRaw).select('_id').lean();
+            referrer = await Driver.findById(refRaw).select('_id').lean();
         }
-
         if (!referrer) {
-            referrer = await FoodDeliveryPartner.findOne({
+            referrer = await Driver.findOne({
                 $or: [
                     { referralCode: refRaw },
                     { phone: refRaw }
                 ]
             }).select('_id').lean();
         }
-
         if (referrer) {
             partner.referredBy = referrer._id;
         }
@@ -176,27 +257,176 @@ export const registerDeliveryPartner = async (payload, files) => {
     return partner.toObject();
 };
 
+/** Partial re-upload for partners in documents_required status */
+export const resubmitRequestedDocuments = async (partnerId, files) => {
+    const partner = await Driver.findById(partnerId);
+    if (!partner) {
+        throw new ValidationError('Delivery partner not found');
+    }
+    if (partner.status !== 'documents_required') {
+        throw new ValidationError('No document re-upload is pending for this account');
+    }
+    const requested = Array.isArray(partner.documentsRequested) ? partner.documentsRequested : [];
+    if (!requested.length) {
+        throw new ValidationError('No documents were requested for re-upload');
+    }
+
+    const { validateDeliveryDocumentsRequired } = await import('../validators/delivery.validator.js');
+    validateDeliveryDocumentsRequired(files, partner.vehicleType, {
+        allowPartial: true,
+        requestedDocs: requested
+    });
+
+    const images = await uploadOnboardingImages(files);
+    Object.assign(partner, images);
+    partner.status = 'pending';
+    partner.isActive = false;
+    partner.availabilityStatus = 'offline';
+    partner.documentsRequested = [];
+    partner.rejectionReason = null;
+    partner.rejectedAt = undefined;
+    if (partner.registeredServices?.food) {
+        partner.registeredServices.food.status = 'pending';
+        partner.registeredServices.food.appliedAt = new Date();
+        partner.registeredServices.food.rejectionReason = undefined;
+    }
+    await partner.save();
+
+    try {
+        const { notifyAdminsSafely } = await import('../../../../core/notifications/firebase.service.js');
+        void notifyAdminsSafely({
+            title: 'Delivery Partner Documents Re-uploaded 📄',
+            body: `"${partner.name}" re-uploaded requested documents and is pending review.`,
+            data: {
+                type: 'documents_resubmitted',
+                subType: 'delivery_partner',
+                id: String(partner._id)
+            }
+        });
+    } catch (e) {
+        console.error('Failed to notify admins of document resubmit:', e);
+    }
+
+    return partner.toObject();
+};
+
+/** Public onboarding status lookup (phone only — no PII beyond status). */
+export const getDeliveryOnboardingStatus = async (phoneRaw) => {
+    const digits = String(phoneRaw || '').replace(/\D/g, '');
+    const last10 = digits.slice(-10);
+    if (!last10 || last10.length < 8) {
+        throw new ValidationError('Valid phone number is required');
+    }
+
+    const partner = await Driver.findOne({
+        $or: [
+            { phone: last10 },
+            { phone: digits },
+            { phone: { $regex: new RegExp(`${last10}$`) } },
+        ],
+    })
+        .select('status isActive rejectionReason documentsRequested approvedAt rejectedAt')
+        .lean();
+
+    if (!partner) {
+        return {
+            found: false,
+            status: null,
+            message: 'No delivery partner registration found for this number.',
+        };
+    }
+
+    const status = partner.status || 'pending';
+    let message = 'Your account is pending admin verification.';
+    if (status === 'approved') {
+        message = 'Your account has been approved. You can sign in and go online.';
+    } else if (status === 'rejected') {
+        message = partner.rejectionReason || 'Your application was rejected.';
+    } else if (status === 'documents_required') {
+        message = partner.rejectionReason || 'Please re-upload the requested documents.';
+    }
+
+    return {
+        found: true,
+        status,
+        isActive: partner.isActive !== false && status === 'approved',
+        rejectionReason: partner.rejectionReason || null,
+        documentsRequested: partner.documentsRequested || [],
+        approvedAt: partner.approvedAt || null,
+        rejectedAt: partner.rejectedAt || null,
+        message,
+    };
+};
+
 export const updateDeliveryPartnerProfile = async (userId, payload, files) => {
-    const partner = await FoodDeliveryPartner.findById(userId);
+    const partner = await Driver.findById(userId);
     if (!partner) {
         throw new ValidationError('Delivery partner not found');
     }
 
     const {
-        name, countryCode, address, city, state,
-        vehicleType, vehicleName, vehicleNumber, drivingLicenseNumber, panNumber, aadharNumber,
+        name, countryCode, email, dateOfBirth,
+        vehicleType, vehicleName, vehicleNumber, drivingLicenseNumber, drivingLicenseExpiry,
+        aadharNumber, panNumber,
+        bankAccountHolderName, bankAccountNumber, bankIfscCode,
+        emergencyContactName, emergencyContactPhone,
+        partnerAgreement, termsAccepted, privacyAccepted,
         fcmToken, platform
     } = payload;
 
+    const nextVehicleType = vehicleType !== undefined ? vehicleType : partner.vehicleType;
+    const isPartialReupload =
+        partner.status === 'documents_required' &&
+        Array.isArray(partner.documentsRequested) &&
+        partner.documentsRequested.length > 0;
+
+    if (files && Object.keys(files).length > 0) {
+        const { validateDeliveryDocumentsRequired } = await import('../validators/delivery.validator.js');
+        if (isPartialReupload) {
+            validateDeliveryDocumentsRequired(files, nextVehicleType, {
+                allowPartial: true,
+                requestedDocs: partner.documentsRequested
+            });
+        }
+        const images = await uploadOnboardingImages(files);
+        Object.assign(partner, images);
+    }
+
     if (name) partner.name = name;
     if (countryCode !== undefined) partner.countryCode = countryCode;
-    if (address !== undefined) partner.address = address;
-    if (city !== undefined) partner.city = city;
-    if (state !== undefined) partner.state = state;
+    if (email !== undefined) partner.email = email && String(email).trim() ? String(email).trim() : undefined;
+    if (dateOfBirth) partner.dateOfBirth = new Date(dateOfBirth);
     if (vehicleType !== undefined) partner.vehicleType = vehicleType;
     if (vehicleName !== undefined) partner.vehicleName = vehicleName;
-    if (vehicleNumber !== undefined) partner.vehicleNumber = vehicleNumber;
-    if (drivingLicenseNumber !== undefined) partner.drivingLicenseNumber = drivingLicenseNumber;
+    if (vehicleNumber !== undefined) partner.vehicleNumber = vehicleNumber || undefined;
+    if (drivingLicenseNumber !== undefined) partner.drivingLicenseNumber = drivingLicenseNumber || undefined;
+    if (drivingLicenseExpiry !== undefined) {
+        partner.drivingLicenseExpiry = drivingLicenseExpiry ? new Date(drivingLicenseExpiry) : undefined;
+    }
+    if (aadharNumber !== undefined) partner.aadharNumber = aadharNumber || undefined;
+    if (panNumber !== undefined) partner.panNumber = panNumber;
+    if (bankAccountHolderName !== undefined) partner.bankAccountHolderName = bankAccountHolderName;
+    if (bankAccountNumber !== undefined) partner.bankAccountNumber = bankAccountNumber;
+    if (bankIfscCode !== undefined) partner.bankIfscCode = bankIfscCode ? String(bankIfscCode).toUpperCase() : undefined;
+    if (emergencyContactName !== undefined) partner.emergencyContactName = emergencyContactName;
+    if (emergencyContactPhone !== undefined) partner.emergencyContactPhone = emergencyContactPhone;
+
+    if (partnerAgreement === true || termsAccepted === true || privacyAccepted === true) {
+        partner.agreements = {
+            partnerAgreement: partnerAgreement === true || partner.agreements?.partnerAgreement === true,
+            termsAccepted: termsAccepted === true || partner.agreements?.termsAccepted === true,
+            privacyAccepted: privacyAccepted === true || partner.agreements?.privacyAccepted === true,
+            acceptedAt: new Date()
+        };
+    }
+
+    await assertUniqueIdentity({
+        phone: partner.phone,
+        aadharNumber: partner.aadharNumber,
+        drivingLicenseNumber: partner.drivingLicenseNumber,
+        vehicleNumber: partner.vehicleNumber,
+        excludeId: partner._id
+    });
 
     if (fcmToken) {
         if (platform === 'mobile') {
@@ -212,40 +442,48 @@ export const updateDeliveryPartnerProfile = async (userId, payload, files) => {
         }
     }
 
-    if (files?.profilePhoto?.[0]) {
-        partner.profilePhoto = await uploadImageBuffer(files.profilePhoto[0].buffer, 'food/delivery/profile');
+    // Re-upload flow: move back to pending only after required docs were uploaded
+    if (isPartialReupload) {
+        const uploadedSomething = files && Object.keys(files).length > 0;
+        if (!uploadedSomething) {
+            throw new ValidationError('Please upload the requested documents before resubmitting');
+        }
+        partner.status = 'pending';
+        partner.isActive = false;
+        partner.availabilityStatus = 'offline';
+        partner.documentsRequested = [];
+        partner.rejectionReason = null;
+        partner.rejectedAt = undefined;
+        if (partner.registeredServices?.food) {
+            partner.registeredServices.food.status = 'pending';
+            partner.registeredServices.food.appliedAt = new Date();
+        }
+    } else if (partner.status === 'rejected') {
+        // Full re-apply via authenticated profile requires files for a complete profile;
+        // do not silently flip status without document validation on this path.
+        if (files && Object.keys(files).length > 0) {
+            partner.status = 'pending';
+            partner.isActive = false;
+            partner.availabilityStatus = 'offline';
+            partner.documentsRequested = [];
+            partner.rejectionReason = null;
+            partner.rejectedAt = undefined;
+            if (partner.registeredServices?.food) {
+                partner.registeredServices.food.status = 'pending';
+                partner.registeredServices.food.appliedAt = new Date();
+            }
+        }
     }
-    if (files?.aadharPhoto?.[0]) {
-        partner.aadharPhoto = await uploadImageBuffer(files.aadharPhoto[0].buffer, 'food/delivery/aadhar');
-    }
-    if (files?.panPhoto?.[0]) {
-        partner.panPhoto = await uploadImageBuffer(files.panPhoto[0].buffer, 'food/delivery/pan');
-    }
-    if (files?.drivingLicensePhoto?.[0]) {
-        partner.drivingLicensePhoto = await uploadImageBuffer(
-            files.drivingLicensePhoto[0].buffer,
-            'food/delivery/license'
-        );
-    }
-    if (files?.vehicleImage?.[0]) {
-        partner.vehicleImage = await uploadImageBuffer(
-            files.vehicleImage[0].buffer,
-            'food/delivery/vehicle'
-        );
-    }
-
-    if (aadharNumber !== undefined) partner.aadharNumber = aadharNumber;
-    if (panNumber !== undefined) partner.panNumber = panNumber;
 
     await partner.save();
     return {
         partner: partner.toObject(),
-        requiresReapproval: false
+        requiresReapproval: partner.status === 'pending'
     };
 };
 
 export const updateDeliveryPartnerDetails = async (userId, payload) => {
-    const partner = await FoodDeliveryPartner.findById(userId);
+    const partner = await Driver.findById(userId);
     if (!partner) {
         throw new ValidationError('Delivery partner not found');
     }
@@ -267,7 +505,7 @@ export const updateDeliveryPartnerDetails = async (userId, payload) => {
 };
 
 export const updateDeliveryPartnerProfilePhotoBase64 = async (userId, payload) => {
-    const partner = await FoodDeliveryPartner.findById(userId);
+    const partner = await Driver.findById(userId);
     if (!partner) {
         throw new ValidationError('Delivery partner not found');
     }
@@ -290,7 +528,7 @@ export const updateDeliveryPartnerProfilePhotoBase64 = async (userId, payload) =
 };
 
 export const updateDeliveryPartnerBankDetails = async (userId, payload, files) => {
-    const partner = await FoodDeliveryPartner.findById(userId);
+    const partner = await Driver.findById(userId);
     if (!partner) {
         throw new ValidationError('Delivery partner not found');
     }
@@ -385,7 +623,7 @@ export const getSupportTicketByIdAndPartner = async (ticketId, deliveryPartnerId
 };
 
 export const updateDeliveryAvailability = async (userId, payload) => {
-    const partner = await FoodDeliveryPartner.findById(userId);
+    const partner = await Driver.findById(userId);
     if (!partner) {
         throw new ValidationError('Delivery partner not found');
     }
@@ -403,7 +641,7 @@ export const updateDeliveryAvailability = async (userId, payload) => {
     // no status transition -> atomic coordinate update, skipping full-document
     // validation (a legacy field failing validation must not kill live tracking).
     if (hasCoords && partner.availabilityStatus === validStatus) {
-        await FoodDeliveryPartner.updateOne(
+        await Driver.updateOne(
             { _id: userId },
             {
                 $set: {
@@ -417,29 +655,34 @@ export const updateDeliveryAvailability = async (userId, payload) => {
         return { availabilityStatus: partner.availabilityStatus };
     }
 
-    // PHASE 3C-1: SUBSCRIPTION TRIGGER (OFFLINE -> ONLINE ONLY) (Bypassed)
-    /* Comment out the related restriction/check logic in the codebase instead of removing it completely.
+    // PHASE 3C-1: SUBSCRIPTION TRIGGER (OFFLINE -> ONLINE ONLY)
     if (partner.availabilityStatus === 'offline' && validStatus === 'online') {
         const eligibility = await ensureDailyPassEligibility(userId, 'DELIVERY_PARTNER');
-        
+        const confirmPass = payload?.confirmPass === true;
+
         if (!eligibility.eligible) {
-            throw new ValidationError(eligibility.reason === 'LOW_BALANCE' 
-                ? 'Insufficient subscription balance. Minimum ₹1000 required to go online.' 
-                : 'Subscription access blocked.');
+            throw new ValidationError('LOW_BALANCE');
         }
 
         if (eligibility.shouldDeduct) {
+            if (!confirmPass) {
+                throw new ValidationError('PASS_REQUIRED');
+            }
             const result = await activateDailyPass(userId, 'DELIVERY_PARTNER');
             if (!result.success) {
-                throw new ValidationError(result.reason === 'LOW_BALANCE' 
-                    ? 'Insufficient subscription balance for daily pass.' 
-                    : 'Failed to activate daily pass.');
+                throw new ValidationError(
+                    result.reason === 'LOW_BALANCE' ? 'LOW_BALANCE' : 'Failed to activate daily pass.'
+                );
             }
         }
-    }
-    */
-    // CASH LIMIT ENFORCEMENT
-    if (partner.availabilityStatus === 'offline' && validStatus === 'online') {
+
+        // Only approved + active partners may go online
+        if (partner.status !== 'approved') {
+            throw new ValidationError('Your account is pending verification. You cannot go online yet.');
+        }
+        if (partner.isActive === false) {
+            throw new ValidationError('Your account is inactive. Please contact support.');
+        }
         const { getDeliveryPartnerWalletEnhanced } = await import('./deliveryFinance.service.js');
         const wallet = await getDeliveryPartnerWalletEnhanced(userId);
         // Block if: (1) admin set limit to 0 OR (2) delivery boy has exhausted their limit
@@ -528,7 +771,7 @@ export const getDeliveryPartnerWallet = async (deliveryPartnerId) => {
     if (!deliveryPartnerId || !mongoose.Types.ObjectId.isValid(deliveryPartnerId)) {
         throw new ValidationError('Delivery partner not found');
     }
-    const partner = await FoodDeliveryPartner.findById(deliveryPartnerId).lean();
+    const partner = await Driver.findById(deliveryPartnerId).lean();
     if (!partner) {
         throw new ValidationError('Delivery partner not found');
     }
@@ -1142,7 +1385,7 @@ export const getActiveEarningAddonsForPartner = async (deliveryPartnerId) => {
 };
 
 export const deleteDeliveryPartnerAccount = async (userId) => {
-    const partner = await FoodDeliveryPartner.findById(userId);
+    const partner = await Driver.findById(userId);
     if (!partner) {
         throw new ValidationError('Delivery partner not found');
     }

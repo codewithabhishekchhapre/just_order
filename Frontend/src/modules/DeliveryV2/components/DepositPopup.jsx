@@ -316,7 +316,7 @@ export default function DepositPopup({ onSuccess, cashInHand = 0 }) {
   if (cashInHandNum <= 0) {
     return (
       <div className="flex flex-col items-center justify-center p-8 text-center space-y-3">
-        <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600">
+        <div className="w-12 h-12 rounded-full bg-orange-100 flex items-center justify-center text-primary-orange">
           <ShieldCheck className="w-6 h-6" />
         </div>
         <h3 className="font-bold text-slate-800 text-base">No Outstanding Balance</h3>
@@ -334,7 +334,7 @@ export default function DepositPopup({ onSuccess, cashInHand = 0 }) {
       {step === 1 && (
         <div className="p-5 flex flex-col space-y-5">
           <div className="bg-[#F8FAFC] border border-slate-100 rounded-2xl p-5 flex flex-col items-center text-center relative overflow-hidden">
-            <div className="absolute top-0 right-0 translate-x-4 -translate-y-4 w-20 h-20 bg-emerald-500/5 rounded-full" />
+            <div className="absolute top-0 right-0 translate-x-4 -translate-y-4 w-20 h-20 bg-orange-500/5 rounded-full" />
             <div className="w-10 h-10 rounded-full bg-[#FF6A00]/10 flex items-center justify-center text-[#FF6A00] mb-3">
               <Wallet className="w-5 h-5" />
             </div>
@@ -399,7 +399,7 @@ export default function DepositPopup({ onSuccess, cashInHand = 0 }) {
               disabled={loading || processing}
               className="flex items-center gap-4 p-4 border border-slate-200/80 hover:border-slate-400 rounded-2xl bg-white text-left transition-all active:scale-[0.98]"
             >
-              <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+              <div className="w-10 h-10 rounded-full bg-orange-50 text-primary-orange flex items-center justify-center shrink-0">
                 <CreditCard className="w-5 h-5" />
               </div>
               <div className="flex-1 min-w-0">
@@ -510,7 +510,7 @@ export default function DepositPopup({ onSuccess, cashInHand = 0 }) {
                         onClick={() => handleCopy("HDFC Bank Limited", "Bank Name")}
                         className="p-1.5 hover:bg-slate-200 rounded-lg text-slate-500"
                       >
-                        {copiedField === "Bank Name" ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                        {copiedField === "Bank Name" ? <Check className="w-3.5 h-3.5 text-primary-orange" /> : <Copy className="w-3.5 h-3.5" />}
                       </button>
                     </div>
 
@@ -523,7 +523,7 @@ export default function DepositPopup({ onSuccess, cashInHand = 0 }) {
                         onClick={() => handleCopy("Itzo Technologies Private Limited", "Account Holder")}
                         className="p-1.5 hover:bg-slate-200 rounded-lg text-slate-500"
                       >
-                        {copiedField === "Account Holder" ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                        {copiedField === "Account Holder" ? <Check className="w-3.5 h-3.5 text-primary-orange" /> : <Copy className="w-3.5 h-3.5" />}
                       </button>
                     </div>
 
@@ -536,7 +536,7 @@ export default function DepositPopup({ onSuccess, cashInHand = 0 }) {
                         onClick={() => handleCopy("50200084321948", "Account Number")}
                         className="p-1.5 hover:bg-slate-200 rounded-lg text-slate-500"
                       >
-                        {copiedField === "Account Number" ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                        {copiedField === "Account Number" ? <Check className="w-3.5 h-3.5 text-primary-orange" /> : <Copy className="w-3.5 h-3.5" />}
                       </button>
                     </div>
 
@@ -549,7 +549,7 @@ export default function DepositPopup({ onSuccess, cashInHand = 0 }) {
                         onClick={() => handleCopy("HDFC0000124", "IFSC Code")}
                         className="p-1.5 hover:bg-slate-200 rounded-lg text-slate-500"
                       >
-                        {copiedField === "IFSC Code" ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                        {copiedField === "IFSC Code" ? <Check className="w-3.5 h-3.5 text-primary-orange" /> : <Copy className="w-3.5 h-3.5" />}
                       </button>
                     </div>
                   </div>
@@ -558,7 +558,7 @@ export default function DepositPopup({ onSuccess, cashInHand = 0 }) {
                 {/* Tab content 2: UPI ID */}
                 {adminTab === "upi" && (
                   <div className="bg-slate-50 border border-slate-150 rounded-2xl p-5 flex flex-col items-center text-center space-y-3">
-                    <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                    <div className="w-10 h-10 rounded-full bg-orange-50 text-primary-orange flex items-center justify-center">
                       <Smartphone className="w-5 h-5" />
                     </div>
                     <div>
@@ -571,7 +571,7 @@ export default function DepositPopup({ onSuccess, cashInHand = 0 }) {
                     >
                       {copiedField === "UPI ID" ? (
                         <>
-                          <Check className="w-3.5 h-3.5 text-emerald-600" />
+                          <Check className="w-3.5 h-3.5 text-primary-orange" />
                           Copied
                         </>
                       ) : (
@@ -626,11 +626,11 @@ export default function DepositPopup({ onSuccess, cashInHand = 0 }) {
                   </div>
 
                   {proofFileName && (
-                    <div className="flex items-center gap-2 p-2.5 bg-emerald-50 border border-emerald-250 rounded-xl">
-                      <div className="w-6 h-6 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center shrink-0">
+                    <div className="flex items-center gap-2 p-2.5 bg-orange-50 border border-orange-200 rounded-xl">
+                      <div className="w-6 h-6 bg-orange-100 text-primary-orange rounded-full flex items-center justify-center shrink-0">
                         <Check className="w-3.5 h-3.5" />
                       </div>
-                      <p className="text-xs font-bold text-emerald-800 truncate flex-1">{proofFileName}</p>
+                      <p className="text-xs font-bold text-orange-800 truncate flex-1">{proofFileName}</p>
                     </div>
                   )}
                 </div>
@@ -865,11 +865,11 @@ export default function DepositPopup({ onSuccess, cashInHand = 0 }) {
                         </div>
 
                         {proofFileName && (
-                          <div className="flex items-center gap-2 p-2.5 bg-emerald-50 border border-emerald-250 rounded-xl animate-in slide-in-from-bottom-2 duration-200">
-                            <div className="w-6 h-6 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center shrink-0">
+                          <div className="flex items-center gap-2 p-2.5 bg-orange-50 border border-orange-200 rounded-xl animate-in slide-in-from-bottom-2 duration-200">
+                            <div className="w-6 h-6 bg-orange-100 text-primary-orange rounded-full flex items-center justify-center shrink-0">
                               <Check className="w-3.5 h-3.5" />
                             </div>
-                            <p className="text-xs font-semibold text-emerald-800 truncate flex-1">{proofFileName}</p>
+                            <p className="text-xs font-semibold text-orange-800 truncate flex-1">{proofFileName}</p>
                           </div>
                         )}
                       </div>

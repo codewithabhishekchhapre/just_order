@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 import { getIO, rooms } from "../../../config/socket.js";
 import { logger } from "../../../utils/logger.js";
 import { SellerOrder } from "../seller/models/sellerOrder.model.js";
-import { FoodDeliveryPartner } from "../../food/delivery/models/deliveryPartner.model.js";
+import { Driver } from '../../../core/models/driver.model.js';
 import { isQuickOrderVisibleToSeller } from "../utils/sellerOrderVisibility.helpers.js";
 
 const toObjectIdString = (value) => (value ? String(value) : "");
@@ -40,7 +40,7 @@ export async function emitQuickCommerceStatusUpdate(orderDoc, options = {}) {
     let deliveryPartnerPayload = null;
     if (deliveryPartnerId) {
       try {
-        const partner = await FoodDeliveryPartner.findById(deliveryPartnerId)
+        const partner = await Driver.findById(deliveryPartnerId)
           .select("_id name phone vehicleType vehicleNumber")
           .lean();
         if (partner) {

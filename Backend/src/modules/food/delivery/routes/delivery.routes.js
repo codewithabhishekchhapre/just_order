@@ -3,7 +3,7 @@ import { upload } from '../../../../middleware/upload.js';
 import { authMiddleware } from '../../../../core/auth/auth.middleware.js';
 import { requireRoles } from '../../../../core/roles/role.middleware.js';
 import * as orderController from '../../orders/controllers/order.controller.js';
-import { registerDeliveryPartnerController, updateDeliveryPartnerProfileController, updateDeliveryPartnerBankDetailsController, listSupportTicketsController, createSupportTicketController, getSupportTicketByIdController, updateDeliveryPartnerDetailsController, updateDeliveryPartnerProfilePhotoBase64Controller, updateAvailabilityController, getWalletController, createWithdrawalRequestController, createCashDepositOrderController, verifyCashDepositPaymentController, getEarningsController, getTripHistoryController, getPocketDetailsController, getEmergencyHelpController, getCashLimitController, getDeliveryReferralStatsController, getActiveEarningAddonsController, deleteDeliveryPartnerAccountController, submitDeliveryManualDepositController, getDepositZonesController, getDepositZoneHubsController } from '../controllers/delivery.controller.js';
+import { registerDeliveryPartnerController, updateDeliveryPartnerProfileController, updateDeliveryPartnerBankDetailsController, listSupportTicketsController, createSupportTicketController, getSupportTicketByIdController, updateDeliveryPartnerDetailsController, updateDeliveryPartnerProfilePhotoBase64Controller, updateAvailabilityController, getWalletController, createWithdrawalRequestController, createCashDepositOrderController, verifyCashDepositPaymentController, getEarningsController, getTripHistoryController, getPocketDetailsController, getEmergencyHelpController, getCashLimitController, getDeliveryReferralStatsController, getActiveEarningAddonsController, deleteDeliveryPartnerAccountController, submitDeliveryManualDepositController, getDepositZonesController, getDepositZoneHubsController, getDeliveryOnboardingStatusController } from '../controllers/delivery.controller.js';
 import { getDepositPaymentSettingsPublicController } from '../../admin/controllers/admin.controller.js';
 import { registrationRateLimiter, sensitiveActionRateLimiter } from '../../../../middleware/rateLimit.js';
 
@@ -12,13 +12,20 @@ const router = express.Router();
 const uploadFields = upload.fields([
     { name: 'profilePhoto', maxCount: 1 },
     { name: 'aadharPhoto', maxCount: 1 },
+    { name: 'aadharFront', maxCount: 1 },
+    { name: 'aadharBack', maxCount: 1 },
     { name: 'panPhoto', maxCount: 1 },
     { name: 'drivingLicensePhoto', maxCount: 1 },
+    { name: 'drivingLicenseFront', maxCount: 1 },
+    { name: 'drivingLicenseBack', maxCount: 1 },
+    { name: 'rcPhoto', maxCount: 1 },
+    { name: 'insurancePhoto', maxCount: 1 },
     { name: 'upiQrCode', maxCount: 1 },
     { name: 'vehicleImage', maxCount: 1 }
 ]);
 
 router.post('/register', registrationRateLimiter, uploadFields, registerDeliveryPartnerController);
+router.get('/onboarding-status', registrationRateLimiter, getDeliveryOnboardingStatusController);
 
 router.patch('/profile', authMiddleware, requireRoles('DELIVERY_PARTNER'), uploadFields, updateDeliveryPartnerProfileController);
 router.delete('/profile', authMiddleware, requireRoles('DELIVERY_PARTNER'), deleteDeliveryPartnerAccountController);

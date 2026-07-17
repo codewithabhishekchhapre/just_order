@@ -1298,6 +1298,33 @@ export async function rejectDeliveryPartner(req, res, next) {
     }
 }
 
+export async function requestDeliveryPartnerDocuments(req, res, next) {
+    try {
+        const { validateRequestDocumentsDto } = await import('../../delivery/validators/delivery.validator.js');
+        const validated = validateRequestDocumentsDto(req.body || {});
+        const performer = await resolveActionPerformerSnapshot(req.user);
+        const partner = await adminService.requestDeliveryPartnerDocuments(
+            req.params.id,
+            validated.documents,
+            validated.reason,
+            performer
+        );
+        if (!partner) {
+            return res.status(404).json({
+                success: false,
+                message: 'Delivery partner not found'
+            });
+        }
+        res.status(200).json({
+            success: true,
+            message: 'Document re-upload requested successfully',
+            data: partner
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
 // ----- Zones -----
 export async function getZones(req, res, next) {
     try {
@@ -1589,13 +1616,13 @@ export async function getDeletedAccounts(req, res, next) {
         const FoodUser = mongoose.model('FoodUser');
         const Seller = mongoose.model('Seller');
         const FoodRestaurant = mongoose.model('FoodRestaurant');
-        const FoodDeliveryPartner = mongoose.model('FoodDeliveryPartner');
+        const Driver = mongoose.model('Driver');
 
         const [users, sellers, restaurants, deliveryPartners] = await Promise.all([
             FoodUser.find({ $or: [{ isDeleted: true }, { accountStatus: 'deleted' }] }).select('name phone email updatedAt').lean(),
             Seller.find({ $or: [{ isDeleted: true }, { accountStatus: 'deleted' }] }).select('name phone email shopName updatedAt').lean(),
             FoodRestaurant.find({ $or: [{ isDeleted: true }, { accountStatus: 'deleted' }] }).select('restaurantName phone email ownerName ownerPhone updatedAt').lean(),
-            FoodDeliveryPartner.find({ $or: [{ isDeleted: true }, { accountStatus: 'deleted' }] }).select('name phone email vehicleNumber updatedAt').lean(),
+            Driver.find({ $or: [{ isDeleted: true }, { accountStatus: 'deleted' }] }).select('name phone email vehicleNumber updatedAt').lean(),
         ]);
 
         const list = [];
@@ -1688,8 +1715,8 @@ export async function reactivateAccount(req, res, next) {
                 { new: true }
             );
         } else if (role === 'Delivery Boy') {
-            const FoodDeliveryPartner = mongoose.model('FoodDeliveryPartner');
-            updatedDoc = await FoodDeliveryPartner.findByIdAndUpdate(
+            const Driver = mongoose.model('Driver');
+            updatedDoc = await Driver.findByIdAndUpdate(
                 id,
                 { $set: { isDeleted: false, accountStatus: 'approved', isActive: true } },
                 { new: true }

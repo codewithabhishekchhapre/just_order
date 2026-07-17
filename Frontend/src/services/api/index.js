@@ -392,6 +392,15 @@ export const adminAPI = {
         contextModule: "admin",
       },
     ),
+  requestDeliveryPartnerDocuments: (id, documents, reason) =>
+    apiClient.patch(
+      `/food/admin/delivery/${String(id)}/request-documents`,
+      {
+        documents: Array.isArray(documents) ? documents : [],
+        reason: String(reason || "").trim(),
+      },
+      { contextModule: "admin" },
+    ),
   updateDeliveryPartnerActiveStatus: (id, isActive) =>
     apiClient.patch(
       `/food/admin/delivery/${String(id)}/active-status`,
@@ -1497,8 +1506,23 @@ export const restaurantAPI = {
    * UI expects this to move order into "preparing" bucket.
    * Backend supports PATCH /food/restaurant/orders/:orderId/status with { orderStatus }.
    */
-  acceptOrder: (orderId, _prepTimeMins = null) =>
-    restaurantAPI.updateOrderStatus(orderId, { orderStatus: "preparing" }),
+  acceptOrder: (orderId, prepTimeMins = null) => {
+    const body = { orderStatus: "preparing" };
+    if (prepTimeMins != null && prepTimeMins !== "") {
+      const n = Number(prepTimeMins);
+      if (Number.isFinite(n)) body.preparationTime = n;
+    }
+    return restaurantAPI.updateOrderStatus(orderId, body);
+  },
+  /**
+   * Update order preparation time (existing field). Restaurant only.
+   */
+  updatePreparationTime: (orderId, preparationTime) =>
+    apiClient.patch(
+      `/food/restaurant/orders/${String(orderId)}/preparation-time`,
+      { preparationTime: Number(preparationTime) },
+      { contextModule: "restaurant" },
+    ),
   /**
    * Reject/cancel order by restaurant.
    * Backend orderStatus enum: cancelled_by_restaurant.
@@ -1886,6 +1910,15 @@ export const deliveryAPI = {
       return Promise.reject(new Error("Phone and OTP are required"));
     return authService.verifyDeliveryOtp(phone, otp, fcmToken, platform);
   },
+  /** GET /food/delivery/onboarding-status?phone= — public pending/approved status poll */
+  getOnboardingStatus: (phone) => {
+    const digits = String(phone || "").replace(/\D/g, "").slice(-10);
+    if (!digits) return Promise.reject(new Error("Phone is required"));
+    return apiClient.get("/food/delivery/onboarding-status", {
+      params: { phone: digits },
+      contextModule: "delivery",
+    });
+  },
   getMe: () => getDeliveryMeOnce(),
   /** Get delivery profile (same as getMe under the hood; maps response to profile shape). */
   getProfile: () =>
@@ -2003,10 +2036,10 @@ export const deliveryAPI = {
       contextModule: "delivery",
     }),
   /** PATCH /food/delivery/availability - set online/offline (and optional lat/lng). */
-  updateOnlineStatus: (isOnline) =>
+  updateOnlineStatus: (isOnline, confirmPass = false) =>
     apiClient.patch(
       "/food/delivery/availability",
-      { status: isOnline ? "online" : "offline" },
+      { status: isOnline ? "online" : "offline", confirmPass: Boolean(confirmPass) },
       { contextModule: "delivery" },
     ),
   updateLocation: (latitude, longitude, isOnline, extras = {}) =>

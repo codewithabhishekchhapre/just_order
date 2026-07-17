@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { AlertTriangle, CheckCircle2, ChevronRight, Truck } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronRight, Truck, Bike } from 'lucide-react';
 import { useDeliveryStore } from '@/modules/DeliveryV2/store/useDeliveryStore';
 import { toast } from 'sonner';
 
@@ -71,8 +71,14 @@ export default function VehicleSwitcherSheet({ isOpen, onClose }) {
                   className={`relative overflow-hidden rounded-2xl p-4 border transition-all ${isActive ? 'bg-green-500/10 border-green-500/30' : isApproved ? 'bg-white/5 border-white/10 active:scale-95 cursor-pointer' : 'bg-white/5 border-white/5 opacity-60 grayscale'}`}
                 >
                   <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-white/10 rounded-xl flex items-center justify-center shrink-0">
-                       <img src={master.image || "https://i.ibb.co/68zRzVv/Auto.png"} alt="Vehicle" className="w-8 h-8 object-contain" />
+                    <div className="w-12 h-12 bg-white/10 rounded-xl flex items-center justify-center shrink-0 text-white">
+                       {master.image ? (
+                         <img src={master.image} alt="Vehicle" className="w-8 h-8 object-contain" onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                       ) : vehicle.type === "bicycle" ? (
+                         <Bike className="w-7 h-7" />
+                       ) : (
+                         <Truck className="w-7 h-7" />
+                       )}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between mb-1">

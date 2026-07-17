@@ -619,7 +619,22 @@ export const useRestaurantNotifications = () => {
     // Listen for order status updates
     socketRef.current.on('order_status_update', (data) => {
       debugLog('?? Order status update:', data);
-      // You can handle status updates here if needed
+      if (data?.preparationTime != null) {
+        window.dispatchEvent(
+          new CustomEvent('restaurantOrdersRefresh', {
+            detail: { reason: 'preparation_time', preparationTime: data.preparationTime, orderId: data.orderId },
+          }),
+        );
+      }
+    });
+
+    socketRef.current.on('preparation_time_update', (data) => {
+      debugLog('⏱️ Preparation time update:', data);
+      window.dispatchEvent(
+        new CustomEvent('restaurantOrdersRefresh', {
+          detail: { reason: 'preparation_time', preparationTime: data.preparationTime, orderId: data.orderId },
+        }),
+      );
     });
 
     socketRef.current.on('order_deleted', (data) => {

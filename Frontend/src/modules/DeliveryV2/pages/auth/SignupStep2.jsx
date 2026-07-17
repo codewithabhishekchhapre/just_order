@@ -1,233 +1,48 @@
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useMemo } from "react"
 import { useNavigate } from "react-router-dom"
-import { ArrowLeft, Upload, X, Check, Camera, Image as ImageIcon } from "lucide-react"
+import { ArrowLeft, X, Check, Camera, Image as ImageIcon } from "lucide-react"
 import { deliveryAPI, onboardingFeeAPI } from "@food/api"
 import { toast } from "sonner"
 import { initRazorpayPayment } from "@food/utils/razorpay"
 import { openCamera, openGallery } from "@food/utils/imageUploadUtils"
 import useDeliveryBackNavigation from "../../hooks/useDeliveryBackNavigation"
-import { usePorterVehicles } from "../../../porter/admin/utils/vehicleStore"
+import {
+  DOC_KEYS,
+  ALL_DOC_KEYS,
+  emptyUploadedDocs,
+  loadSignupDetails,
+  saveFileToDB,
+  getFileFromDB,
+  removeFileFromDB,
+  clearSignupDB,
+  isMotorizedVehicle,
+} from "../../utils/signupDraft"
+import { DeliveryStepper } from "../../components/ui/deliveryUi"
 
-const debugLog = (...args) => { }
-const debugWarn = (...args) => { }
-const debugError = (...args) => { }
+const hasBinaryUpload = (value) =>
+  (typeof File !== "undefined" && value instanceof File) ||
+  (typeof Blob !== "undefined" && value instanceof Blob && value.size > 0)
 
-const DB_NAME = "DeliverySignupDB"
-const STORE_NAME = "documents"
-
-let cachedDB = null
-const initDB = () => {
-  return new Promise((resolve) => {
-    try {
-      if (cachedDB) {
-        return resolve(cachedDB);
-      }
-      if (typeof window === 'undefined' || !window.indexedDB) {
-        return resolve(null);
-      }
-      const timeoutId = setTimeout(() => {
-        resolve(null);
-      }, 2000);
-
-      const request = window.indexedDB.open(DB_NAME, 1);
-      request.onupgradeneeded = (e) => {
-        try {
-          const db = e.target.result;
-          if (!db.objectStoreNames.contains(STORE_NAME)) {
-            db.createObjectStore(STORE_NAME);
-          }
-        } catch (err) {
-          console.error("🔍 [initDB] error during upgrade:", err);
-        }
-      };
-      request.onsuccess = (e) => {
-        clearTimeout(timeoutId);
-        cachedDB = e.target.result;
-        resolve(cachedDB);
-      };
-      request.onerror = (err) => {
-        console.error("🔍 [initDB] open error event:", err);
-        clearTimeout(timeoutId);
-        resolve(null);
-      };
-    } catch (e) {
-      console.error("🔍 [initDB] synchronous exception caught:", e);
-      resolve(null);
-    }
-  });
-}
-
-const saveFileToDB = async (key, file) => {
-  try {
-    const db = await initDB()
-    if (!db) return
-    return new Promise((resolve) => {
-      try {
-        const transaction = db.transaction(STORE_NAME, "readwrite")
-        const store = transaction.objectStore(STORE_NAME)
-        store.put(file, key)
-        transaction.oncomplete = () => resolve()
-        transaction.onerror = () => resolve()
-      } catch (e) {
-        resolve()
-      }
-    })
-  } catch (err) {
-    return
-  }
-}
-
-const getFileFromDB = async (key, isRetry = false) => {
-  try {
-    const db = await initDB();
-    if (!db) {
-      return null;
-    }
-    return new Promise((resolve) => {
-      let resolved = false;
-      const timeoutId = setTimeout(() => {
-        if (resolved) return;
-        resolved = true;
-        console.warn(`🔍 [getFileFromDB] timed out (1500ms) for key: ${key}`);
-        if (!isRetry) {
-          cachedDB = null;
-          resolve(getFileFromDB(key, true));
-        } else {
-          resolve(null);
-        }
-      }, 1500);
-
-      try {
-        const transaction = db.transaction(STORE_NAME, "readonly")
-        const store = transaction.objectStore(STORE_NAME)
-        const request = store.get(key)
-
-        request.onsuccess = () => {
-          if (resolved) return;
-          resolved = true;
-          clearTimeout(timeoutId);
-          resolve(request.result);
-        }
-
-        request.onerror = (err) => {
-          if (resolved) return;
-          resolved = true;
-          clearTimeout(timeoutId);
-          console.error(`🔍 [getFileFromDB] get error for key: ${key}:`, err);
-          if (!isRetry) {
-            cachedDB = null;
-            resolve(getFileFromDB(key, true));
-          } else {
-            resolve(null);
-          }
-        }
-
-        transaction.onabort = (event) => {
-          if (resolved) return;
-          resolved = true;
-          clearTimeout(timeoutId);
-          console.warn(`🔍 [getFileFromDB] transaction aborted for key: ${key}:`, event);
-          if (!isRetry) {
-            cachedDB = null;
-            resolve(getFileFromDB(key, true));
-          } else {
-            resolve(null);
-          }
-        }
-
-        transaction.onerror = (event) => {
-          if (resolved) return;
-          resolved = true;
-          clearTimeout(timeoutId);
-          console.error(`🔍 [getFileFromDB] transaction error for key: ${key}:`, event);
-          if (!isRetry) {
-            cachedDB = null;
-            resolve(getFileFromDB(key, true));
-          } else {
-            resolve(null);
-          }
-        }
-
-      } catch (e) {
-        if (resolved) return;
-        resolved = true;
-        clearTimeout(timeoutId);
-        console.error(`🔍 [getFileFromDB] transaction/store exception for key: ${key}:`, e);
-        if (!isRetry) {
-          cachedDB = null;
-          resolve(getFileFromDB(key, true));
-        } else {
-          resolve(null);
-        }
-      }
-    })
-  } catch (err) {
-    console.error(`🔍 [getFileFromDB] outer catch exception for key: ${key}:`, err);
-    if (!isRetry) {
-      cachedDB = null;
-      return getFileFromDB(key, true);
-    }
-    return null;
-  }
-}
-
-const removeFileFromDB = async (key) => {
-  const db = await initDB()
-  if (!db) return
-  try {
-    const transaction = db.transaction(STORE_NAME, "readwrite")
-    transaction.objectStore(STORE_NAME).delete(key)
-  } catch (e) {
-    debugError("Error removing file from DB:", e)
-  }
-}
-
-const clearDB = async () => {
-  const db = await initDB()
-  if (!db) return
-  try {
-    const transaction = db.transaction(STORE_NAME, "readwrite")
-    transaction.objectStore(STORE_NAME).clear()
-  } catch (e) {
-    debugError("Error clearing DB:", e)
-  }
-}
-
-const createEmptyUploadedDocs = () => ({
-  profilePhoto: null,
-  aadharPhoto: null,
-  panPhoto: null,
-  drivingLicensePhoto: null
-})
-
-const sanitizeUploadedDocValue = (value) => {
+const toUploadFile = (value, key = "upload") => {
   if (!value) return null
-  if (typeof value === "string") {
-    return value.startsWith("blob:") ? null : value
-  }
-  if (typeof value === "object") {
-    const url = typeof value.url === "string" ? value.url : ""
-    if (url.startsWith("blob:")) {
-      return null
-    }
-    return value
+  if (typeof File !== "undefined" && value instanceof File) return value
+  if (typeof Blob !== "undefined" && value instanceof Blob && value.size > 0) {
+    const type = value.type || "image/jpeg"
+    const ext = type.includes("png") ? "png" : type.includes("webp") ? "webp" : "jpg"
+    return new File([value], `${key}.${ext}`, { type })
   }
   return null
 }
 
-const sanitizeUploadedDocs = (docs) => ({
-  profilePhoto: sanitizeUploadedDocValue(docs?.profilePhoto),
-  aadharPhoto: sanitizeUploadedDocValue(docs?.aadharPhoto),
-  panPhoto: sanitizeUploadedDocValue(docs?.panPhoto),
-  drivingLicensePhoto: sanitizeUploadedDocValue(docs?.drivingLicensePhoto)
-})
-
 const hasDocumentValue = (localFile, uploadedValue) => {
-  if (localFile instanceof File) return true
-  if (typeof uploadedValue === "string") return uploadedValue.trim().length > 0
-  if (uploadedValue && typeof uploadedValue === "object") {
-    if (typeof uploadedValue.url === "string" && uploadedValue.url.trim()) return true
-    if (uploadedValue && uploadedValue.file === true) return true
+  // Only real binary counts for submit readiness (markers alone are not enough)
+  if (hasBinaryUpload(localFile)) return true
+  if (typeof uploadedValue === "string" && uploadedValue.trim() && !uploadedValue.startsWith("blob:")) {
+    return true
+  }
+  if (uploadedValue && typeof uploadedValue === "object" && typeof uploadedValue.url === "string") {
+    const url = uploadedValue.url.trim()
+    return Boolean(url) && !url.startsWith("blob:")
   }
   return false
 }
@@ -240,188 +55,231 @@ const getFriendlyRegistrationError = (error) => {
     ""
 
   if (/E11000 duplicate key error/i.test(rawMessage)) {
-    if (/vehicleNumber_1/i.test(rawMessage) || /vehicleNumber/i.test(rawMessage)) {
-      return "This vehicle number is already registered. Please use a different vehicle number."
-    }
-    if (/panNumber_1/i.test(rawMessage) || /panNumber/i.test(rawMessage)) {
-      return "This PAN number is already registered."
-    }
-    if (/aadharNumber_1/i.test(rawMessage) || /aadharNumber/i.test(rawMessage)) {
-      return "This Aadhar number is already registered."
-    }
-    if (/drivingLicense/i.test(rawMessage)) {
-      return "This driving license number is already registered."
-    }
-    return "This account detail is already registered. Please check your information."
+    if (/vehicleNumber/i.test(rawMessage)) return "This vehicle number is already registered."
+    if (/aadharNumber/i.test(rawMessage)) return "This Aadhaar number is already registered."
+    if (/drivingLicense/i.test(rawMessage)) return "This driving license is already registered."
+    if (/phone/i.test(rawMessage)) return "This mobile number is already registered."
+    return "This account detail is already registered."
   }
-
   return rawMessage || "Failed to register. Please try again."
 }
 
-const buildFormData = async (details, documents) => {
-  const formData = new FormData()
-
-  formData.append("name", details.name || "")
-  formData.append("phone", String(details.phone || "").replace(/\D/g, "").slice(0, 15))
-  if (details.email) formData.append("email", String(details.email).trim())
-  if (details.ref) formData.append("ref", String(details.ref).trim())
-  if (details.countryCode) formData.append("countryCode", details.countryCode)
-  if (details.address) formData.append("address", details.address)
-  if (details.city) formData.append("city", details.city)
-  if (details.state) formData.append("state", details.state)
-  
-  if (details.vehicles && Array.isArray(details.vehicles)) {
-    // Send array as JSON string for future backend processing
-    formData.append("vehicles", JSON.stringify(details.vehicles))
-  }
-
-  if (details.drivingLicenseNumber) {
-    formData.append("drivingLicenseNumber", details.drivingLicenseNumber)
-    formData.append("documents[drivingLicense][number]", details.drivingLicenseNumber)
-  }
-  if (details.panNumber) formData.append("panNumber", details.panNumber)
-  if (details.aadharNumber) formData.append("aadharNumber", details.aadharNumber)
-
-  Object.keys(documents).forEach(key => {
-    if (documents[key] instanceof File) {
-      formData.append(key, documents[key])
-    }
-  })
-
+const appendFcm = async (formData) => {
   let fcmToken = null
   let platform = "web"
   try {
     if (typeof window !== "undefined") {
       if (window.flutter_inappwebview) {
         platform = "mobile"
-        const handlerNames = ["getFcmToken", "getFCMToken", "getPushToken", "getFirebaseToken"]
-        for (const handlerName of handlerNames) {
+        for (const handlerName of ["getFcmToken", "getFCMToken", "getPushToken", "getFirebaseToken"]) {
           try {
-            // Promise.race prevents execution from hanging if the handler is not registered
             const t = await Promise.race([
               window.flutter_inappwebview.callHandler(handlerName, { module: "delivery" }),
-              new Promise((resolve) => setTimeout(() => resolve(null), 800))
+              new Promise((resolve) => setTimeout(() => resolve(null), 800)),
             ])
             if (t && typeof t === "string" && t.length > 20) {
               fcmToken = t.trim()
               break
             }
-          } catch (e) { }
+          } catch {
+            /* ignore */
+          }
         }
       } else {
         fcmToken = localStorage.getItem("fcm_web_registered_token_delivery") || null
       }
     }
-  } catch (e) {
-    debugWarn("Failed to get FCM token", e)
+  } catch {
+    /* ignore */
   }
-
   if (fcmToken) {
     formData.append("fcmToken", fcmToken)
     formData.append("platform", platform)
   }
+}
 
+const buildFormData = async (details, documents, { partial = false } = {}) => {
+  const formData = new FormData()
+  if (partial) {
+    formData.append("phone", String(details.phone || "").replace(/\D/g, "").slice(0, 15))
+    if (details.countryCode) formData.append("countryCode", details.countryCode)
+    const resubmitToken = sessionStorage.getItem("deliveryDocsResubmitToken")
+    if (resubmitToken) formData.append("docsResubmitToken", resubmitToken)
+  } else {
+    const fields = [
+      "name", "phone", "email", "countryCode", "ref", "dateOfBirth",
+      "vehicleType", "vehicleNumber", "vehicleBrand", "vehicleModel", "drivingLicenseNumber", "drivingLicenseExpiry",
+      "aadharNumber", "bankAccountHolderName", "bankAccountNumber", "bankIfscCode",
+      "emergencyContactName", "emergencyContactPhone",
+    ]
+    fields.forEach((key) => {
+      const val = details[key]
+      if (val !== undefined && val !== null && String(val).trim() !== "") {
+        formData.append(key, String(val).trim())
+      }
+    })
+    formData.append("partnerAgreement", details.partnerAgreement ? "true" : "false")
+    formData.append("termsAccepted", details.termsAccepted ? "true" : "false")
+    formData.append("privacyAccepted", details.privacyAccepted ? "true" : "false")
+  }
+
+  Object.keys(documents).forEach((key) => {
+    const file = toUploadFile(documents[key], key)
+    if (file) {
+      formData.append(key, file)
+    }
+  })
+
+  await appendFcm(formData)
   return formData
 }
 
-const submitRegistration = async ({ isCompleteProfile, formData, navigate }) => {
-  const response = isCompleteProfile
+const clearSignupSession = () => {
+  ;[
+    "deliverySignupDetails",
+    "deliverySignupDocs",
+    "deliveryIsRejected",
+    "deliveryPaymentSuccessData",
+    "deliveryRejectionReason",
+    "deliveryDocumentsRequested",
+    "deliveryDocsResubmitToken",
+    "deliveryDocumentsRequired",
+  ].forEach((k) => sessionStorage.removeItem(k))
+  clearSignupDB()
+}
+
+const submitRegistration = async ({ useRegister, formData, navigate, phoneDisplay }) => {
+  const response = useRegister
     ? await deliveryAPI.register(formData)
     : await deliveryAPI.completeProfile(formData)
 
   if (response?.data?.success) {
-    const raw = sessionStorage.getItem("deliverySignupDetails")
-    const details = raw ? JSON.parse(raw) : {}
-    sessionStorage.removeItem("deliverySignupDetails")
-    sessionStorage.removeItem("deliverySignupDocs")
-    sessionStorage.removeItem("deliveryIsRejected")
-    sessionStorage.removeItem("deliveryPaymentSuccessData")
-    clearDB()
-
-    const pendingPhone = `${details.countryCode || "+91"} ${String(details.phone || "").replace(/\D/g, "").slice(0, 15)}`.trim()
-    sessionStorage.setItem("deliveryPendingPhone", pendingPhone)
-
-    if (isCompleteProfile) {
-      sessionStorage.removeItem("deliveryNeedsRegistration")
-      toast.success("Registration submitted. Verification is in progress.")
-    } else {
-      toast.success("Profile submitted. Waiting for admin approval.")
-    }
-
+    clearSignupSession()
+    sessionStorage.setItem("deliveryPendingPhone", phoneDisplay)
+    sessionStorage.removeItem("deliveryNeedsRegistration")
+    toast.success("Submitted. Verification is in progress.")
     setTimeout(
-      () => navigate("/food/delivery/verification", { replace: true, state: { phone: pendingPhone } }),
-      1200
+      () => navigate("/food/delivery/verification", { replace: true, state: { phone: phoneDisplay } }),
+      800
     )
     return true
   }
 
-  const serverMessage =
-    response?.data?.message ||
-    response?.data?.error ||
-    "Registration failed. Please try again."
-  throw new Error(serverMessage)
+  throw new Error(
+    response?.data?.message || response?.data?.error || "Registration failed. Please try again."
+  )
+}
+
+function DocumentUpload({ docType, label, file, uploaded, onCamera, onGallery, onRemove, restoring }) {
+  const binary = toUploadFile(file, docType)
+  const preview =
+    (typeof uploaded === "string" && uploaded) ||
+    uploaded?.url ||
+    (binary
+      ? binary._previewUrl || (binary._previewUrl = URL.createObjectURL(binary))
+      : null)
+
+  return (
+    <div className="border border-gray-200 rounded-xl overflow-hidden bg-white">
+      <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-between gap-2">
+        <p className="text-sm font-medium text-gray-800 truncate">{label}</p>
+        {preview && (
+          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-orange-700 bg-orange-50 px-2 py-0.5 rounded-full shrink-0">
+            <Check className="w-3 h-3" /> Uploaded
+          </span>
+        )}
+      </div>
+      {preview ? (
+        <div className="relative">
+          <img src={preview} alt={label} className="w-full h-40 sm:h-48 object-cover" />
+          <button
+            type="button"
+            onClick={() => onRemove(docType)}
+            className="absolute top-2 right-2 p-1.5 bg-black/60 text-white rounded-full"
+            aria-label={`Remove ${label}`}
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      ) : (
+        <div className="p-4 flex flex-col items-center justify-center min-h-[140px] bg-gray-50 border-t border-dashed border-gray-200">
+          {restoring ? (
+            <p className="text-sm text-gray-500">Restoring…</p>
+          ) : (
+            <div className="flex flex-col sm:flex-row gap-2 w-full max-w-xs">
+              <button
+                type="button"
+                onClick={() => onCamera(docType, label)}
+                className="flex-1 min-h-[44px] inline-flex items-center justify-center gap-2 rounded-lg bg-primary-orange text-white text-sm font-medium active:scale-95"
+              >
+                <Camera className="w-4 h-4" /> Take photo
+              </button>
+              <button
+                type="button"
+                onClick={() => onGallery(docType)}
+                className="flex-1 min-h-[44px] inline-flex items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white text-gray-800 text-sm font-medium active:scale-95"
+              >
+                <ImageIcon className="w-4 h-4" /> Gallery
+              </button>
+            </div>
+          )}
+          <p className="text-[11px] text-gray-400 mt-3">JPG, PNG, WEBP · max 5MB</p>
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function SignupStep2() {
   const navigate = useNavigate()
   const goBack = useDeliveryBackNavigation()
-  const [porterVehicles] = usePorterVehicles()
-  const signupDetailsRaw = sessionStorage.getItem("deliverySignupDetails")
+  const submitLock = useRef(false)
 
-  let signupDetails = {}
-  try {
-    if (signupDetailsRaw) {
-      signupDetails = JSON.parse(signupDetailsRaw)
+  const signupDetails = useMemo(() => loadSignupDetails() || {}, [])
+  const motorized = isMotorizedVehicle(signupDetails.vehicleType)
+
+  const documentsRequested = useMemo(() => {
+    try {
+      return JSON.parse(sessionStorage.getItem("deliveryDocumentsRequested") || "[]")
+    } catch {
+      return []
     }
-  } catch (e) { }
+  }, [])
 
-  const isDlOptional = !(signupDetails.vehicles || []).some(v => {
-    const master = porterVehicles.find(p => p.id === v.vehicleId);
-    const cat = master?.category?.toLowerCase() || "";
-    return cat !== "bicycle" && cat !== "electric bike" && cat !== "electric_bike";
-  });
+  const requiredDocs = useMemo(() => {
+    if (documentsRequested.length > 0) {
+      return documentsRequested.filter((k) => ALL_DOC_KEYS.includes(k))
+    }
+    const base = ["profilePhoto", "aadharFront", "aadharBack"]
+    if (motorized) {
+      return [...base, "drivingLicenseFront", "drivingLicenseBack", "rcPhoto", "insurancePhoto"]
+    }
+    return base
+  }, [documentsRequested, motorized])
 
-  const fileInputRefs = useRef({
-    profilePhoto: null,
-    aadharPhoto: null,
-    panPhoto: null,
-    drivingLicensePhoto: null
-  })
-
-  const [documents, setDocuments] = useState({
-    profilePhoto: null,
-    aadharPhoto: null,
-    panPhoto: null,
-    drivingLicensePhoto: null
-  })
-
+  const [documents, setDocuments] = useState(() =>
+    ALL_DOC_KEYS.reduce((acc, k) => ({ ...acc, [k]: null }), {})
+  )
   const [uploadedDocs, setUploadedDocs] = useState(() => {
-    const saved = sessionStorage.getItem("deliverySignupDocs")
-    if (saved) {
-      try {
-        return sanitizeUploadedDocs(JSON.parse(saved))
-      } catch (e) {
-        debugError("Error parsing saved docs:", e)
-      }
+    try {
+      const saved = sessionStorage.getItem("deliverySignupDocs")
+      return saved ? { ...emptyUploadedDocs(), ...JSON.parse(saved) } : emptyUploadedDocs()
+    } catch {
+      return emptyUploadedDocs()
     }
-    return createEmptyUploadedDocs()
   })
-
+  const [restoring, setRestoring] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [uploading, setUploading] = useState({})
   const [feeConfig, setFeeConfig] = useState(null)
-  const [fetchingFees, setFetchingFees] = useState(false)
   const [paymentSuccessData, setPaymentSuccessData] = useState(() => {
-    const saved = sessionStorage.getItem("deliveryPaymentSuccessData")
-    if (saved) {
-      try {
-        return JSON.parse(saved)
-      } catch (e) {
-        return null
-      }
+    try {
+      const saved = sessionStorage.getItem("deliveryPaymentSuccessData")
+      return saved ? JSON.parse(saved) : null
+    } catch {
+      return null
     }
-    return null
   })
+  const [keyboardInset, setKeyboardInset] = useState(0)
 
   const documentsRef = useRef(documents)
   useEffect(() => {
@@ -429,32 +287,73 @@ export default function SignupStep2() {
   }, [documents])
 
   useEffect(() => {
-    const fetchFees = async () => {
+    const hasPhone = Boolean(signupDetails?.phone)
+    const hasPartialDocs = (() => {
       try {
-        setFetchingFees(true)
-        const isRejected = sessionStorage.getItem("deliveryIsRejected") === "true"
-        if (isRejected) {
-          setFeeConfig(null)
-          return
-        }
-        const res = await onboardingFeeAPI.getPublicFees()
-        const fees = res?.data?.data || res?.data
-        if (fees && fees.DELIVERY_PARTNER) {
-          setFeeConfig(fees.DELIVERY_PARTNER)
-        }
-      } catch (err) {
-        debugError("Failed to fetch public onboarding fee for delivery partner:", err)
-      } finally {
-        setFetchingFees(false)
+        const docs = JSON.parse(sessionStorage.getItem("deliveryDocumentsRequested") || "[]")
+        return Array.isArray(docs) && docs.length > 0
+      } catch {
+        return false
       }
+    })()
+    if (!hasPhone && !hasPartialDocs) {
+      toast.error("Session expired. Please start again.")
+      navigate("/food/delivery/login", { replace: true })
     }
-    fetchFees()
-  }, [])
+  }, [signupDetails, navigate])
+
+  const isPartialReupload = documentsRequested.length > 0
+
+  // For partial re-upload we only need phone on the draft
+  useEffect(() => {
+    if (!isPartialReupload) return
+    if (signupDetails?.phone) return
+    // ensure phone exists from auth if possible
+    try {
+      const authRaw = sessionStorage.getItem("deliveryAuthData")
+      if (authRaw) {
+        const auth = JSON.parse(authRaw)
+        const phone = String(auth.phone || "").replace(/\D/g, "").slice(-10)
+        if (phone) {
+          sessionStorage.setItem(
+            "deliverySignupDetails",
+            JSON.stringify({ phone, countryCode: "+91", name: "" })
+          )
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [isPartialReupload, signupDetails?.phone])
 
   useEffect(() => {
-    window.scrollTo({ top: 0, left: 0, behavior: "auto" })
-    document.documentElement.scrollTop = 0
-    document.body.scrollTop = 0
+    let cancelled = false
+    ;(async () => {
+      const restored = {}
+      const markers = { ...uploadedDocs }
+      for (const key of requiredDocs) {
+        const raw = await getFileFromDB(key)
+        const file = toUploadFile(raw, key)
+        if (file) {
+          restored[key] = file
+          markers[key] = { file: true }
+        } else if (markers[key]?.file === true) {
+          // Stale marker without binary — force re-select
+          markers[key] = null
+        }
+      }
+      if (!cancelled) {
+        if (Object.keys(restored).length) {
+          setDocuments((prev) => ({ ...prev, ...restored }))
+          setUploadedDocs(markers)
+        }
+        setRestoring(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -462,419 +361,294 @@ export default function SignupStep2() {
   }, [uploadedDocs])
 
   useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv) return undefined
+    const onResize = () => {
+      const inset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop)
+      setKeyboardInset(inset > 80 ? inset : 0)
+    }
+    vv.addEventListener("resize", onResize)
+    return () => vv.removeEventListener("resize", onResize)
+  }, [])
+
+  useEffect(() => {
+    const fetchFees = async () => {
+      try {
+        if (sessionStorage.getItem("deliveryIsRejected") === "true") {
+          setFeeConfig(null)
+          return
+        }
+        const res = await onboardingFeeAPI.getPublicFees()
+        const fees = res?.data?.data || res?.data
+        if (fees?.DELIVERY_PARTNER) setFeeConfig(fees.DELIVERY_PARTNER)
+      } catch {
+        /* ignore */
+      }
+    }
+    fetchFees()
+  }, [])
+
+  useEffect(() => {
     return () => {
       Object.values(documentsRef.current).forEach((file) => {
-        if (file instanceof File) {
-          const previewUrl = file._previewUrl || file.previewUrl
-          if (previewUrl && previewUrl.startsWith('blob:')) {
-            URL.revokeObjectURL(previewUrl)
-          }
+        if (file instanceof File && file._previewUrl?.startsWith("blob:")) {
+          URL.revokeObjectURL(file._previewUrl)
         }
       })
     }
   }, [])
 
-  const getPreviewSrc = (docType) => {
-    const uploaded = uploadedDocs[docType]
-    if (typeof uploaded === "string") return uploaded
-    if (uploaded?.url) return uploaded.url
-
-    const localFile = documents[docType]
-    if (localFile instanceof File) {
-      if (!localFile._previewUrl) {
-        localFile._previewUrl = URL.createObjectURL(localFile)
-      }
-      return localFile._previewUrl
-    }
-    return null
-  }
-
   const handleFileSelect = async (docType, file) => {
     if (!file) return
-
-    if (!file.type.startsWith("image/")) {
+    const normalized = toUploadFile(file, docType)
+    if (!normalized) {
       toast.error("Please select an image file")
       return
     }
-    if (file.size > 5 * 1024 * 1024) {
+    if (!normalized.type.startsWith("image/")) {
+      toast.error("Please select an image file")
+      return
+    }
+    if (normalized.size > 5 * 1024 * 1024) {
       toast.error("Image size should be less than 5MB")
       return
     }
-
     setDocuments((prev) => {
-      const oldFile = prev[docType]
-      if (oldFile && oldFile._previewUrl) {
-        URL.revokeObjectURL(oldFile._previewUrl)
-      }
-      return { ...prev, [docType]: file }
+      const old = prev[docType]
+      if (old?._previewUrl) URL.revokeObjectURL(old._previewUrl)
+      return { ...prev, [docType]: normalized }
     })
     setUploadedDocs((prev) => ({ ...prev, [docType]: { file: true } }))
-    await saveFileToDB(docType, file)
-    toast.success(`${docType.replace(/([A-Z])/g, " $1").trim()} selected`)
-  }
-
-  const handleTakeCameraPhoto = (docType, label) => {
-    openCamera({
-      onSelectFile: (file) => handleFileSelect(docType, file),
-      fileNamePrefix: `signup-${docType}`
-    })
-  }
-
-  const handlePickFromGallery = (docType) => {
-    openGallery({
-      onSelectFile: (file) => handleFileSelect(docType, file),
-      fileNamePrefix: `signup-${docType}`
-    })
+    await saveFileToDB(docType, normalized)
+    toast.success(`${DOC_KEYS[docType] || docType} selected`)
   }
 
   const handleRemove = (docType) => {
-    setDocuments(prev => {
+    setDocuments((prev) => {
       const file = prev[docType]
-      if (file && file._previewUrl) {
-        URL.revokeObjectURL(file._previewUrl)
-      }
+      if (file?._previewUrl) URL.revokeObjectURL(file._previewUrl)
       return { ...prev, [docType]: null }
     })
-    setUploadedDocs(prev => ({
-      ...prev,
-      [docType]: null
-    }))
+    setUploadedDocs((prev) => ({ ...prev, [docType]: null }))
     removeFileFromDB(docType)
   }
 
-  const isFormValid = () => {
-    if (!hasDocumentValue(documents.profilePhoto, uploadedDocs.profilePhoto)) return false;
-    if (!hasDocumentValue(documents.aadharPhoto, uploadedDocs.aadharPhoto)) return false;
-    if (!hasDocumentValue(documents.panPhoto, uploadedDocs.panPhoto)) return false;
-    if (!isDlOptional && !hasDocumentValue(documents.drivingLicensePhoto, uploadedDocs.drivingLicensePhoto)) return false;
+  const isFormValid = () =>
+    requiredDocs.every((key) => hasBinaryUpload(documents[key]))
 
-    let hasAllVehicleDocs = true;
-    (signupDetails.vehicles || []).forEach(v => {
-      const master = porterVehicles.find(p => p.id === v.vehicleId);
-      if (!master) return;
-      const isBicycle = master.category?.toLowerCase() === "bicycle";
-      const requiresDocs = master.registrationRequired !== undefined ? master.registrationRequired : !isBicycle;
-
-      if (!hasDocumentValue(documents[`vehiclePhoto_${v.id}`], uploadedDocs[`vehiclePhoto_${v.id}`])) hasAllVehicleDocs = false;
-      if (requiresDocs) {
-        if (!hasDocumentValue(documents[`rc_${v.id}`], uploadedDocs[`rc_${v.id}`])) hasAllVehicleDocs = false;
-        if (!hasDocumentValue(documents[`insurance_${v.id}`], uploadedDocs[`insurance_${v.id}`])) hasAllVehicleDocs = false;
+  const runSubmit = async (extraPayment = null) => {
+    if (submitLock.current) return
+    // Prefer live state over ref so freshly selected images are always included
+    const liveDocs = { ...documentsRef.current, ...documents }
+    documentsRef.current = liveDocs
+    const missing = requiredDocs.filter((key) => !hasBinaryUpload(liveDocs[key]))
+    if (missing.length) {
+      toast.error(`Please re-select: ${missing.map((k) => DOC_KEYS[k] || k).join(", ")}`)
+      setUploadedDocs((prev) => {
+        const next = { ...prev }
+        missing.forEach((k) => {
+          next[k] = null
+        })
+        return next
+      })
+      return
+    }
+    submitLock.current = true
+    setIsSubmitting(true)
+    try {
+      const details = loadSignupDetails() || {}
+      if (!details?.phone) {
+        toast.error("Session expired. Please start again.")
+        navigate("/food/delivery/login", { replace: true })
+        return
       }
-    });
-    return hasAllVehicleDocs;
+      let requested = []
+      try {
+        requested = JSON.parse(sessionStorage.getItem("deliveryDocumentsRequested") || "[]")
+      } catch {
+        requested = []
+      }
+      const partial = Array.isArray(requested) && requested.length > 0
+      const formData = await buildFormData(details, liveDocs, { partial })
+      const pay = extraPayment || paymentSuccessData
+      if (pay && !partial) {
+        formData.append("razorpayOrderId", pay.razorpayOrderId)
+        formData.append("razorpayPaymentId", pay.razorpayPaymentId)
+        formData.append("razorpaySignature", pay.razorpaySignature)
+      }
+      const useRegister = true
+      const phoneDisplay = `${details.countryCode || "+91"} ${String(details.phone).replace(/\D/g, "").slice(-10)}`
+      await submitRegistration({ useRegister, formData, navigate, phoneDisplay })
+    } catch (error) {
+      toast.error(getFriendlyRegistrationError(error))
+    } finally {
+      submitLock.current = false
+      setIsSubmitting(false)
+    }
   }
 
   const handleSubmit = async (e) => {
-    e.preventDefault()
-
+    e?.preventDefault?.()
+    if (isSubmitting || submitLock.current) return
     if (!isFormValid()) {
       toast.error("Please upload all required documents")
       return
     }
 
-    const raw = sessionStorage.getItem("deliverySignupDetails")
-    if (!raw) {
-      toast.error("Session expired. Please start from Create Account.")
-      navigate("/food/delivery/signup", { replace: true })
+    if (paymentSuccessData && documentsRequested.length === 0) {
+      await runSubmit(paymentSuccessData)
       return
     }
 
-    let details
-    try {
-      details = JSON.parse(raw)
-    } catch {
-      toast.error("Invalid session. Please start from Create Account.")
-      navigate("/food/delivery/signup", { replace: true })
-      return
-    }
-
-    const isCompleteProfile = sessionStorage.getItem("deliveryNeedsRegistration") === "true"
-
-    setIsSubmitting(true)
-    try {
-      if (paymentSuccessData) {
-        toast.info("Using previously completed payment details.")
-        const formData = await buildFormData(details, documentsRef.current)
-        formData.append("razorpayOrderId", paymentSuccessData.razorpayOrderId)
-        formData.append("razorpayPaymentId", paymentSuccessData.razorpayPaymentId)
-        formData.append("razorpaySignature", paymentSuccessData.razorpaySignature)
-
-        await submitRegistration({ isCompleteProfile, formData, navigate })
-        setIsSubmitting(false)
-        return
-      }
-
-      if (feeConfig && feeConfig.isActive && feeConfig.price > 0) {
+    if (feeConfig?.isActive && feeConfig.price > 0 && documentsRequested.length === 0) {
+      setIsSubmitting(true)
+      try {
+        const details = loadSignupDetails()
         const orderRes = await onboardingFeeAPI.createOrder({
           role: "DELIVERY_PARTNER",
           name: details.name || "Delivery Partner",
           phone: String(details.phone || "").replace(/\D/g, "").slice(0, 15),
-          email: details.email || ""
+          email: details.email || "",
         })
         const orderData = orderRes?.data?.data || orderRes?.data
+        if (!orderData) throw new Error("Failed to create onboarding payment order")
 
-        if (!orderData || !orderData.orderId) {
-          throw new Error("Failed to create onboarding payment order")
+        if (orderData.alreadyPaid || orderData.bypassPayment) {
+          await runSubmit()
+          return
         }
 
-        if (orderData.isMock || orderData.orderId.startsWith("mock_ord_")) {
-          toast.success("Developer Mode: Payment bypassed. Submitting mock payment details.")
-          const formData = await buildFormData(details, documentsRef.current)
-          formData.append("razorpayOrderId", orderData.orderId)
-          formData.append("razorpayPaymentId", `mock_pay_${Date.now()}`)
-          formData.append("razorpaySignature", `mock_sig_${Date.now()}`)
+        if (!orderData.orderId) throw new Error("Failed to create onboarding payment order")
 
-          await submitRegistration({ isCompleteProfile, formData, navigate })
-          setIsSubmitting(false)
+        if (
+          (orderData.isMock || String(orderData.orderId).startsWith("mock_ord_")) &&
+          import.meta.env.MODE !== "production"
+        ) {
+          await runSubmit({
+            razorpayOrderId: orderData.orderId,
+            razorpayPaymentId: `mock_pay_${Date.now()}`,
+            razorpaySignature: `mock_sig_${Date.now()}`,
+          })
           return
+        }
 
-        } else {
-          const rzpOptions = {
-            key: orderData.keyId,
-            amount: Math.round(feeConfig.price * 100),
-            currency: orderData.currency || "INR",
-            order_id: orderData.orderId,
-            name: "Onboarding Fee Payment",
-            description: `Onboarding fee for ${details.name}`,
-            prefill: {
-              name: details.name || "",
-              email: details.email || "",
-              contact: String(details.phone || "").replace(/\D/g, "").slice(0, 15)
-            },
-            handler: async (response) => {
-              try {
-                setIsSubmitting(true)
-                const payData = {
-                  razorpayOrderId: response.razorpay_order_id,
-                  razorpayPaymentId: response.razorpay_payment_id,
-                  razorpaySignature: response.razorpay_signature
-                }
-                setPaymentSuccessData(payData)
-                sessionStorage.setItem("deliveryPaymentSuccessData", JSON.stringify(payData))
-
-                const formData = await buildFormData(details, documentsRef.current)
-                formData.append("razorpayOrderId", response.razorpay_order_id)
-                formData.append("razorpayPaymentId", response.razorpay_payment_id)
-                formData.append("razorpaySignature", response.razorpay_signature)
-
-                await submitRegistration({ isCompleteProfile, formData, navigate })
-              } catch (err) {
-                debugError("Error submitting registration after payment:", err)
-                toast.error(getFriendlyRegistrationError(err))
-              } finally {
-                setIsSubmitting(false)
-              }
-            },
-            onError: (err) => {
-              toast.error(err?.description || "Payment failed. Please try again.")
-              setIsSubmitting(false)
-            },
-            onClose: () => {
-              toast.error("Payment modal closed. Payment is required to complete signup.")
-              setIsSubmitting(false)
+        await initRazorpayPayment({
+          key: orderData.keyId,
+          amount: Math.round(feeConfig.price * 100),
+          currency: orderData.currency || "INR",
+          order_id: orderData.orderId,
+          name: "Onboarding Fee Payment",
+          description: `Onboarding fee for ${details.name}`,
+          prefill: {
+            name: details.name || "",
+            email: details.email || "",
+            contact: String(details.phone || "").replace(/\D/g, "").slice(0, 15),
+          },
+          handler: async (response) => {
+            const payData = {
+              razorpayOrderId: response.razorpay_order_id,
+              razorpayPaymentId: response.razorpay_payment_id,
+              razorpaySignature: response.razorpay_signature,
             }
-          }
-
-          await initRazorpayPayment(rzpOptions)
-          return
-        }
-
-      } else {
-        const formData = await buildFormData(details, documentsRef.current)
-        await submitRegistration({ isCompleteProfile, formData, navigate })
+            setPaymentSuccessData(payData)
+            sessionStorage.setItem("deliveryPaymentSuccessData", JSON.stringify(payData))
+            await runSubmit(payData)
+          },
+          onError: (err) => {
+            toast.error(err?.description || "Payment failed. Please try again.")
+            setIsSubmitting(false)
+            submitLock.current = false
+          },
+          onClose: () => {
+            toast.error("Payment is required to complete signup.")
+            setIsSubmitting(false)
+            submitLock.current = false
+          },
+        })
+      } catch (error) {
+        toast.error(getFriendlyRegistrationError(error))
         setIsSubmitting(false)
+        submitLock.current = false
       }
-    } catch (error) {
-      debugError("Error submitting registration:", error)
-      toast.error(getFriendlyRegistrationError(error))
-      setIsSubmitting(false)
+      return
     }
+
+    await runSubmit()
   }
 
-  const DocumentUpload = ({ docType, label, required = true }) => {
-    const uploaded = uploadedDocs[docType]
-    const isUploading = uploading[docType]
-    const hasUploadedDocument = hasDocumentValue(documents[docType], uploaded)
-
-    return (
-      <div className="bg-white rounded-lg p-4 border border-gray-200">
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          {label} {required && <span className="text-red-500">*</span>}
-        </label>
-
-        {hasUploadedDocument ? (
-          <div className="relative">
-            <img
-              src={getPreviewSrc(docType)}
-              alt={label}
-              className="w-full h-48 object-cover rounded-lg"
-            />
-            <button
-              type="button"
-              onClick={() => handleRemove(docType)}
-              disabled={isSubmitting}
-              className="absolute top-2 right-2 bg-red-500 text-white p-2 rounded-full hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <X className="w-4 h-4" />
-            </button>
-            <div className="absolute bottom-2 left-2 bg-green-500 text-white px-3 py-1 rounded-full flex items-center gap-1 text-sm">
-              <Check className="w-4 h-4" />
-              <span>Uploaded</span>
-            </div>
-          </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-gray-300 rounded-lg hover:border-green-500 transition-colors px-4">
-            <div className="flex flex-col items-center justify-center pt-5 pb-3">
-              {isUploading ? (
-                <>
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-500 mb-2"></div>
-                  <p className="text-sm text-gray-500">{uploading[docType] ? "Uploading..." : "Restoring..."}</p>
-                </>
-              ) : (
-                <>
-                  <Upload className="w-8 h-8 text-gray-400 mb-2" />
-                  <p className="text-sm text-gray-500 mb-1">Upload document</p>
-                  <p className="text-xs text-gray-400">PNG, JPG up to 5MB</p>
-                </>
-              )}
-            </div>
-
-            {!isUploading && (
-              <div className="w-full grid grid-cols-2 gap-2 pb-4">
-                <button
-                  type="button"
-                  onClick={() => handleTakeCameraPhoto(docType, label)}
-                  disabled={isSubmitting}
-                  className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-gray-900 text-white text-xs font-bold cursor-pointer hover:bg-black transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Camera className="w-4 h-4" />
-                  <span>Take Photo</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handlePickFromGallery(docType)}
-                  disabled={isSubmitting}
-                  className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-[#00B761] text-white text-xs font-bold cursor-pointer hover:bg-[#00A055] transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <ImageIcon className="w-4 h-4" />
-                  <span>Gallery</span>
-                </button>
-              </div>
-            )}
-
-            <input
-              ref={(node) => {
-                fileInputRefs.current[docType] = node
-              }}
-              type="file"
-              className="hidden"
-              accept=".jpg,.jpeg,.png,.webp,.heic,.heif,image/jpeg,image/png,image/webp,image/heic,image/heif"
-              onClick={(e) => {
-                e.target.value = ""
-              }}
-              onChange={(e) => {
-                const selectedFile = e.target.files[0]
-                if (selectedFile) {
-                  handleFileSelect(docType, selectedFile)
-                }
-                e.target.value = ""
-              }}
-              disabled={isUploading || isSubmitting}
-            />
-          </div>
-        )}
-      </div>
-    )
-  }
+  const rejectionReason = sessionStorage.getItem("deliveryRejectionReason")
 
   return (
-    <div className="min-h-screen bg-gray-100">
-      {/* Header */}
-      <div className="bg-white px-4 py-3 flex items-center gap-4 border-b border-gray-200">
-        <button
-          onClick={goBack}
-          className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-        >
+    <div
+      className="min-h-screen bg-slate-50 flex flex-col"
+      style={{ paddingBottom: keyboardInset ? keyboardInset + 16 : undefined }}
+    >
+      <header className="sticky top-0 z-20 bg-white/95 backdrop-blur px-3 sm:px-4 py-3 flex items-center gap-3 border-b border-slate-200">
+        <button type="button" onClick={goBack} className="p-2 -ml-1 hover:bg-gray-100 rounded-full" aria-label="Go back">
           <ArrowLeft className="w-5 h-5" />
         </button>
-        <h1 className="text-lg font-medium">Upload Documents</h1>
-      </div>
-
-      {/* Content */}
-      <div className="px-4 py-6">
-        <div className="mb-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-2">Document Verification</h2>
-          <p className="text-sm text-gray-600">Please upload clear photos of your documents</p>
+        <div className="min-w-0">
+          <h1 className="text-base sm:text-lg font-semibold text-gray-900 truncate">Upload documents</h1>
+          <p className="text-xs text-gray-500 truncate">Step 2 of 2 · {signupDetails.vehicleType || "vehicle"}</p>
         </div>
+      </header>
+
+      <main className="flex-1 w-full max-w-lg mx-auto px-3 sm:px-4 py-4 sm:py-6">
+        <DeliveryStepper step={2} />
+
+        {rejectionReason && (
+          <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+            {rejectionReason}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="mb-4">
-             <h3 className="text-lg font-bold text-gray-900 mb-4">Global Documents</h3>
-          </div>
-          <DocumentUpload docType="profilePhoto" label="Profile Photo" required={true} />
-          <DocumentUpload docType="aadharPhoto" label="Aadhar Card Photo" required={true} />
-          <DocumentUpload docType="panPhoto" label="PAN Card Photo" required={true} />
-          {!isDlOptional && (
-            <DocumentUpload docType="drivingLicensePhoto" label="Driving License Photo" required={true} />
-          )}
+          {requiredDocs.map((key) => (
+            <DocumentUpload
+              key={key}
+              docType={key}
+              label={DOC_KEYS[key] || key}
+              file={documents[key]}
+              uploaded={uploadedDocs[key]}
+              restoring={restoring && !documents[key]}
+              onCamera={(docType) =>
+                openCamera({
+                  onSelectFile: (file) => handleFileSelect(docType, file),
+                  fileNamePrefix: `signup-${docType}`,
+                })
+              }
+              onGallery={(docType) =>
+                openGallery({
+                  onSelectFile: (file) => handleFileSelect(docType, file),
+                  fileNamePrefix: `signup-${docType}`,
+                })
+              }
+              onRemove={handleRemove}
+            />
+          ))}
 
-          {signupDetails.vehicles && signupDetails.vehicles.length > 0 && (
-             <div className="pt-6 mt-6 border-t border-gray-200">
-                <h3 className="text-lg font-bold text-gray-900 mb-2">Vehicle Documents</h3>
-                <p className="text-sm text-gray-600 mb-4">Please upload documents for each of your selected vehicles.</p>
-                <div className="space-y-6">
-                  {signupDetails.vehicles.map(v => {
-                    const master = porterVehicles.find(p => p.id === v.vehicleId);
-                    if (!master) return null;
-                    const isBicycle = master.category?.toLowerCase() === "bicycle";
-                    const requiresDocs = master.registrationRequired !== undefined ? master.registrationRequired : !isBicycle;
-                    
-                    return (
-                      <div key={v.id} className="bg-gray-50 rounded-xl p-4 border border-gray-200 space-y-4">
-                        <div className="flex items-center gap-3 mb-2">
-                          <div className="w-10 h-10 bg-white rounded-lg p-1.5 border border-gray-200 shadow-sm">
-                            {master.image ? <img src={master.image} alt={master.name} className="w-full h-full object-contain" /> : <div className="w-full h-full bg-gray-200 rounded"></div>}
-                          </div>
-                          <div>
-                            <h4 className="font-bold text-gray-900 text-sm">{master.name}</h4>
-                            <p className="text-xs text-gray-500">{v.registrationNumber || "No Reg No"}</p>
-                          </div>
-                        </div>
-                        
-                        <DocumentUpload docType={`vehiclePhoto_${v.id}`} label={`${master.name} Photo`} required={true} />
-                        {requiresDocs && (
-                          <>
-                            <DocumentUpload docType={`rc_${v.id}`} label="RC (Registration Certificate)" required={true} />
-                            <DocumentUpload docType={`insurance_${v.id}`} label="Vehicle Insurance" required={true} />
-                          </>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-             </div>
-          )}
-
-          {feeConfig && feeConfig.isActive && feeConfig.price > 0 && (
-            <div className="bg-red-50 border border-red-200 rounded-xl p-4 space-y-1 mt-6">
-              <h3 className="text-sm font-bold text-red-800">Required Onboarding Fee</h3>
-              <p className="text-xs text-red-700">
-                An onboarding fee of <span className="font-bold">₹{feeConfig.price}</span> is required to register as a delivery partner. You will pay secure online on the next step.
-              </p>
+          {feeConfig?.isActive && feeConfig.price > 0 && documentsRequested.length === 0 && (
+            <div className="rounded-xl border border-orange-100 bg-orange-50 px-3 py-3 text-sm text-orange-900">
+              Onboarding fee: ₹{feeConfig.price}
+              {paymentSuccessData && <span className="block text-xs mt-1 text-orange-700">Payment captured — tap Submit to finish.</span>}
             </div>
           )}
 
-          <button
-            type="submit"
-            disabled={isSubmitting || !isFormValid()}
-            className={`w-full py-4 rounded-lg font-bold text-white text-base transition-colors mt-6 ${isSubmitting || !isFormValid()
-              ? "bg-gray-400 cursor-not-allowed"
-              : "bg-[#00B761] hover:bg-[#00A055]"
-              }`}
-          >
-            {isSubmitting ? "Submitting..." : "Complete Signup"}
-          </button>
+          <div className="h-24" />
         </form>
+      </main>
+
+      <div className="fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur border-t border-gray-200 px-3 sm:px-4 py-3">
+        <div className="max-w-lg mx-auto">
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={isSubmitting || restoring || !isFormValid()}
+            className="w-full min-h-[52px] rounded-xl bg-primary-orange text-white font-semibold text-base disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isSubmitting ? "Submitting…" : "Submit for verification"}
+          </button>
+        </div>
       </div>
     </div>
   )

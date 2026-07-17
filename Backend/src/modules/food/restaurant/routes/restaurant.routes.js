@@ -219,6 +219,7 @@ router.delete('/addons/:id', authMiddleware, requireRestaurant, deleteAddonContr
 router.get('/orders', authMiddleware, requireRestaurant, orderController.listOrdersRestaurantController);
 router.get('/orders/:orderId', authMiddleware, requireRestaurant, orderController.getOrderByIdRestaurantController);
 router.patch('/orders/:orderId/status', authMiddleware, requireRestaurant, orderController.updateOrderStatusRestaurantController);
+router.patch('/orders/:orderId/preparation-time', authMiddleware, requireRestaurant, orderController.updateOrderPreparationTimeRestaurantController);
 router.post('/orders/:orderId/resend-notification', authMiddleware, requireRestaurant, orderController.resendDeliveryNotificationRestaurantController);
 
 // Complaints (restaurant dashboard)

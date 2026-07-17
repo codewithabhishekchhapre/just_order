@@ -901,7 +901,17 @@ export default function OrderTracking() {
       case 'scheduled': return { ...template, subtitle: isQuickOrder ? "Your order is scheduled. Please wait for the store to respond." : "Your order is scheduled. Please wait for the restaurant to respond." };
       case 'placed': return { ...template, subtitle: isQuickOrder ? "Waiting for store to accept" : "Waiting for restaurant to accept" };
       case 'confirmed': return { ...template, subtitle: isQuickOrder ? "Store has accepted your order" : "Restaurant has accepted your order" };
-      case 'preparing': return { ...template, title: isQuickOrder ? "Items are being packed" : "Food is being prepared", subtitle: typeof estimatedTime === 'number' ? `Arriving in ${estimatedTime} mins` : (isQuickOrder ? "Packing your items" : "Cooking your meal") };
+      case 'preparing': {
+        const prep = Number(order?.preparationTime);
+        const prepLabel = Number.isFinite(prep) && prep > 0
+          ? `Ready in about ${prep} mins`
+          : (typeof estimatedTime === 'number' ? `Arriving in ${estimatedTime} mins` : null);
+        return {
+          ...template,
+          title: isQuickOrder ? "Items are being packed" : "Food is being prepared",
+          subtitle: prepLabel || (isQuickOrder ? "Packing your items" : "Cooking your meal"),
+        };
+      }
       case 'assigned': return { ...template, subtitle: isQuickOrder ? "A delivery partner is arriving at the store" : "A delivery partner is arriving at the restaurant" };
       case 'at_pickup': return { ...template, title: isQuickOrder ? "Rider at store" : "Rider at restaurant", subtitle: "Rider is waiting for your order" };
       case 'ready': return { ...template, subtitle: "Rider is picking up your order" };
@@ -909,7 +919,7 @@ export default function OrderTracking() {
       case 'delivered': return { ...template, subtitle: isQuickOrder ? "Enjoy your purchase!" : "Enjoy your meal!" };
       default: return template;
     }
-  }, [orderStatus, isQuickOrder, estimatedTime]);
+  }, [orderStatus, isQuickOrder, estimatedTime, order?.preparationTime]);
 
   const isDeliveredOrder = useMemo(() => (
     orderStatus === "delivered" || order?.status === "delivered" || Boolean(order?.deliveredAt)
@@ -1032,13 +1042,16 @@ export default function OrderTracking() {
   useEffect(() => {
     const handle = (event) => {
       const payload = event?.detail || {};
-      const { message, status, estimatedDeliveryTime, orderId: evtOrderId, orderMongoId, orderStatus: evtOrderStatus } = payload;
+      const { message, status, estimatedDeliveryTime, orderId: evtOrderId, orderMongoId, orderStatus: evtOrderStatus, preparationTime } = payload;
       const evtKeys = [evtOrderId, orderMongoId, payload?._id].filter(Boolean).map(String);
       const idMatches = evtKeys.length === 0 || evtKeys.some((k) => String(k) === String(orderId)) || evtKeys.some((k) => trackingOrderIdsRef.current.has(k));
       const resolvedStatus = evtOrderStatus || status;
       const next = mapOrderToTrackingUiStatus({ status: resolvedStatus, orderStatus: resolvedStatus, deliveryState: payload.deliveryState });
       if (idMatches) {
-        setOrderStatus(next);
+        if (preparationTime != null && Number.isFinite(Number(preparationTime))) {
+          setOrder((prev) => prev ? { ...prev, preparationTime: Number(preparationTime) } : prev);
+        }
+        if (resolvedStatus) setOrderStatus(next);
         const now = Date.now();
         if (now - lastRealtimeRefreshRef.current > 1500 && !isRefreshing) {
           lastRealtimeRefreshRef.current = now;

@@ -13,6 +13,32 @@ export const signRefreshToken = (payload) => {
     });
 };
 
+/** Short-lived token proving OTP was verified for document re-upload */
+export const signDeliveryDocsResubmitToken = (phone) => {
+    const normalized = String(phone || '').replace(/\D/g, '').slice(-10);
+    return jwt.sign(
+        { purpose: 'delivery_docs_resubmit', phone: normalized },
+        config.jwtAccessSecret,
+        { expiresIn: '30m' }
+    );
+};
+
+export const verifyDeliveryDocsResubmitToken = (token, phone) => {
+    if (!token || typeof token !== 'string') {
+        throw new Error('Resubmit token is required');
+    }
+    const payload = jwt.verify(token, config.jwtAccessSecret);
+    if (payload?.purpose !== 'delivery_docs_resubmit') {
+        throw new Error('Invalid resubmit token');
+    }
+    const expected = String(phone || '').replace(/\D/g, '').slice(-10);
+    const tokenPhone = String(payload.phone || '').replace(/\D/g, '').slice(-10);
+    if (!expected || expected !== tokenPhone) {
+        throw new Error('Resubmit token does not match phone');
+    }
+    return payload;
+};
+
 export const verifyAccessToken = (token) => {
     return jwt.verify(token, config.jwtAccessSecret);
 };

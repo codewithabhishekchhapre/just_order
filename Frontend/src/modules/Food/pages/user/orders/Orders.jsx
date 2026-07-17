@@ -57,8 +57,12 @@ export default function Orders() {
     const now = new Date()
     const elapsedMinutes = Math.floor((now - createdAt) / (1000 * 60))
 
-    // Get max ETA (use eta.max if available, otherwise estimatedDeliveryTime)
-    const maxETA = order.eta?.max || order.estimatedDeliveryTime || 30
+    // Prefer order preparationTime (restaurant ETA) for preparing/confirmed countdowns
+    const maxETA =
+      (Number(order.preparationTime) > 0 ? Number(order.preparationTime) : null) ||
+      order.eta?.max ||
+      order.estimatedDeliveryTime ||
+      30
     const remainingMinutes = Math.max(0, maxETA - elapsedMinutes)
 
     return remainingMinutes > 0 ? remainingMinutes : null

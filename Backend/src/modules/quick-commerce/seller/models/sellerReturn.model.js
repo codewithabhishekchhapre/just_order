@@ -36,7 +36,7 @@ const cumulativeReturnItemSchema = new mongoose.Schema(
 
 const returnDispatchOfferSchema = new mongoose.Schema(
   {
-    partnerId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodDeliveryPartner' },
+    partnerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Driver' },
     at: { type: Date, default: Date.now },
     action: { type: String, enum: ['offered', 'rejected', 'timeout'], default: 'offered' },
   },
@@ -53,7 +53,7 @@ const returnDispatchSchema = new mongoose.Schema(
     },
     deliveryPartnerId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'FoodDeliveryPartner',
+      ref: 'Driver',
       default: null,
     },
     assignedAt: { type: Date, default: null },

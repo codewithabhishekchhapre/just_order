@@ -8,6 +8,7 @@ import {
     validateVerifyPaymentDto,
     validateCancelOrderDto,
     validateOrderStatusDto,
+    validatePreparationTimeDto,
     validateAssignDeliveryDto,
     validateDispatchSettingsDto,
     validateOrderRatingsDto
@@ -197,8 +198,29 @@ export async function updateOrderStatusRestaurantController(req, res, next) {
         const restaurantId = req.user?.userId;
         const orderId = req.params.orderId;
         const dto = validateOrderStatusDto(req.body);
-        const order = await orderService.updateOrderStatusRestaurant(orderId, restaurantId, dto.orderStatus);
+        const order = await orderService.updateOrderStatusRestaurant(
+            orderId,
+            restaurantId,
+            dto.orderStatus,
+            { preparationTime: dto.preparationTime },
+        );
         return sendResponse(res, 200, 'Order status updated', { order });
+    } catch (err) {
+        next(err);
+    }
+}
+
+export async function updateOrderPreparationTimeRestaurantController(req, res, next) {
+    try {
+        const restaurantId = req.user?.userId;
+        const orderId = req.params.orderId;
+        const dto = validatePreparationTimeDto(req.body);
+        const order = await orderService.updateOrderPreparationTimeRestaurant(
+            orderId,
+            restaurantId,
+            dto.preparationTime,
+        );
+        return sendResponse(res, 200, 'Preparation time updated', { order });
     } catch (err) {
         next(err);
     }

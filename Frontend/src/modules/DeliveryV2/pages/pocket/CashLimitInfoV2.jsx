@@ -84,7 +84,7 @@ export const CashLimitInfoV2 = () => {
           <div className="px-4 py-6">
              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 mb-6">
                 <div className="flex items-center gap-3 mb-6">
-                   <div className="w-10 h-10 bg-emerald-50 rounded-lg flex items-center justify-center text-emerald-600">
+                   <div className="w-10 h-10 bg-orange-50 rounded-lg flex items-center justify-center text-primary-orange">
                       <ShieldCheck className="w-6 h-6" />
                    </div>
                    <div>
@@ -103,9 +103,9 @@ export const CashLimitInfoV2 = () => {
                    <DetailRow label="Deductions" value={formatCurrency(walletState.deductions)} />
                    <DetailRow label="Pocket withdrawals" value={formatCurrency(walletState.pocketWithdrawals)} />
 
-                   <div className="py-5 flex justify-between items-center bg-emerald-50/50 -mx-5 px-5 mt-2 transition-all">
-                      <div className="text-sm font-black text-emerald-900 uppercase tracking-tight">Available cash limit</div>
-                      <div className="text-lg font-black text-emerald-600">{formatCurrency(walletState.availableCashLimit)}</div>
+                   <div className="py-5 flex justify-between items-center bg-orange-50/50 -mx-5 px-5 mt-2 transition-all">
+                      <div className="text-sm font-black text-orange-900 uppercase tracking-tight">Available cash limit</div>
+                      <div className="text-lg font-black text-primary-orange">{formatCurrency(walletState.availableCashLimit)}</div>
                    </div>
                 </div>
              </div>

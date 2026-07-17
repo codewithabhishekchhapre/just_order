@@ -8,7 +8,7 @@ const deliveryWalletSchema = new mongoose.Schema(
     {
         deliveryPartnerId: {
             type: mongoose.Schema.Types.ObjectId,
-            ref: 'FoodDeliveryPartner',
+            ref: 'Driver',
             required: true,
             unique: true,
             index: true

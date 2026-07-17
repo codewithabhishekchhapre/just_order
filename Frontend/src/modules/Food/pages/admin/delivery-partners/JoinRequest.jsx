@@ -23,6 +23,18 @@ export default function JoinRequest() {
   const [viewDetails, setViewDetails] = useState(null)
   const [processing, setProcessing] = useState(false)
   const [rejectionReason, setRejectionReason] = useState("")
+  const [isRequestDocsOpen, setIsRequestDocsOpen] = useState(false)
+  const [requestedDocs, setRequestedDocs] = useState([])
+  const [requestDocsReason, setRequestDocsReason] = useState("")
+  const DOC_REUPLOAD_OPTIONS = [
+    { id: "profilePhoto", label: "Profile Photo" },
+    { id: "aadharFront", label: "Aadhaar Front" },
+    { id: "aadharBack", label: "Aadhaar Back" },
+    { id: "drivingLicenseFront", label: "DL Front" },
+    { id: "drivingLicenseBack", label: "DL Back" },
+    { id: "rcPhoto", label: "RC" },
+    { id: "insurancePhoto", label: "Insurance" },
+  ]
   const [filters, setFilters] = useState({
     zone: "",
     jobType: "",
@@ -186,6 +198,45 @@ export default function JoinRequest() {
       debugError("Error rejecting request:", err)
       const msg = err.response?.data?.message ?? err.response?.data?.error ?? err?.message
       toast.error(msg || "Failed to reject request. Please try again.")
+    } finally {
+      setProcessing(false)
+    }
+  }
+
+  const handleRequestDocs = (request) => {
+    setSelectedRequest(request)
+    setRequestedDocs([])
+    setRequestDocsReason("")
+    setIsRequestDocsOpen(true)
+  }
+
+  const confirmRequestDocs = async () => {
+    if (!selectedRequest) return
+    if (!requestedDocs.length) {
+      toast.error("Select at least one document to re-upload")
+      return
+    }
+    if (!requestDocsReason.trim()) {
+      toast.error("Please provide a reason")
+      return
+    }
+    try {
+      setProcessing(true)
+      await adminAPI.requestDeliveryPartnerDocuments(
+        selectedRequest._id,
+        requestedDocs,
+        requestDocsReason.trim()
+      )
+      await fetchJoinRequests()
+      setIsRequestDocsOpen(false)
+      setSelectedRequest(null)
+      setRequestedDocs([])
+      setRequestDocsReason("")
+      toast.success(`Document re-upload requested for ${selectedRequest.name}.`)
+    } catch (err) {
+      debugError("Error requesting documents:", err)
+      const msg = err.response?.data?.message ?? err.response?.data?.error ?? err?.message
+      toast.error(msg || "Failed to request documents.")
     } finally {
       setProcessing(false)
     }
@@ -485,6 +536,14 @@ export default function JoinRequest() {
                                   <Check className="w-4 h-4" />
                                 </button>
                                 <button
+                                  onClick={() => handleRequestDocs(request)}
+                                  disabled={processing}
+                                  className="p-1.5 rounded bg-amber-50 text-amber-600 hover:bg-amber-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                  title="Request re-upload"
+                                >
+                                  <FileCheck className="w-4 h-4" />
+                                </button>
+                                <button
                                   onClick={() => handleDeny(request)}
                                   disabled={processing}
                                   className="p-1.5 rounded bg-red-50 text-red-600 hover:bg-red-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -582,6 +641,79 @@ export default function JoinRequest() {
             >
               {processing && <Loader2 className="w-4 h-4 animate-spin" />}
               Deny
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Request Document Re-upload Dialog */}
+      <Dialog open={isRequestDocsOpen} onOpenChange={setIsRequestDocsOpen}>
+        <DialogContent className="max-w-md bg-white p-0">
+          <DialogHeader className="px-6 pt-6 pb-4">
+            <DialogTitle>Request Document Re-upload</DialogTitle>
+          </DialogHeader>
+          <div className="px-6 pb-6 space-y-4">
+            <p className="text-sm text-slate-700">
+              Select documents that "{selectedRequest?.name}" must re-upload.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {DOC_REUPLOAD_OPTIONS.map((opt) => {
+                const checked = requestedDocs.includes(opt.id)
+                return (
+                  <label
+                    key={opt.id}
+                    className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm cursor-pointer ${
+                      checked ? "border-amber-500 bg-amber-50" : "border-slate-200"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      disabled={processing}
+                      onChange={() => {
+                        setRequestedDocs((prev) =>
+                          checked ? prev.filter((d) => d !== opt.id) : [...prev, opt.id]
+                        )
+                      }}
+                    />
+                    {opt.label}
+                  </label>
+                )
+              })}
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">
+                Reason <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                value={requestDocsReason}
+                onChange={(e) => setRequestDocsReason(e.target.value)}
+                placeholder="e.g. Aadhaar image is blurry / RC expired"
+                rows={4}
+                className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-amber-500"
+                disabled={processing}
+              />
+            </div>
+          </div>
+          <DialogFooter className="px-6 pb-6">
+            <button
+              onClick={() => {
+                setIsRequestDocsOpen(false)
+                setRequestedDocs([])
+                setRequestDocsReason("")
+              }}
+              disabled={processing}
+              className="px-4 py-2 text-sm font-medium rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={confirmRequestDocs}
+              disabled={processing || !requestedDocs.length || !requestDocsReason.trim()}
+              className="px-4 py-2 text-sm font-medium rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 flex items-center gap-2"
+            >
+              {processing && <Loader2 className="w-4 h-4 animate-spin" />}
+              Request Re-upload
             </button>
           </DialogFooter>
         </DialogContent>
@@ -812,23 +944,33 @@ export default function JoinRequest() {
                     <h3 className="text-sm font-bold text-slate-900 mb-3 flex items-center gap-2">
                       <FileCheck className="w-4 h-4" /> Documents
                     </h3>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       {/* Aadhar */}
                       {viewDetails.documents.aadhar && (
                         <div>
-                          <label className="text-xs font-semibold text-slate-500 uppercase">Aadhar Card</label>
-                          <div className="mt-2">
+                          <label className="text-xs font-semibold text-slate-500 uppercase">Aadhaar</label>
+                          <div className="mt-2 space-y-1">
                             {viewDetails.documents.aadhar.number && (
-                              <p className="text-sm text-slate-700 mb-1">Number: {viewDetails.documents.aadhar.number}</p>
+                              <p className="text-sm text-slate-700">Number: {viewDetails.documents.aadhar.number}</p>
                             )}
-                            {viewDetails.documents.aadhar.document && (
-                              <a 
-                                href={viewDetails.documents.aadhar.document} 
-                                target="_blank" 
+                            {(viewDetails.documents.aadhar.front || viewDetails.documents.aadhar.document) && (
+                              <a
+                                href={viewDetails.documents.aadhar.front || viewDetails.documents.aadhar.document}
+                                target="_blank"
                                 rel="noopener noreferrer"
                                 className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700"
                               >
-                                <ExternalLink className="w-3 h-3" /> View Document
+                                <ExternalLink className="w-3 h-3" /> Front
+                              </a>
+                            )}
+                            {viewDetails.documents.aadhar.back && (
+                              <a
+                                href={viewDetails.documents.aadhar.back}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="ml-3 inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700"
+                              >
+                                <ExternalLink className="w-3 h-3" /> Back
                               </a>
                             )}
                           </div>
@@ -861,23 +1003,33 @@ export default function JoinRequest() {
                       {viewDetails.documents.drivingLicense && (
                         <div>
                           <label className="text-xs font-semibold text-slate-500 uppercase">Driving License</label>
-                          <div className="mt-2">
+                          <div className="mt-2 space-y-1">
                             {viewDetails.documents.drivingLicense.number && (
-                              <p className="text-sm text-slate-700 mb-1">Number: {viewDetails.documents.drivingLicense.number}</p>
+                              <p className="text-sm text-slate-700">Number: {viewDetails.documents.drivingLicense.number}</p>
                             )}
-                            {viewDetails.documents.drivingLicense.expiryDate && (
-                              <p className="text-xs text-slate-500 mb-1">
-                                Expiry: {new Date(viewDetails.documents.drivingLicense.expiryDate).toLocaleDateString('en-GB')}
+                            {(viewDetails.documents.drivingLicense.expiry || viewDetails.documents.drivingLicense.expiryDate) && (
+                              <p className="text-sm text-slate-700">
+                                Expiry: {new Date(viewDetails.documents.drivingLicense.expiry || viewDetails.documents.drivingLicense.expiryDate).toLocaleDateString('en-GB')}
                               </p>
                             )}
-                            {viewDetails.documents.drivingLicense.document && (
-                              <a 
-                                href={viewDetails.documents.drivingLicense.document} 
-                                target="_blank" 
+                            {(viewDetails.documents.drivingLicense.front || viewDetails.documents.drivingLicense.document) && (
+                              <a
+                                href={viewDetails.documents.drivingLicense.front || viewDetails.documents.drivingLicense.document}
+                                target="_blank"
                                 rel="noopener noreferrer"
                                 className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700"
                               >
-                                <ExternalLink className="w-3 h-3" /> View Document
+                                <ExternalLink className="w-3 h-3" /> Front
+                              </a>
+                            )}
+                            {viewDetails.documents.drivingLicense.back && (
+                              <a
+                                href={viewDetails.documents.drivingLicense.back}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="ml-3 inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700"
+                              >
+                                <ExternalLink className="w-3 h-3" /> Back
                               </a>
                             )}
                           </div>
@@ -885,23 +1037,37 @@ export default function JoinRequest() {
                       )}
 
                       {/* Vehicle RC */}
-                      {viewDetails.documents.vehicleRC && (viewDetails.documents.vehicleRC.number || viewDetails.documents.vehicleRC.document) && (
+                      {(viewDetails.documents.rc || viewDetails.documents.vehicleRC) && (
                         <div>
                           <label className="text-xs font-semibold text-slate-500 uppercase">Vehicle RC</label>
                           <div className="mt-2">
-                            {viewDetails.documents.vehicleRC.number && (
-                              <p className="text-sm text-slate-700 mb-1">Number: {viewDetails.documents.vehicleRC.number}</p>
-                            )}
-                            {viewDetails.documents.vehicleRC.document && (
-                              <a 
-                                href={viewDetails.documents.vehicleRC.document} 
-                                target="_blank" 
+                            {(viewDetails.documents.rc?.document || viewDetails.documents.vehicleRC?.document) && (
+                              <a
+                                href={viewDetails.documents.rc?.document || viewDetails.documents.vehicleRC?.document}
+                                target="_blank"
                                 rel="noopener noreferrer"
                                 className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700"
                               >
-                                <ExternalLink className="w-3 h-3" /> View Document
+                                <ExternalLink className="w-3 h-3" /> View RC
                               </a>
                             )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Insurance */}
+                      {viewDetails.documents.insurance?.document && (
+                        <div>
+                          <label className="text-xs font-semibold text-slate-500 uppercase">Insurance</label>
+                          <div className="mt-2">
+                            <a
+                              href={viewDetails.documents.insurance.document}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700"
+                            >
+                              <ExternalLink className="w-3 h-3" /> View Insurance
+                            </a>
                           </div>
                         </div>
                       )}

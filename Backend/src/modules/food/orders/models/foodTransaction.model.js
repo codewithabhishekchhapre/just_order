@@ -13,7 +13,7 @@ const foodTransactionSchema = new mongoose.Schema({
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodUser', required: true, index: true },
     // Quick parent orders do not have a restaurant owner on the parent order.
     restaurantId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodRestaurant', default: null, index: true },
-    deliveryPartnerId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodDeliveryPartner', index: true },
+    deliveryPartnerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Driver', index: true },
 
     // Core Payment Info
     paymentMethod: { 

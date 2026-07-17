@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 import { FoodOrder } from "../../orders/models/order.model.js";
 import { FoodDeliveryWithdrawal } from "../models/foodDeliveryWithdrawal.model.js";
 import { FoodDeliveryCashDeposit } from "../models/foodDeliveryCashDeposit.model.js";
-import { FoodDeliveryPartner } from "../models/deliveryPartner.model.js";
+import { Driver } from '../../../../core/models/driver.model.js';
 import { uploadImageBuffer } from "../../../../services/cloudinary.service.js";
 import { DeliveryBonusTransaction } from "../../admin/models/deliveryBonusTransaction.model.js";
 import { getDeliveryCashLimitSettings } from "../../admin/services/admin.service.js";
@@ -37,7 +37,7 @@ export const getDeliveryPartnerWalletEnhanced = async (deliveryPartnerId) => {
   }
 
   const partnerId = new mongoose.Types.ObjectId(deliveryPartnerId);
-  const partner = await FoodDeliveryPartner.findById(partnerId).lean();
+  const partner = await Driver.findById(partnerId).lean();
   if (!partner) throw new ValidationError("Delivery partner not found");
 
   // 1. Self-heal completed deliveries that missed wallet credits (e.g., due to disabled queues in local dev)
@@ -292,7 +292,7 @@ export const requestDeliveryWithdrawal = async (deliveryPartnerId, payload) => {
     throw new ValidationError("Insufficient balance for this withdrawal");
   }
 
-  const partner = await FoodDeliveryPartner.findById(deliveryPartnerId).lean();
+  const partner = await Driver.findById(deliveryPartnerId).lean();
   if (!partner) throw new ValidationError("Delivery partner not found");
 
   const withdrawal = await FoodDeliveryWithdrawal.create({

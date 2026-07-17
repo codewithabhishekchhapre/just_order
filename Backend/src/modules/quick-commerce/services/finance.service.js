@@ -5,7 +5,7 @@ import mongoose from "mongoose";
 import { FoodDeliveryWallet } from "../../food/delivery/models/deliveryWallet.model.js";
 import { FoodDeliveryWithdrawal } from "../../food/delivery/models/foodDeliveryWithdrawal.model.js";
 import { FoodDeliveryCashDeposit } from "../../food/delivery/models/foodDeliveryCashDeposit.model.js";
-import { FoodDeliveryPartner } from "../../food/delivery/models/deliveryPartner.model.js";
+import { Driver } from '../../../core/models/driver.model.js';
 import { FoodOrder } from "../../food/orders/models/order.model.js";
 import { FoodTransaction } from "../../food/orders/models/foodTransaction.model.js";
 import { getDeliveryCashLimitSettings } from "../../food/admin/services/admin.service.js";
@@ -711,12 +711,12 @@ export async function getQuickCommerceDeliveryCashBalances({
 
   const [{ deliveryCashLimit }, partners, total] = await Promise.all([
     getDeliveryCashLimitSettings(),
-    FoodDeliveryPartner.find(partnerFilter)
+    Driver.find(partnerFilter)
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(safeLimit)
       .lean(),
-    FoodDeliveryPartner.countDocuments(partnerFilter),
+    Driver.countDocuments(partnerFilter),
   ]);
 
   const limitAmount = Math.max(1, Number(deliveryCashLimit || 0) || 5000);

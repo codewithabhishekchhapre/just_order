@@ -6,7 +6,7 @@ import { logger } from '../../../../utils/logger.js';
 import { FoodUser } from '../../../../core/users/user.model.js';
 import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { FoodItem } from '../../admin/models/food.model.js';
-import { FoodDeliveryPartner } from '../../delivery/models/deliveryPartner.model.js';
+import { Driver } from '../../../../core/models/driver.model.js';
 import { FoodZone } from '../../admin/models/zone.model.js';
 import { FoodFeeSettings } from '../../admin/models/feeSettings.model.js';
 import { resolveDeliverySpeedOptions, pickDeliverySpeedOption } from '../../admin/utils/deliverySpeedDefaults.js';
@@ -65,6 +65,12 @@ import {
 import { resolveDeliveryDocumentType } from '../../../quick-commerce/services/dispatchDocument.service.js';
 import { DISPATCH_DOCUMENT_TYPES } from '../../../quick-commerce/utils/dispatchDocument.constants.js';
 import * as returnPickupDelivery from '../../../quick-commerce/services/returnPickupDelivery.service.js';
+import {
+  PREPARATION_TIME_DEFAULT,
+  clampPreparationTimeMinutes,
+  maxPreparationTimeMinutes,
+  emitPreparationTimeUpdate,
+} from './order.helpers.js';
 
 export {
   tryAutoAssign,
@@ -742,7 +748,7 @@ async function evaluateCombinedPickupEligibility(pickupPoints = [], deliveryAddr
 async function listNearbyPartnersForPoint(point, { maxKm = 15, limit = 5 } = {}) {
   const latLng = getPointLatLng(point?.location);
   if (!latLng) {
-    const fallbackPartners = await FoodDeliveryPartner.find({
+    const fallbackPartners = await Driver.find({
       status: "approved",
       availabilityStatus: "online",
     })
@@ -756,7 +762,7 @@ async function listNearbyPartnersForPoint(point, { maxKm = 15, limit = 5 } = {})
     }));
   }
 
-  const partners = await FoodDeliveryPartner.find({
+  const partners = await Driver.find({
     status: "approved",
     availabilityStatus: "online",
     lastLat: { $exists: true, $ne: null },
@@ -778,7 +784,7 @@ async function listNearbyPartnersForPoint(point, { maxKm = 15, limit = 5 } = {})
     return nearbyPartners;
   }
 
-  const fallbackPartners = await FoodDeliveryPartner.find({
+  const fallbackPartners = await Driver.find({
     status: "approved",
     availabilityStatus: "online",
   })
@@ -801,6 +807,36 @@ function pushStatusHistory(order, { byRole, byId, from, to, note = "" }) {
     to,
     note,
   });
+}
+
+/**
+ * Order prep ETA = MAX(food item preparation times). Looks up FoodItem.preparationTime by itemId.
+ */
+async function resolveOrderPreparationTimeMinutes(orderItems = []) {
+  const foodItemIds = [
+    ...new Set(
+      (orderItems || [])
+        .filter((item) => String(item?.type || "food") === "food" && item?.itemId)
+        .map((item) => String(item.itemId))
+        .filter((id) => mongoose.Types.ObjectId.isValid(id)),
+    ),
+  ].map((id) => new mongoose.Types.ObjectId(id));
+
+  if (!foodItemIds.length) return PREPARATION_TIME_DEFAULT;
+
+  const docs = await FoodItem.find({ _id: { $in: foodItemIds } })
+    .select("preparationTime")
+    .lean();
+
+  const calculated = maxPreparationTimeMinutes(
+    docs.map((doc) => doc.preparationTime),
+    PREPARATION_TIME_DEFAULT,
+  );
+  try {
+    return clampPreparationTimeMinutes(calculated);
+  } catch {
+    return PREPARATION_TIME_DEFAULT;
+  }
 }
 
 function normalizeOrderForClient(orderDoc) {
@@ -2717,6 +2753,10 @@ export async function createOrder(userId, dto) {
     }
   }
 
+  const preparationTime = hasFoodItems
+    ? await resolveOrderPreparationTimeMinutes(items)
+    : null;
+
   const order = new FoodOrder({
     orderType,
     orderId,
@@ -2750,6 +2790,7 @@ export async function createOrder(userId, dto) {
     ],
     note: dto.note || "",
     sendCutlery: dto.sendCutlery !== false,
+    ...(preparationTime != null ? { preparationTime } : {}),
     deliveryFleet:
       orderType === "mixed"
         ? requestedDeliveryFleet
@@ -3701,7 +3742,7 @@ export async function submitOrderRatings(orderId, userId, dto) {
   }
   if (hasDeliveryPartner) {
     promises.push(applyAggregateRating(
-      FoodDeliveryPartner,
+      Driver,
       order.dispatch.deliveryPartnerId,
       dto.deliveryPartnerRating,
     ));
@@ -3751,6 +3792,7 @@ export async function updateOrderStatusRestaurant(
   orderId,
   restaurantId,
   orderStatus,
+  options = {},
 ) {
   if (!mongoose.Types.ObjectId.isValid(orderId)) {
     throw new ValidationError("Invalid order id");
@@ -3764,6 +3806,26 @@ export async function updateOrderStatusRestaurant(
   });
   if (!order) throw new NotFoundError("Order not found");
   const from = order.orderStatus;
+
+  // Optional prep-time overwrite on accept / status change (same field, no duplicates)
+  if (options.preparationTime != null && options.preparationTime !== "") {
+    const previousPrep = order.preparationTime;
+    const nextPrep = clampPreparationTimeMinutes(options.preparationTime);
+    if (previousPrep !== nextPrep) {
+      order.preparationTime = nextPrep;
+      logger.info(
+        `[PrepTime] order=${order.orderId} restaurant=${restaurantId} previous=${previousPrep} new=${nextPrep} updatedBy=RESTAURANT:${restaurantId}`,
+      );
+      pushStatusHistory(order, {
+        byRole: "RESTAURANT",
+        byId: restaurantId,
+        from,
+        to: from,
+        note: `preparationTime:${previousPrep ?? "null"}->${nextPrep}`,
+      });
+    }
+  }
+
   order.orderStatus = orderStatus;
   pushStatusHistory(order, {
     byRole: "RESTAURANT",
@@ -3784,6 +3846,7 @@ export async function updateOrderStatusRestaurant(
         orderMongoId: order._id?.toString?.(),
         orderId: order.orderId,
         orderStatus: order.orderStatus,
+        preparationTime: order.preparationTime,
         title: `Order ${order.orderId} updated`,
         message: `Status changed to ${String(orderStatus).replace(/_/g, " ")}`,
       };
@@ -3792,6 +3855,10 @@ export async function updateOrderStatusRestaurant(
         payload,
       );
       io.to(rooms.user(order.userId)).emit("order_status_update", payload);
+      const assignedRiderId = order.dispatch?.deliveryPartnerId;
+      if (assignedRiderId) {
+        io.to(rooms.delivery(assignedRiderId)).emit("order_status_update", payload);
+      }
     }
 
     let title = `Order ${order.orderId} updated`;
@@ -4078,6 +4145,59 @@ export async function updateOrderStatusRestaurant(
 }
 
 /**
+ * Restaurant updates order preparationTime (existing field only).
+ * Allowed for the owning restaurant before/during prep; customers/drivers cannot call this route.
+ */
+export async function updateOrderPreparationTimeRestaurant(
+  orderId,
+  restaurantId,
+  preparationTime,
+) {
+  if (!mongoose.Types.ObjectId.isValid(orderId)) {
+    throw new ValidationError("Invalid order id");
+  }
+  if (!mongoose.Types.ObjectId.isValid(restaurantId)) {
+    throw new ValidationError("Invalid restaurant id");
+  }
+
+  const nextPrep = clampPreparationTimeMinutes(preparationTime);
+
+  const order = await FoodOrder.findOne({
+    _id: new mongoose.Types.ObjectId(orderId),
+    restaurantId: new mongoose.Types.ObjectId(restaurantId),
+  });
+  if (!order) throw new NotFoundError("Order not found");
+
+  const terminal = ["delivered", "cancelled_by_user", "cancelled_by_restaurant", "cancelled_by_admin"];
+  if (terminal.includes(String(order.orderStatus))) {
+    throw new ValidationError("Cannot update preparation time for a completed or cancelled order");
+  }
+
+  const previousPrep = order.preparationTime;
+  if (previousPrep === nextPrep) {
+    return sanitizeOrderForExternal(normalizeOrderForClient(order), "RESTAURANT");
+  }
+
+  order.preparationTime = nextPrep;
+  pushStatusHistory(order, {
+    byRole: "RESTAURANT",
+    byId: restaurantId,
+    from: order.orderStatus,
+    to: order.orderStatus,
+    note: `preparationTime:${previousPrep ?? "null"}->${nextPrep}`,
+  });
+  await order.save();
+
+  logger.info(
+    `[PrepTime] order=${order.orderId} restaurant=${restaurantId} previous=${previousPrep} new=${nextPrep} updatedBy=RESTAURANT:${restaurantId} at=${new Date().toISOString()}`,
+  );
+
+  emitPreparationTimeUpdate(order);
+
+  return sanitizeOrderForExternal(normalizeOrderForClient(order), "RESTAURANT");
+}
+
+/**
  * Manually re-trigger delivery partner search for a restaurant order.
  * Only allowed if status is preparing/ready and no partner has accepted yet.
  */
@@ -4277,6 +4397,15 @@ export async function acceptOrderDelivery(orderId, deliveryPartnerId, body = {})
   }
 
   const partnerId = new mongoose.Types.ObjectId(deliveryPartnerId);
+  const { Driver } = await import("../../../../core/models/driver.model.js");
+  const partner = await Driver.findById(partnerId).select("status isActive isDeleted accountStatus").lean();
+  if (!partner || partner.isDeleted || partner.accountStatus === "deleted") {
+    throw new ValidationError("Delivery partner not found");
+  }
+  if (partner.status !== "approved" || partner.isActive === false) {
+    throw new ValidationError("Your account is not approved to accept orders");
+  }
+
   const identity = buildOrderIdentityFilter(orderId);
   if (!identity) throw new ValidationError("Order id required");
 
@@ -4642,7 +4771,7 @@ export async function confirmReachedPickupDelivery(orderId, deliveryPartnerId, b
   // Notify Restaurant about rider arrival
   try {
     const restaurant = await FoodRestaurant.findById(order.restaurantId).select("restaurantName").lean();
-    const partner = await FoodDeliveryPartner.findById(deliveryPartnerId).select("name").lean();
+    const partner = await Driver.findById(deliveryPartnerId).select("name").lean();
     
     const { notifyOwnersSafely } = await import("../../../../core/notifications/firebase.service.js");
     await notifyOwnersSafely(
@@ -5369,7 +5498,7 @@ export async function assignDeliveryPartnerAdmin(
   if (order.dispatch.status === "accepted")
     throw new ValidationError("Order already accepted by partner");
 
-  const partner = await FoodDeliveryPartner.findById(deliveryPartnerId)
+  const partner = await Driver.findById(deliveryPartnerId)
     .select("status")
     .lean();
   if (!partner || partner.status !== "approved")

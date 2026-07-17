@@ -11,7 +11,7 @@ const userSubscriptionSchema = new mongoose.Schema(
         },
         deliveryBoyId: {
             type: mongoose.Schema.Types.ObjectId,
-            ref: 'FoodDeliveryPartner',
+            ref: 'Driver',
             index: true,
             default: null
         },

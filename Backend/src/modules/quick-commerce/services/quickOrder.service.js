@@ -5,7 +5,7 @@ import { Seller } from '../seller/models/seller.model.js';
 import { SellerOrder } from '../seller/models/sellerOrder.model.js';
 import { SellerTransaction } from '../seller/models/sellerTransaction.model.js';
 import { QuickOrder } from '../models/order.model.js';
-import { FoodDeliveryPartner } from '../../food/delivery/models/deliveryPartner.model.js';
+import { Driver } from '../../../core/models/driver.model.js';
 import {
   pushStatusHistory,
   notifyOwnerSafely,
@@ -372,8 +372,9 @@ export const getOrderAddressPoint = (order) => {
 export const listNearbyOnlineDeliveryPartnersByCoords = async (origin, { maxKm = 15, limit = 10 } = {}) => {
   if (!origin?.lat || !origin?.lng) return [];
 
-  const onlinePartners = await FoodDeliveryPartner.find({
+  const onlinePartners = await Driver.find({
     availabilityStatus: "online",
+    authorizedServices: "quick-commerce",
     status: { $in: process.env.NODE_ENV === "production" ? ["approved"] : ["approved", "pending"] },
   })
     .select("_id name phone status lastLat lastLng")

@@ -138,7 +138,7 @@ export const PocketStatementV2 = () => {
           {/* Summary (Original Grid Style) */}
           <div className="bg-white rounded-xl border border-gray-100 p-5 mt-4 mb-6 shadow-sm">
              <div className="flex items-center gap-2 mb-4">
-                <CheckCircle className="w-4 h-4 text-emerald-500" />
+                <CheckCircle className="w-4 h-4 text-primary-orange" />
                 <span className="text-sm font-bold text-gray-800 uppercase tracking-tight">
                    Pocket summary
                 </span>
@@ -225,8 +225,8 @@ export const PocketStatementV2 = () => {
                                </div>
                                {amounts.bonus > 0 && (
                                   <div className="mb-2">
-                                     <p className="text-[10px] text-emerald-500 font-bold uppercase">Bonus</p>
-                                     <p className="text-sm font-bold text-emerald-600">
+                                     <p className="text-[10px] text-primary-orange font-bold uppercase">Bonus</p>
+                                     <p className="text-sm font-bold text-primary-orange">
                                         + ₹{amounts.bonus}
                                      </p>
                                   </div>

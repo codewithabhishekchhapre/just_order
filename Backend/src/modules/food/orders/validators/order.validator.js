@@ -263,9 +263,30 @@ export function validateOrderStatusDto(body) {
             'picked_up',
             'delivered',
             'cancelled_by_restaurant'
-        ])
+        ]),
+        preparationTime: z.coerce.number().int().min(1).max(180).optional(),
+        prepTime: z.coerce.number().int().min(1).max(180).optional(),
     });
     const result = schema.safeParse(body);
+    if (!result.success) {
+        throw new ValidationError(result.error.errors?.[0]?.message || 'Validation failed');
+    }
+    const data = result.data;
+    return {
+        orderStatus: data.orderStatus,
+        preparationTime: data.preparationTime ?? data.prepTime,
+    };
+}
+
+export function validatePreparationTimeDto(body) {
+    const schema = z.object({
+        preparationTime: z.coerce
+            .number({ invalid_type_error: 'Preparation time is required' })
+            .int()
+            .min(1, 'Preparation time must be at least 1 minute')
+            .max(180, 'Preparation time must be at most 180 minutes'),
+    });
+    const result = schema.safeParse(body || {});
     if (!result.success) {
         throw new ValidationError(result.error.errors?.[0]?.message || 'Validation failed');
     }

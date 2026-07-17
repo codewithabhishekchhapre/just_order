@@ -120,7 +120,10 @@ const transformOrderForList = (order) => ({
   preparingTimestamp: order.tracking?.preparing?.timestamp
     ? new Date(order.tracking.preparing.timestamp)
     : new Date(order.createdAt || Date.now()),
-  initialETA: order.estimatedDeliveryTime || 30,
+  initialETA: Number(order.preparationTime) > 0
+    ? Number(order.preparationTime)
+    : (order.estimatedDeliveryTime || 30),
+  preparationTime: Number(order.preparationTime) > 0 ? Number(order.preparationTime) : null,
   sortTimestamp: new Date(getAllOrdersTimestamp(order)).getTime(),
 });
 
@@ -1197,6 +1200,12 @@ export default function OrdersMain() {
         setShowNewOrderPopup(true);
         const orderId = newOrder.orderMongoId || newOrder.orderId || newOrder._id;
         setCountdown(getInitialCountdown(orderId));
+        const seedPrep = Number(newOrder.preparationTime);
+        setPrepTime(
+          Number.isFinite(seedPrep) && seedPrep >= 1
+            ? Math.min(180, Math.round(seedPrep))
+            : 15,
+        );
         requestOrdersRefresh();
       }
     }
@@ -1254,6 +1263,12 @@ export default function OrdersMain() {
   const [ordersRefreshToken, setOrdersRefreshToken] = useState(0);
   const requestOrdersRefresh = () => setOrdersRefreshToken((t) => t + 1);
 
+  useEffect(() => {
+    const onRefresh = () => requestOrdersRefresh();
+    window.addEventListener("restaurantOrdersRefresh", onRefresh);
+    return () => window.removeEventListener("restaurantOrdersRefresh", onRefresh);
+  }, []);
+
   // Check for confirmed orders that haven't been shown in popup yet, or scheduled orders whose time has come
   useEffect(() => {
     const checkOrdersToPopup = async () => {
@@ -1309,6 +1324,7 @@ export default function OrdersMain() {
               createdAt: orderToPopup.createdAt,
               scheduledAt: orderToPopup.scheduledAt,
               estimatedDeliveryTime: orderToPopup.estimatedDeliveryTime || 30,
+              preparationTime: orderToPopup.preparationTime,
               note: orderToPopup.note || "",
               sendCutlery: orderToPopup.sendCutlery,
               paymentMethod:
@@ -1323,6 +1339,12 @@ export default function OrdersMain() {
             setPopupOrder(orderForPopup);
             setShowNewOrderPopup(true);
             setCountdown(getInitialCountdown(orderId));
+            const seedPrep = Number(orderToPopup.preparationTime);
+            setPrepTime(
+              Number.isFinite(seedPrep) && seedPrep >= 1
+                ? Math.min(180, Math.round(seedPrep))
+                : 15,
+            );
           }
         }
       } catch (error) {
@@ -2416,19 +2438,38 @@ export default function OrdersMain() {
                     <div className="flex items-center justify-between p-3 border-b border-gray-100">
                       <div className="flex items-center gap-2">
                         <Clock className="w-4 h-4 text-gray-400" />
-                        <span className="text-sm font-semibold text-gray-700">Prep Time</span>
+                        <div>
+                          <span className="text-sm font-semibold text-gray-700 block">
+                            Estimated Preparation Time
+                          </span>
+                          <span className="text-[10px] text-gray-400">
+                            1–180 minutes
+                          </span>
+                        </div>
                       </div>
                       <div className="flex items-center gap-2 bg-gray-50 p-1 rounded-lg border border-gray-100">
                         <button
-                          onClick={() => setPrepTime(Math.max(1, prepTime - 1))}
+                          type="button"
+                          onClick={() => setPrepTime((t) => Math.max(1, t - 1))}
                           className="w-7 h-7 flex items-center justify-center bg-white hover:bg-gray-100 rounded shadow-sm transition-colors active:scale-95">
                           <Minus className="w-3.5 h-3.5 text-gray-700" />
                         </button>
-                        <span className="text-sm font-bold text-gray-900 w-8 text-center">
-                          {prepTime}m
-                        </span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={180}
+                          value={prepTime}
+                          onChange={(e) => {
+                            const n = Number(e.target.value);
+                            if (!Number.isFinite(n)) return;
+                            setPrepTime(Math.min(180, Math.max(1, Math.round(n))));
+                          }}
+                          className="text-sm font-bold text-gray-900 w-12 text-center bg-transparent outline-none"
+                        />
+                        <span className="text-xs font-semibold text-gray-500 pr-1">min</span>
                         <button
-                          onClick={() => setPrepTime(prepTime + 1)}
+                          type="button"
+                          onClick={() => setPrepTime((t) => Math.min(180, t + 1))}
                           className="w-7 h-7 flex items-center justify-center bg-white hover:bg-gray-100 rounded shadow-sm transition-colors active:scale-95">
                           <Plus className="w-3.5 h-3.5 text-gray-700" />
                         </button>
@@ -2846,6 +2887,7 @@ const OrderCard = memo(function OrderCard({
   tableOrToken,
   timePlaced,
   eta,
+  preparationTime,
   itemsSummary,
   paymentMethod,
   photoUrl,
@@ -2855,7 +2897,9 @@ const OrderCard = memo(function OrderCard({
   onSelect,
   onCancel,
   onMarkReady,
+  onUpdatePrepTime,
   isMarkingReady = false,
+  isUpdatingPrep = false,
 }) {
   const normalizedStatus = String(status || "").toLowerCase();
   const isReady = normalizedStatus === "ready";
@@ -2876,6 +2920,7 @@ const OrderCard = memo(function OrderCard({
           tableOrToken,
           timePlaced,
           eta,
+          preparationTime,
           itemsSummary,
           paymentMethod,
           deliveryPartnerId,
@@ -2937,6 +2982,50 @@ const OrderCard = memo(function OrderCard({
           </p>
         </div>
       </div>
+
+      {isPreparing && preparationTime != null && onUpdatePrepTime && (
+        <div
+          className="flex items-center justify-between gap-2 pt-1"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+            Prep time
+          </span>
+          <div className="flex items-center gap-1.5 bg-gray-50 p-0.5 rounded-lg border border-gray-100">
+            <button
+              type="button"
+              disabled={isUpdatingPrep}
+              onClick={() =>
+                onUpdatePrepTime({
+                  orderId,
+                  mongoId,
+                  preparationTime: Math.max(1, Number(preparationTime) - 1),
+                })
+              }
+              className="w-6 h-6 flex items-center justify-center bg-white rounded shadow-sm disabled:opacity-50"
+            >
+              <Minus className="w-3 h-3 text-gray-700" />
+            </button>
+            <span className="text-xs font-black text-gray-900 w-10 text-center">
+              {preparationTime}m
+            </span>
+            <button
+              type="button"
+              disabled={isUpdatingPrep}
+              onClick={() =>
+                onUpdatePrepTime({
+                  orderId,
+                  mongoId,
+                  preparationTime: Math.min(180, Number(preparationTime) + 1),
+                })
+              }
+              className="w-6 h-6 flex items-center justify-center bg-white rounded shadow-sm disabled:opacity-50"
+            >
+              <Plus className="w-3 h-3 text-gray-700" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Bottom Row: Actions & Assignment */}
       <div className="flex items-center justify-between pt-2">
@@ -3001,6 +3090,7 @@ function PreparingOrders({
   const [loading, setLoading] = useState(true);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [markingReadyOrderIds, setMarkingReadyOrderIds] = useState({});
+  const [updatingPrepOrderIds, setUpdatingPrepOrderIds] = useState({});
 
   useEffect(() => {
     let isMounted = true;
@@ -3021,7 +3111,11 @@ function PreparingOrders({
           );
 
           const transformedOrders = preparingOrders.map((order) => {
-            const initialETA = order.estimatedDeliveryTime || 30; // in minutes
+            const prepMins = Number(order.preparationTime);
+            const initialETA =
+              Number.isFinite(prepMins) && prepMins > 0
+                ? prepMins
+                : order.estimatedDeliveryTime || 30;
             const preparingTimestamp = order.tracking?.preparing?.timestamp
               ? new Date(order.tracking.preparing.timestamp)
               : new Date(order.createdAt); // Fallback to createdAt if preparing timestamp not available
@@ -3041,6 +3135,7 @@ function PreparingOrders({
                 { hour: "2-digit", minute: "2-digit" },
               ),
               initialETA, // Store initial ETA in minutes
+              preparationTime: initialETA,
               preparingTimestamp, // Store when order started preparing
               itemsSummary: buildOrderItemsSummary(order.items),
               photoUrl: getOrderPreviewItem(order.items)?.image || null,
@@ -3227,6 +3322,39 @@ function PreparingOrders({
     }
   };
 
+  const handleUpdatePrepTime = async ({ orderId, mongoId, preparationTime }) => {
+    const orderKey = mongoId || orderId;
+    const nextPrep = Math.min(180, Math.max(1, Math.round(Number(preparationTime))));
+    if (!orderKey || !Number.isFinite(nextPrep) || updatingPrepOrderIds[orderKey]) return;
+
+    try {
+      setUpdatingPrepOrderIds((prev) => ({ ...prev, [orderKey]: true }));
+      await restaurantAPI.updatePreparationTime(orderKey, nextPrep);
+      setOrders((prev) =>
+        prev.map((order) =>
+          (order.mongoId || order.orderId) === orderKey
+            ? {
+                ...order,
+                preparationTime: nextPrep,
+                initialETA: nextPrep,
+              }
+            : order,
+        ),
+      );
+      toast.success(`Prep time updated to ${nextPrep} min`);
+    } catch (error) {
+      toast.error(
+        error.response?.data?.message || "Failed to update preparation time",
+      );
+    } finally {
+      setUpdatingPrepOrderIds((prev) => {
+        const next = { ...prev };
+        delete next[orderKey];
+        return next;
+      });
+    }
+  };
+
   if (loading) {
     return (
       <div className="pt-4 pb-6">
@@ -3289,6 +3417,7 @@ function PreparingOrders({
                 tableOrToken={order.tableOrToken}
                 timePlaced={order.timePlaced}
                 eta={etaDisplay}
+                preparationTime={order.preparationTime}
                 itemsSummary={order.itemsSummary}
                 photoUrl={order.photoUrl}
                 photoAlt={order.photoAlt}
@@ -3298,8 +3427,12 @@ function PreparingOrders({
                 onSelect={onSelectOrder}
                 onCancel={onCancel}
                 onMarkReady={handleMarkReady}
+                onUpdatePrepTime={handleUpdatePrepTime}
                 isMarkingReady={Boolean(
                   markingReadyOrderIds[order.mongoId || order.orderId],
+                )}
+                isUpdatingPrep={Boolean(
+                  updatingPrepOrderIds[order.mongoId || order.orderId],
                 )}
               />
             );

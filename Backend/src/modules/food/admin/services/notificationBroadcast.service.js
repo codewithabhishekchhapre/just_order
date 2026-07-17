@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 import { ValidationError, NotFoundError } from '../../../../core/auth/errors.js';
 import { FoodUser } from '../../../../core/users/user.model.js';
 import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
-import { FoodDeliveryPartner } from '../../delivery/models/deliveryPartner.model.js';
+import { Driver } from '../../../../core/models/driver.model.js';
 import { Seller } from '../../../quick-commerce/seller/models/seller.model.js';
 import { BroadcastNotification } from '../../../../core/notifications/models/notificationBroadcast.model.js';
 import { FoodNotification } from '../../../../core/notifications/models/notification.model.js';
@@ -56,7 +56,7 @@ const ownerModelMap = {
     USER: FoodUser,
     RESTAURANT: FoodRestaurant,
     SELLER: Seller,
-    DELIVERY_PARTNER: FoodDeliveryPartner
+    DELIVERY_PARTNER: Driver
 };
 
 const buildUserLabel = (doc) => ({
@@ -99,7 +99,7 @@ const modelConfigMap = {
         buildLabel: buildSellerLabel
     },
     DELIVERY_PARTNER: {
-        model: FoodDeliveryPartner,
+        model: Driver,
         query: { status: 'approved' },
         select: '_id name phone email',
         buildLabel: buildDeliveryLabel

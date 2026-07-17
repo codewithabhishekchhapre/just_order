@@ -13,7 +13,7 @@ import { serializeRestaurantOnboardingForAdmin } from '../../shared/restaurantOn
 import { serializeOutletUpdateForAdmin } from '../../shared/outletUpdateWorkflow.js';
 import { buildRestaurantSubmissionSnapshot } from '../../shared/restaurantOnboardingWorkflow.js';
 import { FoodRestaurantWallet } from '../../restaurant/models/restaurantWallet.model.js';
-import { FoodDeliveryPartner } from '../../delivery/models/deliveryPartner.model.js';
+import { Driver } from '../../../../core/models/driver.model.js';
 import { DeliverySupportTicket } from '../../delivery/models/supportTicket.model.js';
 import { FoodZone } from '../models/zone.model.js';
 import { FoodCategory } from '../models/category.model.js';
@@ -582,15 +582,15 @@ export async function getDashboardStats(query = {}) {
         ]),
         FoodRestaurant.countDocuments({ ...restaurantMatch, status: 'approved' }),
         FoodRestaurant.countDocuments({ ...restaurantMatch, status: 'pending' }),
-        FoodDeliveryPartner.countDocuments({ status: 'approved' }),
-        FoodDeliveryPartner.countDocuments({ status: 'pending' }),
+        Driver.countDocuments({ status: 'approved' }),
+        Driver.countDocuments({ status: 'pending' }),
         FoodItem.countDocuments({ approvalStatus: 'approved', ...zoneScopedRestaurantMatch }),
         FoodAddon.countDocuments({ approvalStatus: 'approved', isDeleted: { $ne: true }, ...zoneScopedRestaurantMatch }),
         zoneId
             ? FoodOrder.distinct('userId', { ...orderMatch, userId: { $ne: null } }).then((ids) => ids.length)
             : FoodUser.countDocuments({}),
         FoodRestaurant.find({ ...restaurantMatch, status: 'pending' }).sort({ createdAt: -1 }).limit(5).select('restaurantName createdAt').lean(),
-        FoodDeliveryPartner.find({ status: 'pending' }).sort({ createdAt: -1 }).limit(5).select('name createdAt').lean(),
+        Driver.find({ status: 'pending' }).sort({ createdAt: -1 }).limit(5).select('name createdAt').lean(),
         FoodOrder.find({ 
             ...orderMatch,
             orderStatus: { $in: [...PENDING_ORDER_STATUSES, ...PROCESSING_ORDER_STATUSES] },
@@ -2073,7 +2073,7 @@ export async function getContactMessages(query = {}) {
             FoodRestaurant.find({
                 $or: [{ restaurantName: searchRegex }, { ownerEmail: searchRegex }, { ownerPhone: searchRegex }]
             }).select('_id').lean(),
-            FoodDeliveryPartner.find({
+            Driver.find({
                 $or: [{ name: searchRegex }, { email: searchRegex }, { phone: searchRegex }]
             }).select('_id').lean()
         ]);
@@ -4251,7 +4251,7 @@ export async function getDeliveryJoinRequests(query) {
     const { status = 'pending', page = 1, limit = 1000, search, zone, vehicleType } = query;
     const filter = {};
     if (status === 'pending') filter.status = 'pending';
-    else if (status === 'denied' || status === 'rejected') filter.status = 'rejected';
+    else if (status === 'denied' || status === 'rejected') filter.status = { $in: ['rejected', 'documents_required'] };
     else filter.status = status;
 
     const andParts = [];
@@ -4276,7 +4276,7 @@ export async function getDeliveryJoinRequests(query) {
     const skip = Math.max(0, (Number(page) || 1) - 1) * Math.max(1, Math.min(1000, Number(limit) || 100));
     const limitNum = Math.max(1, Math.min(1000, Number(limit) || 100));
 
-    const list = await FoodDeliveryPartner.find(filter)
+    const list = await Driver.find(filter)
         .sort({ createdAt: -1 })
         .lean();
 
@@ -4309,8 +4309,9 @@ export async function getDeliveryJoinRequests(query) {
         city: doc.city || '',
         zone: doc.detectedZoneName,
         vehicleType: doc.vehicleType || '',
-        status: doc.status === 'rejected' ? 'denied' : doc.status,
+        status: doc.status === 'rejected' || doc.status === 'documents_required' ? 'denied' : doc.status,
         rejectionReason: doc.rejectionReason || undefined,
+        documentsRequested: doc.documentsRequested || [],
         profilePhoto: doc.profilePhoto || null,
         profileImage: doc.profilePhoto ? { url: doc.profilePhoto } : null
     }));
@@ -4437,12 +4438,12 @@ export async function getDeliveryPartners(query) {
     const limitNum = Math.max(1, Math.min(1000, Number(limit) || 100));
 
     const [list, total] = await Promise.all([
-        FoodDeliveryPartner.find(filter)
+        Driver.find(filter)
             .sort({ createdAt: -1 })
             .skip(skip)
             .limit(limitNum)
             .lean(),
-        FoodDeliveryPartner.countDocuments(filter)
+        Driver.countDocuments(filter)
     ]);
 
     const partnerIds = list.map(p => p._id);
@@ -4507,7 +4508,7 @@ export async function getDeliveryPartnerBonusTransactions(query = {}) {
     // For search (name/phone/email/transactionId) we do a two-step lookup to keep it simple.
     if (search && typeof search === 'string' && search.trim()) {
         const term = search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const partnerIds = await FoodDeliveryPartner.find({
+        const partnerIds = await Driver.find({
             $or: [
                 { name: { $regex: term, $options: 'i' } },
                 { phone: { $regex: term, $options: 'i' } },
@@ -4561,7 +4562,7 @@ export async function getDeliveryPartnerBonusTransactions(query = {}) {
 }
 
 export async function addDeliveryPartnerBonus(body, adminUser) {
-    const partner = await FoodDeliveryPartner.findById(body.deliveryPartnerId).lean();
+    const partner = await Driver.findById(body.deliveryPartnerId).lean();
     if (!partner) {
         throw new ValidationError('Delivery partner not found');
     }
@@ -4691,7 +4692,7 @@ export async function getDeliveryEarnings(query = {}) {
         const regex = new RegExp(search, 'i');
 
         const [partners, restaurants] = await Promise.all([
-            FoodDeliveryPartner.find({
+            Driver.find({
                 $or: [{ name: regex }, { phone: regex }, { email: regex }]
             }).select('_id').lean(),
             FoodRestaurant.find({
@@ -4864,7 +4865,7 @@ export async function getEarningAddonHistory(query = {}) {
     let offerIds = null;
     if (search && typeof search === 'string' && search.trim()) {
         const term = search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        partnerIds = await FoodDeliveryPartner.find({
+        partnerIds = await Driver.find({
             $or: [
                 { name: { $regex: term, $options: 'i' } },
                 { phone: { $regex: term, $options: 'i' } },
@@ -5029,7 +5030,7 @@ export async function checkEarningAddonCompletions(deliveryPartnerId, _force = f
 
     let partnerIds = [];
     if (deliveryPartnerId === 'all') {
-        const partners = await FoodDeliveryPartner.find({ status: 'approved' }).select('_id').lean();
+        const partners = await Driver.find({ status: 'approved' }).select('_id').lean();
         partnerIds = partners.map(p => p._id);
     } else if (deliveryPartnerId && mongoose.Types.ObjectId.isValid(deliveryPartnerId)) {
         partnerIds = [deliveryPartnerId];
@@ -5082,7 +5083,7 @@ export async function checkEarningAddonCompletions(deliveryPartnerId, _force = f
 }
 
 export async function getDeliveryPartnerById(id) {
-    const partner = await FoodDeliveryPartner.findById(id).lean();
+    const partner = await Driver.findById(id).lean();
     if (!partner) return null;
 
     const zones = await FoodZone.find({ isActive: true }).lean();
@@ -5094,17 +5095,32 @@ export async function getDeliveryPartnerById(id) {
         email: partner.email || null,
         deliveryId,
         detectedZone: detectedZone || partner.city || partner.state || 'N/A',
-        status: partner.status === 'rejected' ? 'blocked' : partner.status,
+        status: partner.status === 'rejected' || partner.status === 'documents_required' ? 'blocked' : partner.status,
         isActive: partner.isActive !== false,
         profileImage: partner.profilePhoto ? { url: partner.profilePhoto } : null,
         documents: {
-            aadhar: (partner.aadharPhoto || partner.aadharNumber)
-                ? { number: partner.aadharNumber || null, document: partner.aadharPhoto || null }
+            aadhar: (partner.aadharFront || partner.aadharPhoto || partner.aadharBack || partner.aadharNumber)
+                ? {
+                    number: partner.aadharNumber || null,
+                    document: partner.aadharFront || partner.aadharPhoto || null,
+                    front: partner.aadharFront || partner.aadharPhoto || null,
+                    back: partner.aadharBack || null
+                }
                 : null,
             pan: (partner.panPhoto || partner.panNumber)
                 ? { number: partner.panNumber || null, document: partner.panPhoto || null }
                 : null,
-            drivingLicense: partner.drivingLicensePhoto ? { document: partner.drivingLicensePhoto } : null,
+            drivingLicense: (partner.drivingLicenseFront || partner.drivingLicensePhoto || partner.drivingLicenseBack || partner.drivingLicenseNumber)
+                ? {
+                    number: partner.drivingLicenseNumber || null,
+                    expiry: partner.drivingLicenseExpiry || null,
+                    document: partner.drivingLicenseFront || partner.drivingLicensePhoto || null,
+                    front: partner.drivingLicenseFront || partner.drivingLicensePhoto || null,
+                    back: partner.drivingLicenseBack || null
+                }
+                : null,
+            rc: partner.rcPhoto ? { document: partner.rcPhoto } : null,
+            insurance: partner.insurancePhoto ? { document: partner.insurancePhoto } : null,
             bankDetails:
                 partner.bankAccountHolderName || partner.bankAccountNumber || partner.bankIfscCode || partner.bankName
                     ? {
@@ -5115,14 +5131,20 @@ export async function getDeliveryPartnerById(id) {
                     }
                     : null
         },
+        emergencyContact: (partner.emergencyContactName || partner.emergencyContactPhone)
+            ? { name: partner.emergencyContactName, phone: partner.emergencyContactPhone }
+            : null,
+        agreements: partner.agreements || null,
+        documentsRequested: partner.documentsRequested || [],
+        dateOfBirth: partner.dateOfBirth || null,
         location: (partner.address || partner.city || partner.state)
             ? { addressLine1: partner.address, city: partner.city, state: partner.state }
             : null,
-        vehicle: (partner.vehicleType || partner.vehicleName || partner.vehicleNumber || partner.vehicleImage)
+        vehicle: (partner.vehicleType || partner.vehicleBrand || partner.vehicleModel || partner.vehicleName || partner.vehicleNumber || partner.vehicleImage)
             ? {
                 type: partner.vehicleType,
-                brand: partner.vehicleName,
-                model: partner.vehicleName,
+                brand: partner.vehicleBrand || partner.vehicleName,
+                model: partner.vehicleModel || partner.vehicleName,
                 number: partner.vehicleNumber,
                 vehicleImage: partner.vehicleImage || null
             }
@@ -5145,7 +5167,7 @@ export async function getDeliverymanReviews(query = {}) {
         const searchRegex = new RegExp(term, 'i');
         
         // Find delivery partners matching search
-        const partners = await FoodDeliveryPartner.find({
+        const partners = await Driver.find({
             $or: [
                 { name: searchRegex },
                 { phone: searchRegex }
@@ -5199,14 +5221,26 @@ export async function getDeliverymanReviews(query = {}) {
 }
 
 export async function approveDeliveryPartner(id, performer = null) {
-    const partner = await FoodDeliveryPartner.findById(id);
+    const partner = await Driver.findById(id);
     if (!partner) return null;
     partner.status = 'approved';
     partner.isActive = true;
+    partner.availabilityStatus = partner.availabilityStatus || 'offline';
     partner.approvedAt = new Date();
     partner.rejectedAt = undefined;
     partner.rejectionReason = undefined;
+    partner.documentsRequested = [];
     partner.approvedBy = performer;
+    if (!partner.registeredServices) {
+        partner.registeredServices = {};
+    }
+    if (!partner.registeredServices.food) {
+        partner.registeredServices.food = {};
+    }
+    partner.registeredServices.food.status = 'approved';
+    partner.registeredServices.food.approvedAt = new Date();
+    partner.registeredServices.food.rejectionReason = undefined;
+    partner.markModified('registeredServices');
     await partner.save();
 
     try {
@@ -5239,7 +5273,7 @@ export async function approveDeliveryPartner(id, performer = null) {
                 const refereeReward = Math.max(0, Number(settingsDoc?.delivery?.refereeReward) || 0);
                 const limit = Math.max(0, Number(settingsDoc?.delivery?.limit) || 0);
                 
-                const referrer = await FoodDeliveryPartner.findById(referrerId).select('_id referralCount status').lean();
+                const referrer = await Driver.findById(referrerId).select('_id referralCount status').lean();
 
                 if (referrer && referrer.status === 'approved' && (referrerReward > 0 || refereeReward > 0) && limit > 0 && Number(referrer.referralCount || 0) < limit) {
                     const log = await FoodReferralLog.create({
@@ -5253,7 +5287,7 @@ export async function approveDeliveryPartner(id, performer = null) {
                     });
 
                     await Promise.all([
-                        FoodDeliveryPartner.updateOne({ _id: referrer._id }, { $inc: { referralCount: 1 } }),
+                        Driver.updateOne({ _id: referrer._id }, { $inc: { referralCount: 1 } }),
                         // Credit Referrer
                         referrerReward > 0 ? addDeliveryPartnerBonus(
                             { deliveryPartnerId: String(referrer._id), amount: referrerReward, reference: `Referral bonus for referring ${partner.name || 'new partner'}` },
@@ -5287,22 +5321,36 @@ export async function approveDeliveryPartner(id, performer = null) {
 
 export async function rejectDeliveryPartner(id, reason, performer = null) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
-    const updated = await FoodDeliveryPartner.findByIdAndUpdate(
+    const updated = await Driver.findByIdAndUpdate(
         id,
         {
             $set: {
                 status: 'rejected',
                 isActive: false,
+                availabilityStatus: 'offline',
                 rejectedAt: new Date(),
                 rejectionReason: typeof reason === 'string' ? reason.trim() : undefined,
                 approvedAt: null,
-                rejectedBy: performer
+                rejectedBy: performer,
+                documentsRequested: [],
+                'registeredServices.food.status': 'rejected',
+                'registeredServices.food.rejectedAt': new Date(),
+                'registeredServices.food.rejectionReason': typeof reason === 'string' ? reason.trim() : undefined
             }
         },
         { new: true }
     ).lean();
 
     if (updated) {
+        try {
+            await FoodRefreshToken.deleteMany({ userId: updated._id });
+            await Driver.updateOne(
+                { _id: updated._id },
+                { $set: { fcmTokens: [], fcmTokenMobile: [] } }
+            );
+        } catch (e) {
+            console.error('Failed to revoke delivery sessions on reject:', e);
+        }
         try {
             const { notifyOwnerSafely } = await import('../../../../core/notifications/firebase.service.js');
             await notifyOwnerSafely(
@@ -5325,6 +5373,61 @@ export async function rejectDeliveryPartner(id, reason, performer = null) {
     return updated;
 }
 
+export async function requestDeliveryPartnerDocuments(id, documents, reason, performer = null) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    const docs = Array.isArray(documents) ? documents.map((d) => String(d).trim()).filter(Boolean) : [];
+    if (!docs.length) return null;
+
+    const updated = await Driver.findByIdAndUpdate(
+        id,
+        {
+            $set: {
+                status: 'documents_required',
+                isActive: false,
+                availabilityStatus: 'offline',
+                rejectedAt: new Date(),
+                rejectionReason: typeof reason === 'string' ? reason.trim() : 'Please re-upload the requested documents',
+                documentsRequested: docs,
+                approvedAt: null,
+                rejectedBy: performer
+            }
+        },
+        { new: true }
+    ).lean();
+
+    if (updated) {
+        try {
+            await FoodRefreshToken.deleteMany({ userId: updated._id });
+            await Driver.updateOne(
+                { _id: updated._id },
+                { $set: { fcmTokens: [], fcmTokenMobile: [] } }
+            );
+        } catch (e) {
+            console.error('Failed to revoke delivery sessions on document request:', e);
+        }
+        try {
+            const { notifyOwnerSafely } = await import('../../../../core/notifications/firebase.service.js');
+            await notifyOwnerSafely(
+                { ownerType: 'DELIVERY_PARTNER', ownerId: updated._id },
+                {
+                    title: 'Documents Required 📄',
+                    body: `Please re-upload: ${docs.join(', ')}. ${reason || ''}`.trim(),
+                    image: 'https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png',
+                    data: {
+                        type: 'documents_required',
+                        partnerId: String(updated._id),
+                        documents: docs.join(','),
+                        reason: reason || ''
+                    }
+                }
+            );
+        } catch (e) {
+            console.error('Failed to send document request notification:', e);
+        }
+    }
+    return updated;
+}
+
 export async function updateDeliveryPartnerActiveStatus(id, isActive) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
     const nextIsActive = Boolean(isActive);
@@ -5333,7 +5436,7 @@ export async function updateDeliveryPartnerActiveStatus(id, isActive) {
         ...(nextIsActive ? {} : { availabilityStatus: 'offline' }),
     };
 
-    const updated = await FoodDeliveryPartner.findByIdAndUpdate(
+    const updated = await Driver.findByIdAndUpdate(
         id,
         { $set: update },
         { new: true },
@@ -5343,7 +5446,7 @@ export async function updateDeliveryPartnerActiveStatus(id, isActive) {
     if (!nextIsActive) {
         await Promise.all([
             FoodRefreshToken.deleteMany({ userId: updated._id }),
-            FoodDeliveryPartner.updateOne(
+            Driver.updateOne(
                 { _id: updated._id },
                 { $set: { fcmTokens: [], fcmTokenMobile: [] } },
             ),
@@ -5600,12 +5703,12 @@ export async function getDeliveryWallets(query = {}) {
     }
 
     const [partners, total] = await Promise.all([
-        FoodDeliveryPartner.find(filter)
+        Driver.find(filter)
             .sort({ createdAt: -1 })
             .skip(skip)
             .limit(limit)
             .lean(),
-        FoodDeliveryPartner.countDocuments(filter)
+        Driver.countDocuments(filter)
     ]);
 
     const cashLimitSettings = await FoodDeliveryCashLimit.findOne({ isActive: true }).lean();
@@ -5745,7 +5848,7 @@ export async function getSidebarBadges() {
             pendingRestaurantComplaints
         ] = await Promise.all([
             FoodRestaurant.countDocuments({ status: 'pending' }),
-            FoodDeliveryPartner.countDocuments({ status: 'pending' }),
+            Driver.countDocuments({ status: 'pending' }),
             FoodItem.countDocuments({ approvalStatus: 'pending' }),
             FoodAddon.countDocuments({ approvalStatus: 'pending' }),
             FoodOrder.countDocuments({ orderStatus: { $in: ['created', 'placed'] } }),

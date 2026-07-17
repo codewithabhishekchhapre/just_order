@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 import { FoodOrder, FoodSettings } from "../models/order.model.js";
 import { FoodRestaurant } from "../../restaurant/models/restaurant.model.js";
 import { Seller } from "../../../quick-commerce/seller/models/seller.model.js";
-import { FoodDeliveryPartner } from "../../delivery/models/deliveryPartner.model.js";
+import { Driver } from '../../../../core/models/driver.model.js';
 import { getDeliveryPartnerWalletEnhanced } from "../../delivery/services/deliveryFinance.service.js";
 import { FoodDailyPass } from "../../subscriptions/models/foodDailyPass.model.js";
 import { UserSubscription } from "../../user/models/userSubscription.model.js";
@@ -122,7 +122,7 @@ export async function filterEligiblePartners(partners) {
       const cashLimitHit = wallet.totalCashLimit === 0 || wallet.availableCashLimit <= 0;
       if (cashLimitHit) {
         // If they exceeded limit, turn them offline immediately
-        FoodDeliveryPartner.updateOne(
+        Driver.updateOne(
           { _id: p.partnerId, availabilityStatus: 'online' },
           { $set: { availabilityStatus: 'offline' } }
         ).exec().catch(err => logger.error(`Auto-offline save failed: ${err.message}`));
@@ -158,7 +158,7 @@ export async function filterEligiblePartners(partners) {
  */
 export async function enforceCashLimitForAllOnlinePartners() {
   try {
-    const onlinePartners = await FoodDeliveryPartner.find({
+    const onlinePartners = await Driver.find({
       availabilityStatus: "online",
       status: "approved",
     }).select("_id name").lean();
@@ -175,7 +175,7 @@ export async function enforceCashLimitForAllOnlinePartners() {
         if (!cashLimitHit) continue;
 
         // Force offline in DB
-        await FoodDeliveryPartner.updateOne(
+        await Driver.updateOne(
           { _id: partner._id, availabilityStatus: "online" },
           { $set: { availabilityStatus: "offline" } }
         );
@@ -250,8 +250,9 @@ export async function listNearbyOnlineDeliveryPartners(
   }
 
   const [rLng, rLat] = source.location.coordinates;
-  const allOnline = await FoodDeliveryPartner.find({
+  const allOnline = await Driver.find({
     availabilityStatus: "online",
+    authorizedServices: sourceType === "quick" ? "quick-commerce" : "food",
   })
     .select("_id status lastLat lastLng lastLocationAt name")
     .lean();
@@ -284,9 +285,10 @@ export async function listNearbyOnlineDeliveryPartners(
   const picked = scored.slice(0, Math.max(1, limit));
 
   if (picked.length === 0) {
-    const anyOnline = await FoodDeliveryPartner.find({
+    const anyOnline = await Driver.find({
       status: { $in: allowedStatuses },
       availabilityStatus: "online",
+      authorizedServices: sourceType === "quick" ? "quick-commerce" : "food",
     })
       .select("_id status name")
       .limit(Math.max(1, limit))
@@ -335,7 +337,7 @@ export async function listNearbyOnlineDeliveryPartnersByCoords(
     location: { coordinates: [lng, lat], latitude: lat, longitude: lng },
   };
 
-  const allOnline = await FoodDeliveryPartner.find({ availabilityStatus: "online" })
+  const allOnline = await Driver.find({ availabilityStatus: "online", authorizedServices: "quick-commerce" })
     .select("_id status lastLat lastLng lastLocationAt name")
     .lean();
 
@@ -407,9 +409,10 @@ const dispatchRetryableStatusClause = {
 const listAllOnlinePartnersFallback = async ({ limit = 25 } = {}) => {
   const allowedStatuses =
     process.env.NODE_ENV === "production" ? ["approved"] : ["approved", "pending"];
-  const partners = await FoodDeliveryPartner.find({
+  const partners = await Driver.find({
     status: { $in: allowedStatuses },
     availabilityStatus: "online",
+    authorizedServices: { $in: ["food", "quick-commerce"] } // Fallback allows any compatible online
   })
     .select("_id status name lastLat lastLng lastLocationAt")
     .limit(Math.max(1, limit))
@@ -434,7 +437,7 @@ const auditPartnerElimination = async (partners, { label = "dispatch", maxKm = 1
   const STALE_GPS_MS = 10 * 60 * 1000;
   const eligibleIds = new Set((partners || []).map((p) => String(p.partnerId)));
 
-  const allOnline = await FoodDeliveryPartner.find({ availabilityStatus: "online" })
+  const allOnline = await Driver.find({ availabilityStatus: "online", authorizedServices: { $in: ["food", "quick-commerce"] } })
     .select("_id status name lastLat lastLng lastLocationAt availabilityStatus")
     .lean();
 
@@ -498,7 +501,7 @@ const loadOnlinePartnersByIds = async (partnerIds = []) => {
 
   const allowedStatuses =
     process.env.NODE_ENV === "production" ? ["approved"] : ["approved", "pending"];
-  const rows = await FoodDeliveryPartner.find({
+  const rows = await Driver.find({
     _id: { $in: uniqueIds },
     availabilityStatus: "online",
     status: { $in: allowedStatuses },
@@ -913,7 +916,7 @@ async function tryAutoAssignSellerReturn(returnId, options = {}) {
       },
     });
 
-    const onlineCount = await FoodDeliveryPartner.countDocuments({
+    const onlineCount = await Driver.countDocuments({
       availabilityStatus: "online",
       status: {
         $in: process.env.NODE_ENV === "production" ? ["approved"] : ["approved", "pending"],
