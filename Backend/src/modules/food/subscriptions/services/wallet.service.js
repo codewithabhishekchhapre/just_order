@@ -423,7 +423,30 @@ export async function ensureDailyPassEligibility(userId, userType) {
     }).select('price').lean();
     const deductionAmount = dayPlan?.price || 0;
 
-    console.log("[TRACE] Step 3 Balance Check:", { balance, minRequired: 1000, deductionAmount });
+    console.log("[TRACE] Step 3 Balance Check:", { balance, minRequired: 1000, deductionAmount, userType });
+
+    // Delivery partners: no ₹1000 low-subscription-balance gate.
+    // If a day pass is needed and wallet covers the deduction, ask to activate; otherwise allow online without pass.
+    if (userType === 'DELIVERY_PARTNER') {
+        if (deductionAmount > 0 && balance >= deductionAmount) {
+            return {
+                eligible: true,
+                reason: 'REQUIRES_DAY_DEDUCTION',
+                shouldDeduct: true,
+                subscriptionType: 'DAY',
+                balance,
+                deductionAmount,
+            };
+        }
+        return {
+            eligible: true,
+            reason: 'NO_MIN_BALANCE_GATE',
+            shouldDeduct: false,
+            subscriptionType: null,
+            balance,
+            deductionAmount,
+        };
+    }
 
     if (balance < 1000) {
         return {
@@ -437,7 +460,7 @@ export async function ensureDailyPassEligibility(userId, userType) {
         };
     }
 
-    // 4. Decision: Eligible but requires deduction
+    // 4. Decision: Eligible but requires deduction (restaurant)
     return {
         eligible: true,
         reason: 'REQUIRES_DAY_DEDUCTION',

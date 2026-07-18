@@ -193,7 +193,7 @@ export const AuthProvider = ({ children }) => {
         localStorage.removeItem('adminInfo');
         localStorage.removeItem('accessToken');
         localStorage.removeItem('refreshToken');
-        ['admin', 'seller', 'delivery', 'user'].forEach((module) => {
+        ['admin', 'seller', 'delivery', 'user', 'restaurant'].forEach((module) => {
             localStorage.removeItem(`${module}_accessToken`);
             localStorage.removeItem(`${module}_refreshToken`);
             localStorage.removeItem(`${module}_authenticated`);

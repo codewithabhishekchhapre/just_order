@@ -150,24 +150,12 @@ export default function SubscriptionV2() {
     }
   }
 
-  const MIN_BALANCE = 1000;
-  const isLowBalance = walletBalance < MIN_BALANCE;
-  const requiredRecharge = Math.max(0, MIN_BALANCE - walletBalance);
-
-  // Dynamic quick amounts based on balance
-  const quickAmounts = isLowBalance
-    ? [...new Set([requiredRecharge, 1000, 2000, 3000])].filter(Boolean).sort((a, b) => a - b).slice(0, 3)
-    : [500, 1000, 2000]
+  const quickAmounts = [500, 1000, 2000]
 
   const handleTopup = async () => {
     const amt = parseFloat(topupAmount)
     if (!amt || isNaN(amt) || amt < 1) {
       toast.error("Enter a valid amount")
-      return
-    }
-
-    if (isLowBalance && amt < requiredRecharge) {
-      toast.error(`Minimum recharge required is ₹${requiredRecharge}`)
       return
     }
 
@@ -341,12 +329,9 @@ export default function SubscriptionV2() {
                 </div>
                 <div>
                   <h3 className="text-lg font-black text-slate-900 tracking-tight">Credits</h3>
-                  <div className="flex items-center gap-1.5">
-                    <div className={`w-1.5 h-1.5 rounded-full ${walletBalance >= 1000 ? 'bg-green-500' : 'bg-red-500'}`} />
-                    <p className={`text-[10px] font-black uppercase tracking-widest ${walletBalance >= 1000 ? 'text-green-600' : 'text-red-500'}`}>
-                      {walletBalance >= 1000 ? 'Healthy Balance' : 'Low Balance'}
-                    </p>
-                  </div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                    Subscription wallet
+                  </p>
                 </div>
               </div>
               <Button 
@@ -359,33 +344,11 @@ export default function SubscriptionV2() {
             </div>
 
             <div className="bg-slate-50 rounded-[28px] p-6 flex flex-col gap-4 border border-slate-100/50">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-slate-400 text-[9px] font-bold uppercase tracking-widest mb-1">Available Credits</p>
-                  <div className="flex items-baseline gap-1">
-                    <span className="text-3xl font-black text-slate-900">₹{walletBalance.toFixed(0)}</span>
-                    <span className="text-slate-400 text-xs font-bold">.{(walletBalance % 1).toFixed(2).slice(2)}</span>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <p className="text-slate-400 text-[9px] font-bold uppercase tracking-widest mb-1">Threshold</p>
-                  <p className="text-sm font-black text-slate-900">₹1000</p>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-widest">
-                  <span className="text-slate-400">Eligibility Progress</span>
-                  <span className={walletBalance >= 1000 ? 'text-green-600' : 'text-red-600'}>
-                    {Math.min(Math.round((walletBalance / 1000) * 100), 100)}%
-                  </span>
-                </div>
-                <div className="w-full h-3 bg-white rounded-full p-0.5 border border-slate-100 shadow-inner">
-                  <motion.div 
-                    initial={{ width: 0 }}
-                    animate={{ width: `${Math.min((walletBalance / 1000) * 100, 100)}%` }}
-                    className={`h-full rounded-full ${walletBalance >= 1000 ? 'bg-gradient-to-r from-green-400 to-green-600' : 'bg-gradient-to-r from-red-400 to-red-600'}`}
-                  />
+              <div>
+                <p className="text-slate-400 text-[9px] font-bold uppercase tracking-widest mb-1">Available Credits</p>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-3xl font-black text-slate-900">₹{walletBalance.toFixed(0)}</span>
+                  <span className="text-slate-400 text-xs font-bold">.{(walletBalance % 1).toFixed(2).slice(2)}</span>
                 </div>
               </div>
             </div>
@@ -572,34 +535,11 @@ export default function SubscriptionV2() {
                         type="number" 
                         value={topupAmount} 
                         onChange={(e) => setTopupAmount(e.target.value)}
-                        placeholder={isLowBalance ? String(requiredRecharge) : "500"}
+                        placeholder="500"
                         disabled={topupLoading}
                         className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 pl-10 pr-6 text-2xl font-black text-slate-900 focus:bg-white focus:border-[#FF6A00] focus:ring-4 focus:ring-red-500/5 outline-none transition-all placeholder:text-slate-200"
                       />
                     </div>
-
-                    {/* Slim Feedback Banner */}
-                    <AnimatePresence mode="wait">
-                      {isLowBalance && (
-                        <motion.div 
-                          initial={{ opacity: 0, scale: 0.98 }} 
-                          animate={{ opacity: 1, scale: 1 }} 
-                          exit={{ opacity: 0, scale: 0.98 }}
-                          className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border ${topupAmount && parseFloat(topupAmount) < requiredRecharge ? 'bg-rose-50 border-rose-100 text-rose-700' : 'bg-blue-50 border-blue-100 text-blue-700'}`}
-                        >
-                          {topupAmount && parseFloat(topupAmount) < requiredRecharge ? (
-                            <AlertCircle className="w-4 h-4 shrink-0" />
-                          ) : (
-                            <Info className="w-4 h-4 shrink-0" />
-                          )}
-                          <p className="text-[11px] font-bold leading-tight">
-                            {topupAmount && parseFloat(topupAmount) < requiredRecharge 
-                              ? `Min recharge ₹${requiredRecharge} required for online status.`
-                              : `Add ₹${requiredRecharge} to reach the ₹1000 eligibility threshold.`}
-                          </p>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
                   </div>
 
                   {/* Compact Presets */}
@@ -619,7 +559,7 @@ export default function SubscriptionV2() {
                   <div className="space-y-4 pt-2">
                     <Button 
                       onClick={handleTopup}
-                      disabled={topupLoading || !topupAmount || (isLowBalance && parseFloat(topupAmount) < requiredRecharge)}
+                      disabled={topupLoading || !topupAmount || parseFloat(topupAmount) < 1}
                       className="w-full h-14 bg-slate-900 hover:bg-black text-white rounded-2xl text-sm font-black shadow-xl shadow-slate-200 active:scale-95 transition-all flex items-center justify-center gap-2.5 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       {topupLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <ShieldCheck className="w-5 h-5" />}

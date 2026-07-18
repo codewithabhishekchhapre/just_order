@@ -129,62 +129,6 @@ const SubscriptionConfirmationModal = ({ isOpen, onClose, onConfirm, loading, da
   );
 };
 
-const LowBalanceBlockingModal = ({ isOpen, onClose, onRecharge, data }) => {
-  if (!isOpen) return null;
-  const balance = data?.balance || 0;
-  const threshold = data?.threshold || 1000;
-
-  return (
-    <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-      <motion.div 
-        initial={{ scale: 0.9, opacity: 0 }} 
-        animate={{ scale: 1, opacity: 1 }} 
-        exit={{ scale: 0.9, opacity: 0 }}
-        className="relative bg-white rounded-[40px] p-8 max-w-sm w-full text-center shadow-2xl overflow-hidden"
-      >
-        <div className="absolute top-0 left-0 w-full h-2 bg-rose-500" />
-        
-        <div className="w-20 h-20 bg-rose-50 rounded-[32px] flex items-center justify-center mx-auto mb-6 text-rose-600 shadow-inner">
-           <AlertTriangle className="w-10 h-10" />
-        </div>
-        
-        <h3 className="text-2xl font-black text-slate-900 mb-2 tracking-tight">Low Subscription Balance</h3>
-        <p className="text-slate-500 text-sm mb-8 leading-relaxed">
-          You need minimum ₹{threshold} subscription balance to receive delivery orders.
-        </p>
-
-        <div className="grid grid-cols-2 gap-4 mb-8">
-          <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
-            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Current</p>
-            <p className="text-lg font-black text-rose-600">₹{balance.toFixed(0)}</p>
-          </div>
-          <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
-            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Required</p>
-            <p className="text-lg font-black text-slate-900">₹{threshold}</p>
-          </div>
-        </div>
-        
-        <div className="space-y-3">
-          <Button 
-            onClick={onRecharge}
-            className="w-full h-15 bg-slate-900 hover:bg-black text-white rounded-[24px] font-black text-base shadow-xl shadow-slate-200 active:scale-95 transition-all flex items-center justify-center gap-2"
-          >
-            <Wallet className="w-5 h-5" />
-            Recharge Wallet
-          </Button>
-          <button 
-            onClick={onClose}
-            className="w-full py-2 text-slate-400 font-bold text-xs uppercase tracking-[0.2em] hover:text-slate-600 transition-colors"
-          >
-            Cancel
-          </button>
-        </div>
-      </motion.div>
-    </div>
-  );
-};
-
 const CashLimitBlockingModal = ({ isOpen, onClose }) => {
   if (!isOpen) return null;
 
@@ -321,21 +265,16 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
     }
   }, [forcedOfflineEvent, setOnline, clearForcedOfflineEvent]);
   const [showSubModal, setShowSubModal] = useState(false);
-  const [showLowBalanceModal, setShowLowBalanceModal] = useState(false);
   const [showCashLimitModal, setShowCashLimitModal] = useState(false);
   const [eligibilityData, setEligibilityData] = useState(null);
   const companyName = useCompanyName();
 
-  const loadEligibilityForModal = useCallback(async (modalType) => {
+  const loadEligibilityForModal = useCallback(async () => {
     try {
       const res = await subscriptionAPI.getEligibility('DELIVERY_PARTNER');
       const data = res?.data?.data || res?.data || {};
       setEligibilityData(data);
-      if (modalType === 'LOW_BALANCE') {
-        setShowLowBalanceModal(true);
-      } else if (modalType === 'PASS_REQUIRED') {
-        setShowSubModal(true);
-      }
+      setShowSubModal(true);
     } catch {
       toast.error('Could not load subscription details');
     }
@@ -948,10 +887,8 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
       const errMsg = err?.response?.data?.message || err?.message || "";
       if (errMsg === "CASH_LIMIT_EXCEEDED") {
         setShowCashLimitModal(true);
-      } else if (errMsg === "LOW_BALANCE") {
-        await loadEligibilityForModal("LOW_BALANCE");
       } else if (errMsg === "PASS_REQUIRED") {
-        await loadEligibilityForModal("PASS_REQUIRED");
+        await loadEligibilityForModal();
       } else {
         toast.error(errMsg || "Failed to go online");
       }
@@ -967,17 +904,11 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
       handleGoOnlineSuccess();
       setShowSubModal(false);
     } catch (err) {
-      const errMsg = err?.response?.data?.message || err?.message || "";
-      if (errMsg === "LOW_BALANCE") {
-        setShowSubModal(false);
-        await loadEligibilityForModal("LOW_BALANCE");
-      } else {
-        toast.error(err?.response?.data?.message || "Failed to go online");
-      }
+      toast.error(err?.response?.data?.message || "Failed to go online");
     } finally {
       setIsProcessingToggle(false);
     }
-  }, [handleGoOnlineSuccess, loadEligibilityForModal]);
+  }, [handleGoOnlineSuccess]);
 
   const driverFirstName = driverProfile?.name?.trim()?.split(/\s+/)[0] || "Partner";
   const vehicleLabel =
@@ -1463,15 +1394,6 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
         data={eligibilityData}
         onClose={() => setShowSubModal(false)}
         onConfirm={confirmPassAndGoOnline}
-      />
-      <LowBalanceBlockingModal
-        isOpen={showLowBalanceModal}
-        onClose={() => setShowLowBalanceModal(false)}
-        data={eligibilityData}
-        onRecharge={() => {
-          setShowLowBalanceModal(false);
-          navigate('/food/delivery/profile');
-        }}
       />
       <CashLimitBlockingModal
         isOpen={showCashLimitModal}

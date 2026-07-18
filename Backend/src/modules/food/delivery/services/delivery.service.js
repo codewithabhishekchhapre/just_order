@@ -660,10 +660,7 @@ export const updateDeliveryAvailability = async (userId, payload) => {
         const eligibility = await ensureDailyPassEligibility(userId, 'DELIVERY_PARTNER');
         const confirmPass = payload?.confirmPass === true;
 
-        if (!eligibility.eligible) {
-            throw new ValidationError('LOW_BALANCE');
-        }
-
+        // Daily pass confirmation only — no low-subscription-balance gate
         if (eligibility.shouldDeduct) {
             if (!confirmPass) {
                 throw new ValidationError('PASS_REQUIRED');
@@ -671,7 +668,9 @@ export const updateDeliveryAvailability = async (userId, payload) => {
             const result = await activateDailyPass(userId, 'DELIVERY_PARTNER');
             if (!result.success) {
                 throw new ValidationError(
-                    result.reason === 'LOW_BALANCE' ? 'LOW_BALANCE' : 'Failed to activate daily pass.'
+                    result.reason === 'LOW_BALANCE'
+                        ? 'Unable to activate daily pass. Please recharge your subscription wallet.'
+                        : 'Failed to activate daily pass.'
                 );
             }
         }
