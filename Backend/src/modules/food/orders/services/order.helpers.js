@@ -402,26 +402,59 @@ export function buildDeliverySocketPayload(orderDoc, restaurantDoc = null) {
 
   const primaryQuickPickup = pickupPoints.find((point) => point?.pickupType === 'quick') || pickupPoints[0] || null;
 
+  const statusHistory = Array.isArray(order?.statusHistory) ? order.statusHistory : [];
+  const preparingEntry = [...statusHistory]
+    .reverse()
+    .find((entry) => {
+      const to = String(entry?.to || entry?.orderStatus || '').toLowerCase();
+      return to === 'preparing' || to === 'confirmed';
+    });
+  const preparationStartedAt =
+    preparingEntry?.at ||
+    preparingEntry?.timestamp ||
+    preparingEntry?.createdAt ||
+    order?.updatedAt ||
+    order?.createdAt ||
+    null;
+  const prepMins = Number(order?.preparationTime);
+  const expectedReadyAt =
+    Number.isFinite(prepMins) && prepMins > 0 && preparationStartedAt
+      ? new Date(new Date(preparationStartedAt).getTime() + prepMins * 60 * 1000).toISOString()
+      : null;
+
   const payload = {
     orderMongoId:
       orderDoc?._id?.toString?.() || order?._id?.toString?.() || order?._id,
     orderId: order?.orderId || order?.order_id || order?._id?.toString?.(),
     orderType: order?.orderType || "food",
     status: orderDoc?.orderStatus || order?.orderStatus,
+    orderStatus: orderDoc?.orderStatus || order?.orderStatus,
     items: order?.items || [],
     pickupPoints,
     pricing: order?.pricing,
     total: order?.pricing?.total,
     payment: order?.payment,
     paymentMethod: order?.payment?.method,
+    paymentStatus: order?.payment?.status,
     restaurantId:
       restaurant?._id?.toString?.() ||
       order?.restaurantId?._id?.toString?.() ||
       order?.restaurantId?.toString?.() ||
       order?.restaurantId,
     restaurantName: seller?.shopName || restaurant?.shopName || restaurant?.restaurantName || order?.restaurantName || "",
+    outletName:
+      restaurant?.outletName ||
+      restaurant?.branchName ||
+      restaurant?.shopName ||
+      restaurant?.restaurantName ||
+      order?.outletName ||
+      "",
     restaurantAddress: storeAddressText,
-    restaurantPhone: restaurant?.phone || "",
+    restaurantPhone:
+      restaurant?.phone ||
+      restaurant?.ownerPhone ||
+      restaurant?.contactPhone ||
+      "",
     restaurantLocation: {
       latitude: sellerPickupLat,
       longitude: sellerPickupLng,
@@ -439,7 +472,12 @@ export function buildDeliverySocketPayload(orderDoc, restaurantDoc = null) {
     userName: order?.customerName || deliveryAddress?.name || deliveryAddress?.fullName || order?.userId?.name || "",
     userPhone: order?.customerPhone || deliveryAddress?.phone || order?.userId?.phone || "",
     note: order?.note || "",
+    deliveryInstructions: order?.note || "",
+    sendCutlery: order?.sendCutlery,
     preparationTime: order?.preparationTime ?? null,
+    preparationStartedAt,
+    expectedReadyAt,
+    deliveryDistanceKm: order?.pricing?.deliveryDistanceKm ?? null,
     riderEarning: order?.riderEarning || 0,
     earnings: order?.riderEarning || order?.pricing?.deliveryFee || 0,
     deliveryFee: order?.pricing?.deliveryFee || 0,

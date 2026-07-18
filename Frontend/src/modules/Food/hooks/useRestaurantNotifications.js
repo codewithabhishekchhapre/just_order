@@ -75,11 +75,20 @@ const triggerWebViewNativeNotification = async (orderData = {}) => {
 }
 
 
+const ACTIONABLE_CATCHUP_STATUSES = new Set([
+  'created',
+  'confirmed',
+  'placed',
+  'pending',
+]);
+
 /**
- * Hook for restaurant to receive real-time order notifications with sound
- * @returns {object} - { newOrder, playSound, isConnected }
+ * Hook for restaurant to receive real-time order notifications with sound.
+ * Prefer a single caller (RestaurantRealtimeProvider) to avoid duplicate sockets.
+ * @returns {object} - { newOrder, clearNewOrder, isConnected, playNotificationSound, stopRing }
  */
-export const useRestaurantNotifications = () => {
+export const useRestaurantNotifications = (options = {}) => {
+  const { enableCatchUp = true } = options;
   const socketRef = useRef(null);
   const [newOrder, setNewOrder] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
@@ -93,9 +102,10 @@ export const useRestaurantNotifications = () => {
   const lastConnectErrorLogRef = useRef(0);
   const lastAlertAtByOrderRef = useRef(new Map());
   const lastBrowserNotificationAtByOrderRef = useRef(new Map());
+  const catchUpInFlightRef = useRef(false);
   const CONNECT_ERROR_LOG_THROTTLE_MS = 10000;
   const ALERT_LOOP_INTERVAL_MS = 4500;
-  const ALERT_LOOP_MAX_MS = 120000;
+  const ALERT_LOOP_MAX_MS = 240000;
   const ALERT_DEDUPE_MS = 15000;
   const BROWSER_NOTIFICATION_DEDUPE_MS = 20000;
   const NOTIFICATION_PERMISSION_ASKED_KEY = 'restaurant_notification_permission_asked';
@@ -193,7 +203,8 @@ export const useRestaurantNotifications = () => {
         return;
       }
 
-      // Keep re-alerting while order is pending and tab is not visible.
+      // Foreground continuous ring is owned by RestaurantIncomingOrderPopup.
+      // Keep re-alerting only while the tab is backgrounded.
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
         playNotificationSound(activeOrderRef.current);
       }
@@ -214,6 +225,62 @@ export const useRestaurantNotifications = () => {
     }
   };
 
+  const runCatchUp = async () => {
+    if (!enableCatchUp || catchUpInFlightRef.current) return;
+    catchUpInFlightRef.current = true;
+    try {
+      const response = await restaurantAPI.getOrders({ page: 1, limit: 30 });
+      const rows =
+        response?.data?.data?.orders ||
+        response?.data?.data?.data?.orders ||
+        [];
+
+      const actionable = (rows || [])
+        .filter((o) => {
+          const status = String(o?.status || o?.orderStatus || '').toLowerCase();
+          if (!ACTIONABLE_CATCHUP_STATUSES.has(status)) return false;
+          if (o?.scheduledAt) {
+            const scheduledAt = new Date(o.scheduledAt).getTime();
+            if (Number.isFinite(scheduledAt) && scheduledAt > Date.now() + 15 * 60000) {
+              return false;
+            }
+          }
+          return true;
+        })
+        .sort((a, b) => {
+          const at = a?.updatedAt || a?.createdAt || 0;
+          const bt = b?.updatedAt || b?.createdAt || 0;
+          return new Date(bt).getTime() - new Date(at).getTime();
+        });
+
+      if (actionable.length === 0) return;
+
+      const newest = actionable[0];
+      const normalized = {
+        ...newest,
+        orderMongoId:
+          newest.orderMongoId ||
+          newest._id?.toString?.() ||
+          newest._id ||
+          newest.id,
+        customerAddress: newest.customerAddress || newest.deliveryAddress || newest.address,
+        total: newest.total ?? newest.pricing?.total ?? 0,
+      };
+
+      setNewOrder((prev) => prev || normalized);
+      handleIncomingOrderAlert(normalized);
+      window.dispatchEvent(
+        new CustomEvent('restaurantOrdersRefresh', {
+          detail: { reason: 'catch_up', orderId: normalized.orderId },
+        }),
+      );
+    } catch {
+      // Non-blocking catch-up.
+    } finally {
+      catchUpInFlightRef.current = false;
+    }
+  };
+
   // Get restaurant ID from API
   useEffect(() => {
     const fetchRestaurantId = async () => {
@@ -231,55 +298,12 @@ export const useRestaurantNotifications = () => {
     fetchRestaurantId();
   }, []);
 
-  // Reliability fallback:
-  // If Socket.IO fails (expired jwt / missing token / room join failed),
-  // we still fetch restaurant orders from REST periodically and trigger the same
-  // alert flow. This prevents "restaurant didn't receive the order" cases.
+  // One-shot REST catch-up on mount (and when restaurantId becomes available).
+  // No continuous polling — reconnect path below also calls runCatchUp.
   useEffect(() => {
-    if (!restaurantId) return;
-
-    const ALERT_POLL_MS = 8000;
-    let isCancelled = false;
-
-    const pollOrders = async () => {
-      if (isCancelled) return;
-
-      try {
-        const response = await restaurantAPI.getOrders({ page: 1, limit: 30 });
-        const rows =
-          response?.data?.data?.orders ||
-          response?.data?.data?.data?.orders ||
-          [];
-
-        // REST layer normalizes backend statuses so:
-        // - backend "created" -> UI "confirmed"
-        // We alert only for "confirmed/new order waiting for review".
-        const confirmed = (rows || [])
-          .filter((o) => String(o?.status || "").toLowerCase() === "confirmed")
-          .sort((a, b) => {
-            const at = a?.updatedAt || a?.createdAt || 0;
-            const bt = b?.updatedAt || b?.createdAt || 0;
-            return new Date(bt).getTime() - new Date(at).getTime();
-          });
-
-        if (confirmed.length > 0) {
-          // Trigger alerts for newest confirmed orders (dedupe prevents spam).
-          confirmed.slice(0, 5).forEach((o) => handleIncomingOrderAlert(o));
-        }
-      } catch (error) {
-        // Non-blocking: keep polling.
-      }
-    };
-
-    // Initial poll immediately.
-    pollOrders();
-    const intervalId = setInterval(pollOrders, ALERT_POLL_MS);
-
-    return () => {
-      isCancelled = true;
-      clearInterval(intervalId);
-    };
-  }, [restaurantId]);
+    if (!restaurantId || !enableCatchUp) return;
+    runCatchUp();
+  }, [restaurantId, enableCatchUp]);
 
   useEffect(() => {
     if (!supportsBrowserNotifications()) return;
@@ -588,6 +612,8 @@ export const useRestaurantNotifications = () => {
       if (restaurantId) {
         socketRef.current.emit('join-restaurant', restaurantId);
       }
+      // One REST catch-up after reconnect (no continuous polling).
+      runCatchUp();
     });
 
     // Listen for new order notifications
@@ -596,6 +622,16 @@ export const useRestaurantNotifications = () => {
       setNewOrder(orderData);
 
       handleIncomingOrderAlert(orderData);
+      window.dispatchEvent(
+        new CustomEvent('restaurantOrdersRefresh', {
+          detail: {
+            reason: 'new_order',
+            orderId: orderData?.orderId,
+            orderMongoId: orderData?.orderMongoId || orderData?._id,
+            status: orderData?.orderStatus || orderData?.status,
+          },
+        }),
+      );
     });
 
     // Listen for sound notification event
@@ -619,13 +655,33 @@ export const useRestaurantNotifications = () => {
     // Listen for order status updates
     socketRef.current.on('order_status_update', (data) => {
       debugLog('?? Order status update:', data);
-      if (data?.preparationTime != null) {
-        window.dispatchEvent(
-          new CustomEvent('restaurantOrdersRefresh', {
-            detail: { reason: 'preparation_time', preparationTime: data.preparationTime, orderId: data.orderId },
-          }),
-        );
+      const status = String(data?.orderStatus || data?.status || '').toLowerCase();
+      const updateKeys = [
+        String(data?.orderId || '').trim(),
+        String(data?.orderMongoId || data?._id || '').trim(),
+      ].filter(Boolean);
+      const activeKeys = [
+        String(activeOrderRef.current?.orderId || '').trim(),
+        String(activeOrderRef.current?.orderMongoId || activeOrderRef.current?._id || '').trim(),
+      ].filter(Boolean);
+      const matchesActive = updateKeys.some((id) => activeKeys.includes(id));
+      if (matchesActive && status && !ACTIONABLE_CATCHUP_STATUSES.has(status)) {
+        stopAlertLoop();
+        activeOrderRef.current = null;
+        setNewOrder(null);
       }
+
+      window.dispatchEvent(
+        new CustomEvent('restaurantOrdersRefresh', {
+          detail: {
+            reason: data?.preparationTime != null ? 'preparation_time' : 'status_update',
+            preparationTime: data?.preparationTime,
+            orderId: data?.orderId,
+            orderMongoId: data?.orderMongoId || data?._id,
+            status: data?.orderStatus || data?.status,
+          },
+        }),
+      );
     });
 
     socketRef.current.on('preparation_time_update', (data) => {
@@ -651,11 +707,23 @@ export const useRestaurantNotifications = () => {
       ].filter(Boolean);
 
       const matchesActiveOrder = deletedIds.some((id) => activeIds.includes(id));
-      if (!matchesActiveOrder) return;
+      if (!matchesActiveOrder) {
+        window.dispatchEvent(
+          new CustomEvent('restaurantOrdersRefresh', {
+            detail: { reason: 'order_deleted', ...data },
+          }),
+        );
+        return;
+      }
 
       stopAlertLoop();
       activeOrderRef.current = null;
       setNewOrder(null);
+      window.dispatchEvent(
+        new CustomEvent('restaurantOrdersRefresh', {
+          detail: { reason: 'order_deleted', ...data },
+        }),
+      );
     });
 
     socketRef.current.on('admin_notification', (payload) => {
@@ -785,11 +853,25 @@ export const useRestaurantNotifications = () => {
     setNewOrder(null);
   };
 
+  const stopRing = () => {
+    stopAlertLoop();
+    activeOrderRef.current = null;
+    if (audioRef.current) {
+      try {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      } catch {
+        // ignore
+      }
+    }
+  };
+
   return {
     newOrder,
     clearNewOrder,
     isConnected,
-    playNotificationSound
+    playNotificationSound,
+    stopRing,
   };
 };
 

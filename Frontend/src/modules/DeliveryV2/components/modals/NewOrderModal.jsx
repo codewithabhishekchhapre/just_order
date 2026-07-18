@@ -174,17 +174,17 @@ export const NewOrderModal = ({ order, onAccept, onReject, onMinimize }) => {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[300] bg-black/60 flex items-end justify-center p-0"
+      className="fixed inset-0 z-[300] bg-black/60 flex items-end justify-center p-0 sm:p-4"
     >
       <motion.div
         initial={{ y: '100%' }}
         animate={{ y: 0 }}
         exit={{ y: '100%' }}
-        className="w-full max-w-lg bg-white rounded-t-[3rem] overflow-hidden shadow-[0_-20px_60px_rgba(0,0,0,0.5)] flex flex-col pt-2"
+        className="w-full max-w-lg max-h-[92vh] bg-white rounded-t-[2.5rem] sm:rounded-[2.5rem] overflow-hidden shadow-[0_-20px_60px_rgba(0,0,0,0.5)] flex flex-col pt-2"
       >
         {/* Handle / Minimize */}
-        <div className="w-full flex justify-center pb-1 pt-1 bg-white relative z-10 rounded-t-[2rem] -mb-[2px]">
-          <button onClick={onMinimize} className="p-1 hover:bg-gray-100 active:scale-95 transition-all rounded-full flex flex-col items-center">
+        <div className="w-full flex justify-center pb-1 pt-1 bg-white relative z-10 rounded-t-[2rem] -mb-[2px] shrink-0">
+          <button type="button" onClick={onMinimize} className="p-1 hover:bg-gray-100 active:scale-95 transition-all rounded-full flex flex-col items-center">
             <ChevronDown className="w-5 h-5 text-gray-400 stroke-[3px]" />
           </button>
         </div>
@@ -198,21 +198,22 @@ export const NewOrderModal = ({ order, onAccept, onReject, onMinimize }) => {
           timeLeft={timeLeft}
         />
 
-        {/* Action Area (Shared Shell Bottom) */}
-        <div className="p-5 pb-8 space-y-4">
+        {/* Sticky Accept / Reject */}
+        <div className="p-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] space-y-3 border-t border-gray-100 bg-white shrink-0">
           <ActionSlider
-            label="Slide to Accept"
+            label="Slide to Accept Delivery"
             onConfirm={() => onAccept(order)}
             color="bg-black"
-            successLabel="Order Accepted ✓"
+            successLabel="Delivery Accepted ✓"
             timeProgress={(timeLeft / 30) * 100}
           />
 
           <button
+            type="button"
             onClick={onReject}
-            className="w-full text-gray-400 font-bold text-[9px] uppercase tracking-widest hover:text-red-500 transition-colors py-1 active:scale-95"
+            className="w-full text-gray-400 font-bold text-[10px] uppercase tracking-widest hover:text-red-500 transition-colors py-2 active:scale-95"
           >
-            Pass this task
+            Reject Delivery
           </button>
         </div>
       </motion.div>

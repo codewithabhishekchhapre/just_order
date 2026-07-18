@@ -14,6 +14,7 @@ import { loadBusinessSettings, getAppLogo, getCompanyName } from "@common/utils/
 import { clearModuleAuth } from "@food/utils/auth"
 import useNotificationInbox from "@food/hooks/useNotificationInbox"
 import { RestaurantLayoutContext } from "./RestaurantLayoutContext"
+import { RestaurantRealtimeProvider } from "@food/context/RestaurantRealtimeContext"
 
 /* ─── Navigation structure ─────────────────────────────────────── */
 const NAV_GROUPS = [
@@ -241,7 +242,12 @@ export default function RestaurantLayout() {
     }
     load()
     const id = setInterval(load, 60_000)
-    return () => clearInterval(id)
+    const onRefresh = () => load()
+    window.addEventListener("restaurantOrdersRefresh", onRefresh)
+    return () => {
+      clearInterval(id)
+      window.removeEventListener("restaurantOrdersRefresh", onRefresh)
+    }
   }, [])
 
   const handleLogout = useCallback(() => {
@@ -403,6 +409,7 @@ export default function RestaurantLayout() {
 
   return (
     <RestaurantLayoutContext.Provider value={true}>
+      <RestaurantRealtimeProvider restaurantName={restaurantName}>
       <div className="h-screen bg-gray-50 dark:bg-[#0a0a0a] flex overflow-hidden">
 
         {/* ════════════════════════════════════════════
@@ -597,6 +604,7 @@ export default function RestaurantLayout() {
           )}
         </AnimatePresence>
       </div>
+      </RestaurantRealtimeProvider>
     </RestaurantLayoutContext.Provider>
   )
 }

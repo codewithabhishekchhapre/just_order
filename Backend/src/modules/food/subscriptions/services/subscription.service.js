@@ -143,7 +143,14 @@ export async function initiatePurchase(userId, userType, { planId }) {
         const order = await razorpayHelper.createRazorpayOrder(
             plan.price * 100,
             'INR',
-            String(pendingDoc._id)
+            String(pendingDoc._id),
+            {
+                type: 'subscription',
+                planId: String(plan._id),
+                restaurantId: restaurantId ? String(restaurantId) : '',
+                deliveryBoyId: deliveryBoyId ? String(deliveryBoyId) : '',
+                userType: String(userType || ''),
+            },
         );
 
         // 📂 CRITICAL: Create PENDING subscription record for One-Time too (idempotency)

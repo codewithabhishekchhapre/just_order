@@ -35,6 +35,8 @@ app.get('/ready', (_req, res) => {
 
 // Security & parsing middlewares
 app.use(helmet({
+    // Allow Razorpay/bank 3DS popups to talk back to checkout (default same-origin breaks them → about:blank)
+    crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
     contentSecurityPolicy: { directives: { defaultSrc: ["'self'"] } },
     hsts: config.nodeEnv === 'production' ? { maxAge: 31536000, includeSubDomains: true, preload: true } : false,
     xssFilter: true,

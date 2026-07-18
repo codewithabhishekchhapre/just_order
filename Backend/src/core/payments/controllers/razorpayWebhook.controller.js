@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 import { FoodOrder } from '../../../modules/food/orders/models/order.model.js';
 import { UserSubscription } from '../../../modules/food/user/models/userSubscription.model.js';
 import { SubscriptionPlan } from '../../../modules/food/admin/models/subscriptionPlan.model.js';
-import * as foodTransactionService from '../../../modules/food/orders/services/foodTransaction.service.js';
+import { finalizePaidOnlineOrder } from '../../../modules/food/orders/services/order.service.js';
 import { config } from '../../../config/env.js';
 import { logger } from '../../../utils/logger.js';
 import { ProcessedWebhookEvent } from '../models/processedWebhookEvent.model.js';
@@ -13,16 +13,16 @@ import { OnboardingPaymentLog } from '../../../modules/common/models/onboardingP
 import * as walletService from '../../../modules/food/subscriptions/services/wallet.service.js';
 
 /**
- * ✅ NEW: Centralized Razorpay Webhook Handler (Core Layer)
+ * Centralized Razorpay Webhook Handler (Core Layer)
  * Manages atomic updates for order payments and refunds across all modules.
  */
 export const handleRazorpayWebhook = async (req, res) => {
     const signature = req.headers['x-razorpay-signature'];
-    const secret = config.razorpayWebhookSecret;
+    const secret = String(config.razorpayWebhookSecret || '').trim();
 
     // 1. Verify Signature using raw body buffer
     if (!signature || !secret || !req.rawBody) {
-        logger.warn('Razorpay Webhook: Missing signature or rawBody buffer.');
+        logger.warn('Razorpay Webhook: Missing signature, webhook secret, or rawBody buffer.');
         return res.status(400).send('Invalid signature');
     }
 
@@ -31,7 +31,17 @@ export const handleRazorpayWebhook = async (req, res) => {
         .update(req.rawBody)
         .digest('hex');
 
-    if (expected !== signature) {
+    let signatureValid = false;
+    try {
+        signatureValid = crypto.timingSafeEqual(
+            Buffer.from(expected),
+            Buffer.from(String(signature)),
+        );
+    } catch {
+        signatureValid = expected === signature;
+    }
+
+    if (!signatureValid) {
         logger.warn('Razorpay Webhook: Signature verification failed.');
         return res.status(400).send('Invalid signature');
     }
@@ -40,48 +50,60 @@ export const handleRazorpayWebhook = async (req, res) => {
     logger.info(`Razorpay Webhook Received: ${event}`);
 
     try {
-        // --- 🟢 Handle Payment Captured (Success) ---
+        // --- Handle Payment Captured (Success) ---
         if (event === 'payment.captured') {
             const paymentObj = payload.payment.entity;
             const rzOrderId = paymentObj.order_id;
             const rzPaymentId = paymentObj.id;
             const notes = paymentObj.notes || {};
 
-            // 📂 CASE A-1: Subscription Wallet Topup
-            if (notes.type === 'subscription_wallet_topup') {
+            // CASE A-1: Subscription Wallet Topup
+            // Prefer payment notes; fall back to Razorpay order notes if checkout omitted them.
+            let effectiveNotes = { ...notes };
+            if (!effectiveNotes.type && rzOrderId) {
+                try {
+                    const { fetchRazorpayOrder } = await import(
+                        '../../../modules/food/orders/helpers/razorpay.helper.js'
+                    );
+                    const rzOrder = await fetchRazorpayOrder(rzOrderId);
+                    effectiveNotes = { ...(rzOrder?.notes || {}), ...effectiveNotes };
+                } catch (notesErr) {
+                    logger.warn(`Webhook: could not load order notes for ${rzOrderId}: ${notesErr.message}`);
+                }
+            }
+
+            if (effectiveNotes.type === 'subscription_wallet_topup') {
                 logger.info(`Webhook [payment.captured]: Processing Subscription Wallet Topup`);
                 try {
-                    await walletService.verifyTopup({ 
-                        payment: paymentObj, 
-                        order: payload.order ? payload.order.entity : null, 
-                        notes 
+                    await walletService.verifyTopup({
+                        payment: paymentObj,
+                        order: payload.order ? payload.order.entity : null,
+                        notes: effectiveNotes,
                     });
                 } catch (err) {
                     logger.error(`Webhook Topup Error: ${err.message}`);
-                    // We don't return 4xx here because we want Razorpay to stop retrying if it's a code error,
-                    // but verifyTopup handles its own idempotency.
                 }
                 return res.status(200).json({ status: 'ok' });
             }
 
-            // 📂 CASE A-2: Subscription One-Time Payment (Day Plan)
-            if (notes.type === 'subscription') {
+            // CASE A-2: Subscription One-Time Payment (Day Plan)
+            if (effectiveNotes.type === 'subscription') {
                 logger.info(`Webhook [payment.captured]: Processing One-Time Subscription payment`);
-                const { planId, restaurantId, deliveryBoyId, userType } = notes;
-                
+                const { planId, restaurantId, deliveryBoyId, userType } = effectiveNotes;
+
                 const plan = await SubscriptionPlan.findById(planId);
                 if (plan) {
                     const expiryDate = dayjs().add(plan.durationValue, plan.durationUnit.toLowerCase()).toDate();
-                    
+
                     const ownerFilters = [
                         restaurantId ? { restaurantId: new mongoose.Types.ObjectId(restaurantId) } : null,
-                        deliveryBoyId ? { deliveryBoyId: new mongoose.Types.ObjectId(deliveryBoyId) } : null
+                        deliveryBoyId ? { deliveryBoyId: new mongoose.Types.ObjectId(deliveryBoyId) } : null,
                     ].filter(Boolean);
 
                     const doc = await UserSubscription.findOne({
                         $or: ownerFilters,
                         planId: plan._id,
-                        status: { $in: ['pending', 'failed', 'active', 'grace'] }
+                        status: { $in: ['pending', 'failed', 'active', 'grace'] },
                     }).sort({ createdAt: -1 }).lean();
 
                     if (!doc) {
@@ -89,7 +111,7 @@ export const handleRazorpayWebhook = async (req, res) => {
                             planId: String(plan._id),
                             restaurantId,
                             deliveryBoyId,
-                            userType
+                            userType,
                         });
                         return res.status(200).json({ status: 'ok' });
                     }
@@ -108,61 +130,63 @@ export const handleRazorpayWebhook = async (req, res) => {
                                 purchasedPlanName: plan.name,
                                 purchasedPrice: plan.price,
                                 purchasedDuration: plan.durationValue,
-                                purchasedDurationType: plan.durationUnit
-                            }
-                        }
+                                purchasedDurationType: plan.durationUnit,
+                            },
+                        },
                     );
                 }
                 return res.status(200).json({ status: 'ok' });
             }
 
-            // 📂 CASE B: Regular Food Order
-            // Atomic update to mark as paid if not already
+            // CASE B: Regular Food Order
             const order = await FoodOrder.findOneAndUpdate(
-                { 
-                    "payment.razorpay.orderId": rzOrderId, 
-                    "payment.status": { $ne: 'paid' } 
+                {
+                    'payment.razorpay.orderId': rzOrderId,
+                    'payment.status': { $ne: 'paid' },
                 },
-                { 
-                    $set: { 
-                        "payment.status": 'paid', 
-                        "payment.razorpay.paymentId": rzPaymentId 
-                    } 
+                {
+                    $set: {
+                        'payment.status': 'paid',
+                        'payment.razorpay.paymentId': rzPaymentId,
+                        'payment.razorpay.signature': 'webhook_verified',
+                        'payment.retryInProgress': false,
+                    },
                 },
-                { new: true }
+                { new: true },
             );
 
             if (order) {
-                // ✅ UPDATED: Wrapped in try-catch to prevent secondary failures from breaking the webhook response
                 try {
-                    await foodTransactionService.updateTransactionStatus(order._id, 'captured', {
-                        status: 'captured',
+                    await finalizePaidOnlineOrder(order, {
                         razorpayPaymentId: rzPaymentId,
-                        note: 'Payment status synced via Webhook (payment.captured)'
+                        razorpaySignature: 'webhook_verified',
+                        recordedByRole: 'SYSTEM',
+                        clearCart: true,
+                        notifyCustomer: true,
+                        source: 'webhook_payment_captured',
                     });
-                } catch (ledgerErr) {
-                    logger.error(`Webhook Ledger Error (Order ${order.orderId}): ${ledgerErr.message}`);
+                } catch (finalizeErr) {
+                    logger.error(`Webhook Finalize Error (Order ${order.orderId}): ${finalizeErr.message}`);
                 }
                 logger.info(`Webhook [payment.captured]: Synced Order ${order.orderId} (Status=paid)`);
             } else {
-                // ✅ ADDED: Log warn if order not found but payment was captured
                 logger.warn(`Webhook [payment.captured]: Order not found or already paid for RZ-Order: ${rzOrderId}`);
             }
 
-            // 📂 CASE C: Onboarding Payment
+            // CASE C: Onboarding Payment
             const onboardingLog = await OnboardingPaymentLog.findOneAndUpdate(
-                { 
+                {
                     razorpayOrderId: rzOrderId,
-                    status: { $ne: 'success' }
+                    status: { $ne: 'success' },
                 },
-                { 
-                    $set: { 
-                        status: 'success', 
+                {
+                    $set: {
+                        status: 'success',
                         razorpayPaymentId: rzPaymentId,
-                        razorpaySignature: 'webhook_verified'
-                    } 
+                        razorpaySignature: 'webhook_verified',
+                    },
                 },
-                { new: true }
+                { new: true },
             );
 
             if (onboardingLog) {
@@ -170,42 +194,64 @@ export const handleRazorpayWebhook = async (req, res) => {
             }
         }
 
-        // --- 🔴 Handle Refund Processed ---
+        // --- Handle payment failed (soft-mark unpaid orders) ---
+        if (event === 'payment.failed') {
+            const paymentObj = payload?.payment?.entity || {};
+            const rzOrderId = paymentObj.order_id;
+            if (rzOrderId) {
+                const failedOrder = await FoodOrder.findOneAndUpdate(
+                    {
+                        'payment.razorpay.orderId': rzOrderId,
+                        'payment.status': { $nin: ['paid', 'refunded'] },
+                    },
+                    {
+                        $set: {
+                            'payment.status': 'failed',
+                            'payment.retryInProgress': false,
+                        },
+                    },
+                    { new: true },
+                );
+                if (failedOrder) {
+                    logger.info(`Webhook [payment.failed]: Marked Order ${failedOrder.orderId} payment=failed`);
+                }
+            }
+        }
+
+        // --- Handle Refund Processed ---
         if (event === 'refund.processed') {
             const refundObj = payload.refund.entity;
             const rzPaymentId = refundObj.payment_id;
             const rzRefundId = refundObj.id;
-            const refundAmount = refundObj.amount / 100; // to major unit
+            const refundAmount = refundObj.amount / 100;
 
-            // Sync refund fields in the order
             const order = await FoodOrder.findOneAndUpdate(
-                { 
-                    "payment.razorpay.paymentId": rzPaymentId,
-                    "payment.refund.status": { $ne: 'processed' }
+                {
+                    'payment.razorpay.paymentId': rzPaymentId,
+                    'payment.refund.status': { $ne: 'processed' },
                 },
-                { 
-                    $set: { 
-                        "payment.status": 'refunded',
-                        "payment.refund": {
+                {
+                    $set: {
+                        'payment.status': 'refunded',
+                        'payment.refund': {
                             status: 'processed',
                             amount: refundAmount,
                             refundId: rzRefundId,
-                            processedAt: new Date()
-                        }
-                    } 
+                            processedAt: new Date(),
+                        },
+                    },
                 },
-                { new: true }
+                { new: true },
             );
 
             if (order) {
                 logger.info(`Webhook [refund.processed]: Synced Order ${order.orderId} (Refunded)`);
             } else {
-                // ✅ ADDED: Log warn if order not found for refund
                 logger.warn(`Webhook [refund.processed]: Order not found or already refunded for RZ-Payment: ${rzPaymentId}`);
             }
         }
 
-        // --- 🔄 Handle Subscription Events (Recurring) ---
+        // --- Handle Subscription Events (Recurring) ---
         if (event.startsWith('subscription.')) {
             const subObj = payload.subscription.entity;
             const rzSubId = subObj.id;
@@ -236,7 +282,10 @@ export const handleRazorpayWebhook = async (req, res) => {
 
                 const plan = subscriptionDoc.planId;
                 if (!plan) {
-                    logger.error(`Webhook [${event}]: Subscription plan not found for subscription`, { rzSubId, subscriptionId: String(subscriptionDoc._id) });
+                    logger.error(`Webhook [${event}]: Subscription plan not found for subscription`, {
+                        rzSubId,
+                        subscriptionId: String(subscriptionDoc._id),
+                    });
                     return res.status(200).json({ status: 'ok' });
                 }
 
@@ -264,7 +313,7 @@ export const handleRazorpayWebhook = async (req, res) => {
                         purchasedDurationType: plan.durationUnit,
                         'metadata.lastProcessedEventKey': dedupeKey,
                         'metadata.lastProcessedEventType': event,
-                        'metadata.lastProcessedAt': now
+                        'metadata.lastProcessedAt': now,
                     };
 
                     if (!subscriptionDoc.cancelAtCycleEnd) {
@@ -275,7 +324,7 @@ export const handleRazorpayWebhook = async (req, res) => {
 
                     const result = await UserSubscription.updateOne(
                         { _id: subscriptionDoc._id, 'metadata.lastProcessedEventKey': { $ne: dedupeKey } },
-                        { $set: updateFields }
+                        { $set: updateFields },
                     );
 
                     if (result.modifiedCount > 0) {
@@ -287,7 +336,7 @@ export const handleRazorpayWebhook = async (req, res) => {
                                 eventType: event,
                                 entityType: 'subscription',
                                 entityId: rzSubId,
-                                bodyHash
+                                bodyHash,
                             });
                         } catch (e) {
                             if (e?.code !== 11000) logger.error(`Webhook [${event}]: Failed to record dedupe`, { error: e?.message });
@@ -313,7 +362,7 @@ export const handleRazorpayWebhook = async (req, res) => {
                         purchasedDurationType: plan.durationUnit,
                         'metadata.lastProcessedEventKey': dedupeKey,
                         'metadata.lastProcessedEventType': event,
-                        'metadata.lastProcessedAt': now
+                        'metadata.lastProcessedAt': now,
                     };
 
                     if (!subscriptionDoc.cancelAtCycleEnd) {
@@ -326,8 +375,8 @@ export const handleRazorpayWebhook = async (req, res) => {
                         { _id: subscriptionDoc._id, 'metadata.lastProcessedEventKey': { $ne: dedupeKey } },
                         {
                             $set: updateFields,
-                            $inc: { renewalCount: 1 }
-                        }
+                            $inc: { renewalCount: 1 },
+                        },
                     );
 
                     if (result.modifiedCount > 0) {
@@ -339,7 +388,7 @@ export const handleRazorpayWebhook = async (req, res) => {
                                 eventType: event,
                                 entityType: 'subscription',
                                 entityId: rzSubId,
-                                bodyHash
+                                bodyHash,
                             });
                         } catch (e) {
                             if (e?.code !== 11000) logger.error(`Webhook [${event}]: Failed to record dedupe`, { error: e?.message });
@@ -365,9 +414,9 @@ export const handleRazorpayWebhook = async (req, res) => {
                                 cancelAtCycleEnd: true,
                                 'metadata.lastProcessedEventKey': dedupeKey,
                                 'metadata.lastProcessedEventType': event,
-                                'metadata.lastProcessedAt': now
-                            }
-                        }
+                                'metadata.lastProcessedAt': now,
+                            },
+                        },
                     );
 
                     if (result.modifiedCount > 0) {
@@ -379,7 +428,7 @@ export const handleRazorpayWebhook = async (req, res) => {
                                 eventType: event,
                                 entityType: 'subscription',
                                 entityId: rzSubId,
-                                bodyHash
+                                bodyHash,
                             });
                         } catch (e) {
                             if (e?.code !== 11000) logger.error(`Webhook [${event}]: Failed to record dedupe`, { error: e?.message });
@@ -399,9 +448,9 @@ export const handleRazorpayWebhook = async (req, res) => {
                                 autoRenew: false,
                                 'metadata.lastProcessedEventKey': dedupeKey,
                                 'metadata.lastProcessedEventType': event,
-                                'metadata.lastProcessedAt': now
-                            }
-                        }
+                                'metadata.lastProcessedAt': now,
+                            },
+                        },
                     );
 
                     if (result.modifiedCount > 0) {
@@ -413,7 +462,7 @@ export const handleRazorpayWebhook = async (req, res) => {
                                 eventType: event,
                                 entityType: 'subscription',
                                 entityId: rzSubId,
-                                bodyHash
+                                bodyHash,
                             });
                         } catch (e) {
                             if (e?.code !== 11000) logger.error(`Webhook [${event}]: Failed to record dedupe`, { error: e?.message });

@@ -17,7 +17,7 @@ import { useZone } from "@food/hooks/useZone"
 import { useLocationSelector } from "@food/components/user/UserLayout"
 import { orderAPI, restaurantAPI, userAPI, API_ENDPOINTS } from "@food/api"
 import { API_BASE_URL } from "@food/api/config"
-import { initRazorpayPayment, isFlutterWebView, handleFlutterRazorpayPayment } from "@food/utils/razorpay"
+import { initRazorpayPayment, isFlutterWebView, handleFlutterRazorpayPayment, pollOrderPaidAfterDismiss } from "@food/utils/razorpay"
 import { sanitizeOrderImage, sanitizeOrderNotes } from "@food/utils/orderPayload"
 import { getMaxDeliveryTime, getHighestPricedItem } from "@food/utils/cartUtils"
 import { toast } from "sonner"
@@ -2041,6 +2041,11 @@ export default function Cart() {
           },
           onError: async (error) => {
             debugError("? Razorpay payment error:", error)
+            // Method picker errors are recoverable — do not abandon the payment session.
+            if (error?.code === "METHOD_SELECTION_FAILED") {
+              toast.error(error?.description || "Please select another payment method.")
+              return
+            }
             const trackingId = order?._id || order?.id || order?.orderMongoId || order?.orderId
             const isUserCancel =
               error?.code === "PAYMENT_CANCELLED" || error?.message === "PAYMENT_CANCELLED"
@@ -2069,16 +2074,41 @@ export default function Cart() {
           },
           onClose: async () => {
             debugLog("?? Payment modal closed by user")
-            // Do NOT cancel the unpaid order — user can Retry Payment from order page.
             const trackingId = order?._id || order?.id || order?.orderMongoId || order?.orderId
-            if (trackingId) {
-              clearCart()
-              toast.message("Payment not completed. You can retry from this order.")
-              navigate(`/food/user/orders/${trackingId}`, {
-                state: { prefetchedOrder: order, awaitPayment: true },
-              })
+            if (!trackingId) {
+              setIsPlacingOrder(false)
+              return
             }
-            setIsPlacingOrder(false)
+
+            // Closing Razorpay's leftover about:blank / 3DS window often fires dismiss
+            // AFTER a successful capture. Poll before treating as unpaid.
+            setIsPlacingOrder(true)
+            try {
+              const paid = await pollOrderPaidAfterDismiss(async () => {
+                const res = await orderAPI.getOrderDetails(trackingId, { force: true })
+                return res?.data?.data?.order || res?.data?.data || null
+              })
+              if (paid) {
+                setPlacedOrderId(order._id || order.orderId)
+                setPlacedOrderData(order || null)
+                setShowOrderSuccess(true)
+                window.dispatchEvent(new CustomEvent('order-placed', { detail: { order } }))
+                clearCart()
+                toast.success("Payment successful")
+                return
+              }
+            } catch (pollErr) {
+              debugError("? Payment dismiss status poll failed:", pollErr)
+            } finally {
+              setIsPlacingOrder(false)
+            }
+
+            // Do NOT cancel the unpaid order — user can Retry Payment from order page.
+            clearCart()
+            toast.message("Payment not completed. You can retry from this order.")
+            navigate(`/food/user/orders/${trackingId}`, {
+              state: { prefetchedOrder: order, awaitPayment: true },
+            })
           }
         })
       }

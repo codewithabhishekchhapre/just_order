@@ -8,6 +8,15 @@ const geoPointSchema = new mongoose.Schema(
     { _id: false }
 );
 
+const orderItemAddonSchema = new mongoose.Schema(
+    {
+        name: { type: String, default: '', trim: true },
+        quantity: { type: Number, default: 1, min: 1 },
+        price: { type: Number, default: 0, min: 0 },
+    },
+    { _id: false }
+);
+
 const orderItemSchema = new mongoose.Schema(
     {
         itemId: { type: String, required: true, trim: true },
@@ -20,7 +29,10 @@ const orderItemSchema = new mongoose.Schema(
         isVeg: { type: Boolean, default: true },
         image: { type: String, default: '' },
         variantName: { type: String, default: '', trim: true },
-        notes: { type: String, default: '' }
+        notes: { type: String, default: '' },
+        categoryId: { type: String, default: '', trim: true },
+        categoryName: { type: String, default: '', trim: true },
+        addons: { type: [orderItemAddonSchema], default: [] },
     },
     { _id: false }
 );

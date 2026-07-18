@@ -87,7 +87,8 @@ export async function createTopupOrder(userId, userType, amount) {
     }
 
     try {
-        const order = await createRazorpayOrder(amountPaise, 'INR', receipt);
+        // notes must be on the Razorpay order so webhook can route top-ups
+        const order = await createRazorpayOrder(amountPaise, 'INR', receipt, notes);
         return {
             razorpay: {
                 key: getRazorpayKeyId(),

@@ -37,6 +37,11 @@ export const loadRazorpayScript = () => {
 
 /**
  * Initialize Razorpay payment
+ *
+ * Important: after 3DS / UPI auth, Razorpay often leaves an `about:blank` popup.
+ * Closing that popup fires `modal.ondismiss` even when payment already succeeded.
+ * We guard dismiss/error so a successful payment is never treated as cancelled.
+ *
  * @param {Object} options - Payment options
  * @param {String} options.key - Razorpay key ID
  * @param {String} options.amount - Amount in paise
@@ -48,7 +53,7 @@ export const loadRazorpayScript = () => {
  * @param {Object} options.notes - Additional notes
  * @param {Function} options.handler - Success callback
  * @param {Function} options.onError - Error callback
- * @param {Function} options.onClose - Close callback
+ * @param {Function} options.onClose - Close callback (only when payment did NOT succeed)
  */
 export const initRazorpayPayment = async (options) => {
   try {
@@ -57,6 +62,28 @@ export const initRazorpayPayment = async (options) => {
     if (!window.Razorpay) {
       throw new Error('Razorpay SDK not available');
     }
+
+    // Shared outcome across handler / failed / dismiss (prevents false "payment failed")
+    let outcome = null; // 'success' | 'failed'
+    let dismissTimer = null;
+
+    const markSuccess = () => {
+      outcome = 'success';
+      if (dismissTimer) {
+        clearTimeout(dismissTimer);
+        dismissTimer = null;
+      }
+    };
+
+    const markFailed = () => {
+      if (outcome === 'success') return false;
+      outcome = 'failed';
+      if (dismissTimer) {
+        clearTimeout(dismissTimer);
+        dismissTimer = null;
+      }
+      return true;
+    };
 
     const razorpayOptions = {
       key: options.key,
@@ -76,18 +103,43 @@ export const initRazorpayPayment = async (options) => {
         color: '#FF6A00'
       },
       handler: function (response) {
+        // Must set synchronously BEFORE any await in the caller's handler,
+        // otherwise ondismiss from closing about:blank races and marks payment failed.
+        markSuccess();
         if (options.handler) {
-          options.handler(response);
+          try {
+            const result = options.handler(response);
+            if (result && typeof result.then === 'function') {
+              result.catch((err) => {
+                console.error('Razorpay success handler error:', err);
+              });
+            }
+          } catch (err) {
+            console.error('Razorpay success handler error:', err);
+          }
         }
       },
       modal: {
         ondismiss: function () {
-          if (options.onClose) {
-            options.onClose();
-          }
+          // Dismiss often fires when the bank/3DS about:blank window is closed
+          // AFTER a successful payment. Defer and ignore if success already landed.
+          if (outcome === 'success' || outcome === 'failed') return;
+
+          dismissTimer = setTimeout(() => {
+            dismissTimer = null;
+            if (outcome === 'success' || outcome === 'failed') return;
+            if (options.onClose) {
+              options.onClose({
+                reason: 'dismiss',
+                razorpayOrderId: options.order_id,
+              });
+            }
+          }, 600);
         },
         escape: true,
-        animation: true
+        animation: true,
+        // Ask before closing while payment may still be processing
+        confirm_close: true,
       },
       retry: {
         enabled: true,
@@ -99,6 +151,7 @@ export const initRazorpayPayment = async (options) => {
 
     razorpay.on('payment.failed', function (response) {
       console.error('Razorpay payment failed:', response);
+      if (!markFailed()) return;
       if (options.onError) {
         options.onError(response.error || { description: 'Payment failed. Please try again.' });
       }
@@ -106,20 +159,17 @@ export const initRazorpayPayment = async (options) => {
 
     razorpay.on('payment.method_selection_failed', function (response) {
       console.error('Razorpay payment method selection failed:', response);
+      // Method selection failure is not a hard payment failure — user can pick another method.
+      // Do not mark outcome failed or call onError in a way that abandons the order.
+      if (outcome === 'success') return;
       if (options.onError) {
-        options.onError(response.error || { description: 'Please select another payment method.' });
+        options.onError(
+          response.error || { description: 'Please select another payment method.', code: 'METHOD_SELECTION_FAILED' },
+        );
       }
     });
 
     razorpay.open();
-
-    console.log('✅ Razorpay checkout opened successfully');
-    console.log('Razorpay options:', {
-      key: razorpayOptions.key ? 'Present' : 'Missing',
-      amount: razorpayOptions.amount,
-      order_id: razorpayOptions.order_id
-    });
-    console.log("razor payapp", razorpay)
     return razorpay;
   } catch (error) {
     console.error('Error initializing Razorpay:', error);
@@ -142,6 +192,9 @@ export const initRazorpaySubscription = async (options) => {
       throw new Error('Razorpay SDK not available');
     }
 
+    let outcome = null;
+    let dismissTimer = null;
+
     const razorpayOptions = {
       key: options.key,
       subscription_id: options.subscription_id,
@@ -157,16 +210,23 @@ export const initRazorpaySubscription = async (options) => {
         color: '#FF6A00'
       },
       handler: function (response) {
+        outcome = 'success';
+        if (dismissTimer) clearTimeout(dismissTimer);
         if (options.handler) {
           options.handler(response);
         }
       },
       modal: {
         ondismiss: function () {
-          if (options.onClose) {
-            options.onClose();
-          }
-        }
+          if (outcome === 'success' || outcome === 'failed') return;
+          dismissTimer = setTimeout(() => {
+            if (outcome === 'success' || outcome === 'failed') return;
+            if (options.onClose) {
+              options.onClose();
+            }
+          }, 600);
+        },
+        confirm_close: true,
       },
       retry: {
         enabled: true,
@@ -177,6 +237,8 @@ export const initRazorpaySubscription = async (options) => {
     const rzp = new window.Razorpay(razorpayOptions);
     rzp.on('payment.failed', function (response) {
       console.error('Razorpay subscription payment failed:', response);
+      if (outcome === 'success') return;
+      outcome = 'failed';
       if (options.onError) {
         options.onError(response.error || { description: 'Payment failed. Please try again.' });
       }
@@ -198,6 +260,42 @@ export const initRazorpaySubscription = async (options) => {
  */
 export const formatAmount = (amount) => {
   return `₹${(amount / 100).toFixed(2)}`;
+};
+
+/**
+ * After checkout dismiss, poll order payment status.
+ * Covers the case where money was captured but handler missed / about:blank closed first.
+ * @param {Function} fetchOrderFn - async () => order-like object with payment.status
+ * @param {{ attempts?: number, intervalMs?: number }} [opts]
+ * @returns {Promise<boolean>} true if paid
+ */
+export const pollOrderPaidAfterDismiss = async (fetchOrderFn, opts = {}) => {
+  const attempts = Number(opts.attempts) > 0 ? Number(opts.attempts) : 4;
+  const intervalMs = Number(opts.intervalMs) > 0 ? Number(opts.intervalMs) : 900;
+
+  for (let i = 0; i < attempts; i++) {
+    if (i > 0) {
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    } else {
+      // First pass: short grace for webhook / late success handler
+      await new Promise((resolve) => setTimeout(resolve, 700));
+    }
+    try {
+      const orderLike = await fetchOrderFn();
+      const status = String(
+        orderLike?.payment?.status ||
+          orderLike?.paymentStatus ||
+          orderLike?.data?.payment?.status ||
+          '',
+      ).toLowerCase();
+      if (['paid', 'captured', 'authorized', 'settled'].includes(status)) {
+        return true;
+      }
+    } catch {
+      // keep polling
+    }
+  }
+  return false;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -271,6 +369,11 @@ export const handleFlutterRazorpayPayment = (rzpOptions) => {
         const signature = result?.razorpay_signature || result?.signature || '';
         if (!paymentId) {
           reject(new Error('Payment succeeded but payment ID missing from Flutter response'));
+          return;
+        }
+        if (!signature) {
+          // Backend HMAC verify requires signature; without it verification always fails.
+          reject(new Error('Payment succeeded but signature missing. Please retry payment.'));
           return;
         }
         resolve({ razorpay_payment_id: paymentId, razorpay_order_id: orderId, razorpay_signature: signature });
@@ -374,7 +477,6 @@ export const handleFlutterRazorpayPayment = (rzpOptions) => {
 
         // ─── No Flutter native Razorpay handler found ─────────────────────
         // Fallback: open standard web Razorpay checkout inside the WebView.
-        // This is the safe path for Flutter apps without native Razorpay SDK.
         console.warn('[Razorpay Flutter] No native handler found. Falling back to web checkout.');
         cleanup(); // remove global listeners before opening web checkout
 
@@ -382,6 +484,7 @@ export const handleFlutterRazorpayPayment = (rzpOptions) => {
           await loadRazorpayScript();
           if (!window.Razorpay) throw new Error('Razorpay web SDK unavailable');
 
+          let webOutcome = null;
           const rzp = new window.Razorpay({
             key: rzpOptions.key,
             amount: rzpOptions.amount,
@@ -394,6 +497,7 @@ export const handleFlutterRazorpayPayment = (rzpOptions) => {
             theme: { color: '#FF6A00' },
             retry: { enabled: true, max_count: 3 },
             handler: (response) => {
+              webOutcome = 'success';
               resolve({
                 razorpay_payment_id: response.razorpay_payment_id,
                 razorpay_order_id: response.razorpay_order_id || rzpOptions.order_id,
@@ -401,12 +505,20 @@ export const handleFlutterRazorpayPayment = (rzpOptions) => {
               });
             },
             modal: {
-              ondismiss: () => reject(new Error('Payment cancelled')),
+              ondismiss: () => {
+                setTimeout(() => {
+                  if (webOutcome === 'success') return;
+                  reject(new Error('Payment cancelled'));
+                }, 600);
+              },
               escape: true,
               animation: true,
+              confirm_close: true,
             },
           });
           rzp.on('payment.failed', (resp) => {
+            if (webOutcome === 'success') return;
+            webOutcome = 'failed';
             reject(new Error(resp?.error?.description || 'Payment failed'));
           });
           rzp.open();

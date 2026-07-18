@@ -34,7 +34,7 @@ async function loadItemDoc(itemId) {
   const oid = toObjectId(itemId);
   if (!oid) throw new ValidationError('Invalid item id');
   const item = await FoodItem.findById(oid)
-    .select('restaurantId name price otherPrice image images foodType isAvailable approvalStatus variants categoryId')
+    .select('restaurantId name price otherPrice image images foodType isAvailable approvalStatus variants categoryId categoryName')
     .lean();
   if (!item) throw new NotFoundError('Item not found');
   return item;
@@ -126,7 +126,7 @@ export async function hydrateFoodCart(cartDoc) {
 
   const docs = itemIds.length
     ? await FoodItem.find({ _id: { $in: itemIds } })
-      .select('restaurantId name price otherPrice image images foodType isAvailable approvalStatus variants')
+      .select('restaurantId name price otherPrice image images foodType isAvailable approvalStatus variants categoryId categoryName')
       .lean()
     : [];
   const docMap = new Map(docs.map((d) => [String(d._id), d]));
@@ -212,6 +212,10 @@ export async function hydrateFoodCart(cartDoc) {
       restaurant: restaurant?.restaurantName || '',
       sourceId: String(doc.restaurantId),
       sourceName: restaurant?.restaurantName || '',
+      categoryId: doc.categoryId ? String(doc.categoryId) : '',
+      categoryName: doc.categoryName || '',
+      addons: Array.isArray(line.addons) ? line.addons : [],
+      notes: typeof line.notes === 'string' ? line.notes : '',
       lineTotal: variant.price * quantity,
       available: true,
     });
@@ -438,6 +442,16 @@ export async function buildOrderItemsFromFoodCart(userId) {
     quantity: line.quantity,
     isVeg: Boolean(line.isVeg),
     image: line.image || '',
+    categoryId: line.categoryId || '',
+    categoryName: line.categoryName || '',
+    notes: line.notes || '',
+    addons: Array.isArray(line.addons)
+      ? line.addons.map((a) => ({
+          name: String(a?.name || a?.title || a?.label || '').trim(),
+          quantity: Math.max(1, Number(a?.quantity) || 1),
+          price: Math.max(0, Number(a?.price) || 0),
+        })).filter((a) => a.name)
+      : [],
   }));
 
   return {

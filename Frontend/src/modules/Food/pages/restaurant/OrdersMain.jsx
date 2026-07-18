@@ -5,16 +5,7 @@ import {
   isRestaurantOnboardingComplete,
 } from "@food/utils/onboardingUtils";
 import { motion, AnimatePresence } from "framer-motion";
-import Lenis from "lenis";
 import {
-  Printer,
-  Volume2,
-  VolumeX,
-  ChevronDown,
-  ChevronUp,
-  Minus,
-  Plus,
-  X,
   AlertCircle,
   Loader2,
   Calendar,
@@ -29,17 +20,15 @@ import {
   Unlock,
   Star,
   Package,
-  Utensils,
+  X,
+  Minus,
+  Plus,
 } from "lucide-react";
 import { toast } from "sonner";
 import RestaurantPageShell from "@food/components/restaurant/RestaurantPageShell";
-import notificationSound from "@food/assets/audio/alert.mp3";
 import { restaurantAPI, diningAPI } from "@food/api";
-import { useRestaurantNotifications } from "@food/hooks/useRestaurantNotifications";
-import { jsPDF } from "jspdf";
-import autoTable from "jspdf-autotable";
+import { useRestaurantRealtime } from "@food/context/RestaurantRealtimeContext";
 import ResendNotificationButton from "@food/components/restaurant/ResendNotificationButton";
-import { ActionSlider } from "@/modules/DeliveryV2/components/ui/ActionSlider";
 const debugLog = (...args) => { };
 const debugWarn = (...args) => { };
 const debugError = (...args) => { };
@@ -726,7 +715,7 @@ function TableBookings() {
   );
 }
 
-function AllOrders({ onSelectOrder, onCancel }) {
+function AllOrders({ onSelectOrder, onCancel, refreshToken = 0 }) {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -734,7 +723,6 @@ function AllOrders({ onSelectOrder, onCancel }) {
 
   useEffect(() => {
     let isMounted = true;
-    let intervalId = null;
     let countdownIntervalId = null;
 
     const fetchOrders = async () => {
@@ -778,7 +766,6 @@ function AllOrders({ onSelectOrder, onCancel }) {
     };
 
     fetchOrders();
-    intervalId = setInterval(fetchOrders, 10000);
     countdownIntervalId = setInterval(() => {
       if (isMounted) {
         setCurrentTime(new Date());
@@ -787,10 +774,9 @@ function AllOrders({ onSelectOrder, onCancel }) {
 
     return () => {
       isMounted = false;
-      if (intervalId) clearInterval(intervalId);
       if (countdownIntervalId) clearInterval(countdownIntervalId);
     };
-  }, []);
+  }, [refreshToken]);
 
   const handleMarkReady = async ({ orderId, mongoId }) => {
     const orderKey = mongoId || orderId;
@@ -910,25 +896,10 @@ export default function OrdersMain() {
   const mouseEndX = useRef(0);
   const isMouseDown = useRef(false);
 
-  // New order popup states
-  const [showNewOrderPopup, setShowNewOrderPopup] = useState(false);
-  const [popupOrder, setPopupOrder] = useState(null); // Store order for popup (from Socket.IO or API)
-  const [isMuted, setIsMuted] = useState(false);
-  const [prepTime, setPrepTime] = useState(11);
-  const [countdown, setCountdown] = useState(240); // 4 minutes in seconds
-  const [isDetailsExpanded, setIsDetailsExpanded] = useState(true);
-  const [showRejectPopup, setShowRejectPopup] = useState(false);
-  const [rejectReason, setRejectReason] = useState("");
+  // Cancel-order sheet (preparing orders) — incoming accept popup lives in RestaurantRealtimeProvider
   const [showCancelPopup, setShowCancelPopup] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
   const [orderToCancel, setOrderToCancel] = useState(null);
-  const [acceptSwipeProgress, setAcceptSwipeProgress] = useState(0);
-  const [isAcceptingOrder, setIsAcceptingOrder] = useState(false);
-  const audioRef = useRef(null);
-  const shownOrdersRef = useRef(new Set()); // Track orders already shown in popup
-  const acceptSliderRef = useRef(null);
-  const acceptSwipeStartXRef = useRef(0);
-  const acceptSwipeActiveRef = useRef(false);
   const [restaurantStatus, setRestaurantStatus] = useState({
     isActive: null,
     rejectionReason: null,
@@ -936,96 +907,11 @@ export default function OrdersMain() {
     isLoading: true,
   });
   const [isReverifying, setIsReverifying] = useState(false);
-  const audioUnlockedRef = useRef(false);
-  const showNewOrderPopupRef = useRef(showNewOrderPopup);
-  const isMutedRef = useRef(isMuted);
-  const newOrderRef = useRef(null);
 
-  // Timer persistence helpers
-  const getInitialCountdown = (orderId) => {
-    if (!orderId) return 240;
-    const storageKey = `order_timer_${orderId}`;
-    const startTime = localStorage.getItem(storageKey);
-
-    if (startTime) {
-      const elapsed = Math.floor((Date.now() - parseInt(startTime)) / 1000);
-      const remaining = 240 - elapsed;
-      return remaining > 0 ? remaining : 0;
-    } else {
-      localStorage.setItem(storageKey, Date.now().toString());
-      return 240;
-    }
-  };
-
-  const clearOrderTimer = (orderId) => {
-    if (orderId) {
-      localStorage.removeItem(`order_timer_${orderId}`);
-    }
-  };
-
-  const markOrderAsShown = (orderLike) => {
-    const keys = [
-      orderLike?.orderMongoId,
-      orderLike?.orderId,
-      orderLike?._id,
-      orderLike?.id,
-    ]
-      .map((v) => (v == null ? "" : String(v).trim()))
-      .filter(Boolean);
-
-    for (const k of keys) shownOrdersRef.current.add(k);
-  };
-
-  const hasOrderBeenShown = (orderLike) => {
-    const keys = [
-      orderLike?.orderMongoId,
-      orderLike?.orderId,
-      orderLike?._id,
-      orderLike?.id,
-    ]
-      .map((v) => (v == null ? "" : String(v).trim()))
-      .filter(Boolean);
-
-    return keys.some((k) => shownOrdersRef.current.has(k));
-  };
-
-  const getPopupOrderTotal = (orderLike) => {
-    if (!orderLike) return 0;
-
-    const rawItems = Array.isArray(orderLike.items) ? orderLike.items : [];
-    const visibleItems = getRestaurantVisibleItems(rawItems);
-    const hasFilteredMixedItems = visibleItems.length > 0 && visibleItems.length !== rawItems.length;
-
-    if (hasFilteredMixedItems) {
-      const visibleItemsTotal = visibleItems.reduce((sum, item) => {
-        const price = Number(item?.price || 0);
-        const qty = Number(item?.quantity || 0);
-        return sum + (Number.isFinite(price) ? price : 0) * (Number.isFinite(qty) ? qty : 0);
-      }, 0);
-
-      return Number.isFinite(visibleItemsTotal) ? visibleItemsTotal : 0;
-    }
-
-    const directTotal = Number(orderLike.total);
-    if (Number.isFinite(directTotal) && directTotal > 0) return directTotal;
-
-    const pricingTotal = Number(orderLike.pricing?.total);
-    if (Number.isFinite(pricingTotal) && pricingTotal > 0) return pricingTotal;
-
-    const amountDue = Number(orderLike.payment?.amountDue);
-    if (Number.isFinite(amountDue) && amountDue > 0) return amountDue;
-
-    const itemsTotal = visibleItems.reduce((sum, item) => {
-      const price = Number(item?.price || 0);
-      const qty = Number(item?.quantity || 0);
-      return sum + (Number.isFinite(price) ? price : 0) * (Number.isFinite(qty) ? qty : 0);
-    }, 0);
-
-    return Number.isFinite(itemsTotal) ? itemsTotal : 0;
-  };
-
-  // Restaurant notifications hook for real-time orders
-  const { newOrder, clearNewOrder, isConnected } = useRestaurantNotifications();
+  // Shared realtime (popup + ring owned by RestaurantLayout provider)
+  const { refreshOrdersToken, bumpRefresh } = useRestaurantRealtime();
+  const ordersRefreshToken = refreshOrdersToken;
+  const requestOrdersRefresh = bumpRefresh;
 
   const rejectReasons = [
     "Restaurant is too busy",
@@ -1155,488 +1041,6 @@ export default function OrdersMain() {
     }
   };
 
-  // Lenis smooth scrolling
-  useEffect(() => {
-    const lenis = new Lenis({
-      duration: 1.2,
-      easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
-      smoothWheel: true,
-    });
-
-    function raf(time) {
-      lenis.raf(time);
-      requestAnimationFrame(raf);
-    }
-
-    requestAnimationFrame(raf);
-
-    return () => {
-      lenis.destroy();
-    };
-  }, []);
-
-  // Show new order popup when real order notification arrives from Socket.IO
-  useEffect(() => {
-    if (newOrder) {
-      debugLog("?? New order received via Socket.IO:", newOrder);
-
-      const scheduledAt = newOrder.scheduledAt
-        ? new Date(newOrder.scheduledAt).getTime()
-        : null;
-      const isFutureScheduled =
-        scheduledAt && scheduledAt > Date.now() + 15 * 60000;
-
-      if (isFutureScheduled) {
-        toast.info(
-          `New scheduled order received for ${new Date(scheduledAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}`,
-        );
-        requestOrdersRefresh();
-        return; // Do not show the immediate popup
-      }
-
-      if (!hasOrderBeenShown(newOrder)) {
-        markOrderAsShown(newOrder);
-        setPopupOrder(newOrder);
-        setShowNewOrderPopup(true);
-        const orderId = newOrder.orderMongoId || newOrder.orderId || newOrder._id;
-        setCountdown(getInitialCountdown(orderId));
-        const seedPrep = Number(newOrder.preparationTime);
-        setPrepTime(
-          Number.isFinite(seedPrep) && seedPrep >= 1
-            ? Math.min(180, Math.round(seedPrep))
-            : 15,
-        );
-        requestOrdersRefresh();
-      }
-    }
-  }, [newOrder]);
-
-  // Keep refs in sync to avoid stale state inside one-time event handlers.
-  useEffect(() => {
-    showNewOrderPopupRef.current = showNewOrderPopup;
-  }, [showNewOrderPopup]);
-
-  useEffect(() => {
-    isMutedRef.current = isMuted;
-  }, [isMuted]);
-
-  useEffect(() => {
-    newOrderRef.current = newOrder;
-  }, [newOrder]);
-
-  // Best-effort unlock for popup buzzer so it can keep playing when tab is backgrounded.
-  useEffect(() => {
-    const unlockAudio = async () => {
-      if (audioUnlockedRef.current || !audioRef.current) return;
-      try {
-        audioRef.current.muted = true;
-        await audioRef.current.play();
-        audioRef.current.pause();
-        audioRef.current.currentTime = 0;
-        audioRef.current.muted = false;
-        audioRef.current.volume = 1;
-        audioUnlockedRef.current = true;
-
-        // If an order popup is already open, start buzzing immediately after unlock.
-        if (showNewOrderPopupRef.current && !isMutedRef.current) {
-          audioRef.current.loop = true;
-          audioRef.current.currentTime = 0;
-          audioRef.current.play().catch(() => { });
-        }
-      } catch (_) {
-        audioRef.current.muted = false;
-      }
-    };
-
-    window.addEventListener("pointerdown", unlockAudio, {
-      once: true,
-      passive: true,
-    });
-    window.addEventListener("keydown", unlockAudio, { once: true });
-
-    return () => {
-      window.removeEventListener("pointerdown", unlockAudio);
-      window.removeEventListener("keydown", unlockAudio);
-    };
-  }, []);
-
-  const [ordersRefreshToken, setOrdersRefreshToken] = useState(0);
-  const requestOrdersRefresh = () => setOrdersRefreshToken((t) => t + 1);
-
-  useEffect(() => {
-    const onRefresh = () => requestOrdersRefresh();
-    window.addEventListener("restaurantOrdersRefresh", onRefresh);
-    return () => window.removeEventListener("restaurantOrdersRefresh", onRefresh);
-  }, []);
-
-  // Check for confirmed orders that haven't been shown in popup yet, or scheduled orders whose time has come
-  useEffect(() => {
-    const checkOrdersToPopup = async () => {
-      // Skip if popup is already showing or Socket.IO order exists
-      if (showNewOrderPopupRef.current || newOrderRef.current) return;
-
-      try {
-        const response = await restaurantAPI.getOrders();
-        if (response.data?.success && response.data.data?.orders) {
-          const now = Date.now();
-
-          // Find orders that should trigger the popup
-          const targetOrders = response.data.data.orders.filter((order) => {
-            if (hasOrderBeenShown(order)) return false;
-
-            const isConfirmed = order.status === "confirmed";
-            const isCreatedScheduled =
-              order.status === "created" && order.scheduledAt;
-
-            if (isConfirmed && !order.scheduledAt) return true; // ordinary confirmed fallback
-
-            if (
-              order.scheduledAt &&
-              (order.status === "created" || order.status === "confirmed")
-            ) {
-              const scheduledTime = new Date(order.scheduledAt).getTime();
-              // Show popup if scheduled time is <= 15 mins from now
-              if (scheduledTime <= now + 15 * 60000) return true;
-            }
-
-            return false;
-          });
-
-          // Show the most recent matching order in popup
-          if (
-            targetOrders.length > 0 &&
-            !showNewOrderPopupRef.current &&
-            !newOrderRef.current
-          ) {
-            const orderToPopup = targetOrders[0];
-            const orderId = orderToPopup.orderId || orderToPopup._id;
-
-            // Transform order to match newOrder format (include payment so COD shows correctly)
-            const orderForPopup = {
-              orderId: orderToPopup.orderId,
-              orderMongoId: orderToPopup._id,
-              restaurantId: orderToPopup.restaurantId,
-              restaurantName: orderToPopup.restaurantName,
-              items: getRestaurantVisibleItems(orderToPopup.items || []),
-              total: orderToPopup.pricing?.total || 0,
-              customerAddress: orderToPopup.address,
-              status: orderToPopup.status,
-              createdAt: orderToPopup.createdAt,
-              scheduledAt: orderToPopup.scheduledAt,
-              estimatedDeliveryTime: orderToPopup.estimatedDeliveryTime || 30,
-              preparationTime: orderToPopup.preparationTime,
-              note: orderToPopup.note || "",
-              sendCutlery: orderToPopup.sendCutlery,
-              paymentMethod:
-                orderToPopup.paymentMethod ||
-                orderToPopup.payment?.method ||
-                null,
-              payment: orderToPopup.payment,
-            };
-
-            debugLog("?? Found order ready for popup:", orderForPopup);
-            markOrderAsShown({ orderId, _id: orderToPopup._id });
-            setPopupOrder(orderForPopup);
-            setShowNewOrderPopup(true);
-            setCountdown(getInitialCountdown(orderId));
-            const seedPrep = Number(orderToPopup.preparationTime);
-            setPrepTime(
-              Number.isFinite(seedPrep) && seedPrep >= 1
-                ? Math.min(180, Math.round(seedPrep))
-                : 15,
-            );
-          }
-        }
-      } catch (error) {
-        if (error.response?.status !== 401) {
-          debugError("Error checking orders to popup:", error);
-        }
-      }
-    };
-
-    // Check once on mount, and then every minute
-    checkOrdersToPopup();
-    const intervalId = setInterval(checkOrdersToPopup, 60000);
-
-    return () => clearInterval(intervalId);
-  }, []);
-
-  // Play audio when popup opens
-  useEffect(() => {
-    if (showNewOrderPopup && !isMuted) {
-      if (audioRef.current) {
-        audioRef.current.loop = true;
-        audioRef.current.muted = false;
-        audioRef.current.volume = 1;
-        audioRef.current.currentTime = 0;
-        audioRef.current
-          .play()
-          .catch((err) => debugLog("Audio play failed:", err));
-      }
-    } else if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-    }
-  }, [showNewOrderPopup, isMuted]);
-
-  // Countdown timer
-  useEffect(() => {
-    if (showNewOrderPopup) {
-      if (countdown > 0) {
-        const timer = setInterval(() => {
-          setCountdown((prev) => prev - 1);
-        }, 1000);
-        return () => clearInterval(timer);
-      } else {
-        // Automatically reject when countdown hits 0
-        handleAutoReject();
-      }
-    }
-  }, [showNewOrderPopup, countdown]);
-
-  useEffect(() => {
-    if (!showNewOrderPopup) {
-      setAcceptSwipeProgress(0);
-      setIsAcceptingOrder(false);
-      acceptSwipeActiveRef.current = false;
-      acceptSwipeStartXRef.current = 0;
-    }
-  }, [showNewOrderPopup]);
-
-  useEffect(() => {
-    const handleMouseMove = (event) => {
-      if (acceptSwipeActiveRef.current) {
-        handleAcceptSwipeMove(event.clientX);
-      }
-    };
-
-    const handleTouchMove = (event) => {
-      if (acceptSwipeActiveRef.current && event.touches[0]) {
-        // Prevent page scroll while swiping the slider
-        if (typeof event.preventDefault === "function") event.preventDefault();
-        handleAcceptSwipeMove(event.touches[0].clientX);
-      }
-    };
-
-    const handlePointerEnd = () => {
-      if (acceptSwipeActiveRef.current) {
-        handleAcceptSwipeEnd();
-      }
-    };
-
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handlePointerEnd);
-    // passive: false is required to allow preventDefault() during swipe
-    window.addEventListener("touchmove", handleTouchMove, { passive: false });
-    window.addEventListener("touchend", handlePointerEnd);
-    window.addEventListener("touchcancel", handlePointerEnd);
-
-    return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handlePointerEnd);
-      window.removeEventListener("touchmove", handleTouchMove);
-      window.removeEventListener("touchend", handlePointerEnd);
-      window.removeEventListener("touchcancel", handlePointerEnd);
-    };
-  }, [isAcceptingOrder]);
-
-  // Format countdown time
-  const formatTime = (seconds) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
-  };
-
-  const getAcceptSliderMetrics = () => {
-    const sliderWidth = acceptSliderRef.current?.offsetWidth || 320;
-    const handleWidth = 56;
-    const horizontalPadding = 8;
-    const maxTravel = Math.max(
-      sliderWidth - handleWidth - horizontalPadding * 2,
-      1,
-    );
-    return { maxTravel };
-  };
-
-  const triggerSwipeAccept = () => {
-    if (isAcceptingOrder) return;
-    setAcceptSwipeProgress(1);
-    setTimeout(() => {
-      handleAcceptOrder();
-    }, 160);
-  };
-
-  const handleAcceptSwipeStart = (clientX) => {
-    if (isAcceptingOrder) return;
-    acceptSwipeStartXRef.current = clientX;
-    acceptSwipeActiveRef.current = true;
-  };
-
-  const handleAcceptSwipeMove = (clientX) => {
-    if (!acceptSwipeActiveRef.current || isAcceptingOrder) return;
-    const deltaX = Math.max(clientX - acceptSwipeStartXRef.current, 0);
-    const { maxTravel } = getAcceptSliderMetrics();
-    setAcceptSwipeProgress(Math.min(deltaX / maxTravel, 1));
-  };
-
-  const handleAcceptSwipeEnd = () => {
-    if (!acceptSwipeActiveRef.current || isAcceptingOrder) return;
-    acceptSwipeActiveRef.current = false;
-
-    if (acceptSwipeProgress >= 0.45) {
-      triggerSwipeAccept();
-      return;
-    }
-
-    setAcceptSwipeProgress(0);
-  };
-
-  // Handle auto reject on timeout
-  const handleAutoReject = async () => {
-    const orderToReject = popupOrder || newOrder;
-    if (!orderToReject) return;
-
-    const orderId = orderToReject.orderMongoId || orderToReject.orderId || orderToReject?._id;
-    if (!orderId) return;
-
-    try {
-      // Use a special reason for auto-rejection
-      await restaurantAPI.rejectOrder(orderId, "Order timeout - No response from restaurant");
-      toast.info("Order auto-rejected due to timeout");
-      clearOrderTimer(orderId);
-      requestOrdersRefresh();
-    } catch (error) {
-      debugError("Error auto-rejecting order:", error);
-    } finally {
-      // Clean up UI state regardless of API success
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.currentTime = 0;
-      }
-      setShowRejectPopup(false);
-      setShowNewOrderPopup(false);
-      setPopupOrder(null);
-      clearNewOrder();
-      setRejectReason("");
-      setCountdown(240);
-      setPrepTime(11);
-      setAcceptSwipeProgress(0);
-      setIsAcceptingOrder(false);
-    }
-  };
-
-  // Handle accept order
-  const handleAcceptOrder = async () => {
-    if (isAcceptingOrder) return;
-    setIsAcceptingOrder(true);
-
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-    }
-
-    // Use popupOrder (from Socket.IO or API fallback) or newOrder (from hook)
-    const orderToAccept = popupOrder || newOrder;
-
-    // Ensure this order can't re-trigger fallback popup by using a different id key.
-    markOrderAsShown(orderToAccept);
-
-    // Accept order via API if we have a real order
-    if (orderToAccept?.orderMongoId || orderToAccept?.orderId) {
-      try {
-        const orderId = orderToAccept.orderMongoId || orderToAccept.orderId;
-        const response = await restaurantAPI.acceptOrder(orderId, prepTime);
-        debugLog("? Order accepted:", orderId);
-        toast.success("Order accepted successfully");
-        requestOrdersRefresh();
-      } catch (error) {
-        debugError("? Error accepting order:", error);
-        const errorMessage =
-          error.response?.data?.message ||
-          error.message ||
-          "Failed to accept order. Please try again.";
-
-        // Show specific error message
-        if (error.response?.status === 400) {
-          toast.error(errorMessage);
-        } else if (error.response?.status === 404) {
-          toast.error(
-            "Order not found. It may have been cancelled or already processed.",
-          );
-        } else {
-          toast.error(errorMessage);
-        }
-        setIsAcceptingOrder(false);
-        setAcceptSwipeProgress(0);
-        return;
-      }
-    }
-
-    const orderId = orderToAccept?.orderMongoId || orderToAccept?.orderId || orderToAccept?._id;
-    clearOrderTimer(orderId);
-
-    setShowNewOrderPopup(false);
-    setPopupOrder(null);
-    clearNewOrder();
-    setCountdown(240);
-    setPrepTime(11);
-    setAcceptSwipeProgress(0);
-    setIsAcceptingOrder(false);
-
-    // Note: PreparingOrders component will automatically refresh orders via its own useEffect
-    // No need to manually refresh here as the component polls every 10 seconds
-  };
-
-  // Handle reject order
-  const handleRejectClick = () => {
-    setShowRejectPopup(true);
-  };
-
-  const handleRejectConfirm = async () => {
-    if (!rejectReason) return;
-
-    // Use popupOrder (from Socket.IO or API fallback) or newOrder (from hook)
-    const orderToReject = popupOrder || newOrder;
-
-    // Reject order via API if we have a real order
-    if (orderToReject?.orderMongoId || orderToReject?.orderId) {
-      try {
-        const orderId = orderToReject.orderMongoId || orderToReject.orderId;
-        await restaurantAPI.rejectOrder(orderId, rejectReason);
-        debugLog("? Order rejected:", orderId);
-        requestOrdersRefresh();
-      } catch (error) {
-        debugError("? Error rejecting order:", error);
-        alert("Failed to reject order. Please try again.");
-        return;
-      }
-    }
-
-    const orderId = orderToReject?.orderMongoId || orderToReject?.orderId || orderToReject?._id;
-    clearOrderTimer(orderId);
-
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-    }
-    setShowRejectPopup(false);
-    setShowNewOrderPopup(false);
-    setPopupOrder(null);
-    clearNewOrder();
-    setRejectReason("");
-    setCountdown(240);
-    setPrepTime(11);
-  };
-
-  const handleRejectCancel = () => {
-    setShowRejectPopup(false);
-    setShowNewOrderPopup(false);
-    setPopupOrder(null);
-    clearNewOrder();
-    setRejectReason("");
-    setCountdown(240);
-  };
-
   // Handle cancel order (for preparing orders)
   const handleCancelClick = useCallback((order) => {
     setOrderToCancel(order);
@@ -1655,7 +1059,7 @@ export default function OrdersMain() {
       setOrderToCancel(null);
       setCancelReason("");
     } catch (error) {
-      debugError("? Error cancelling order:", error);
+      debugError("Error cancelling order:", error);
       toast.error(error.response?.data?.message || "Failed to cancel order");
     }
   };
@@ -1664,190 +1068,6 @@ export default function OrdersMain() {
     setShowCancelPopup(false);
     setOrderToCancel(null);
     setCancelReason("");
-  };
-
-  // Toggle mute
-  const toggleMute = () => {
-    setIsMuted(!isMuted);
-    if (audioRef.current) {
-      if (!isMuted) {
-        audioRef.current.pause();
-      } else {
-        audioRef.current.muted = false;
-        audioRef.current.volume = 1;
-        audioRef.current.currentTime = 0;
-        audioRef.current
-          .play()
-          .catch((err) => debugLog("Audio play failed:", err));
-      }
-    }
-  };
-
-  // Handle PDF download
-  const handlePrint = async () => {
-    const orderToPrint = currentPopupOrder;
-    if (!orderToPrint) {
-      debugWarn("No order data available for PDF generation");
-      return;
-    }
-
-    try {
-      // Create new PDF document
-      const doc = new jsPDF();
-
-      // Set font
-      doc.setFont("helvetica", "bold");
-
-      // Header
-      doc.setFontSize(20);
-      doc.text("Order Receipt", 105, 20, { align: "center" });
-
-      // Restaurant name
-      doc.setFontSize(14);
-      doc.setFont("helvetica", "normal");
-      doc.text(orderToPrint.restaurantName || "Restaurant", 105, 30, {
-        align: "center",
-      });
-
-      // Order details
-      doc.setFontSize(10);
-      doc.setFont("helvetica", "bold");
-      doc.text(`Order ID: ${orderToPrint.orderId || "N/A"}`, 20, 45);
-      doc.setFont("helvetica", "normal");
-
-      const orderDate = orderToPrint.createdAt
-        ? new Date(orderToPrint.createdAt).toLocaleString("en-GB", {
-          day: "numeric",
-          month: "short",
-          year: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-        })
-        : new Date().toLocaleString("en-GB");
-
-      doc.text(`Date: ${orderDate}`, 20, 52);
-
-      // Customer address
-      if (orderToPrint.customerAddress) {
-        doc.setFont("helvetica", "bold");
-        doc.text("Delivery Address:", 20, 62);
-        doc.setFont("helvetica", "normal");
-        const addressText =
-          [
-            orderToPrint.customerAddress.street,
-            orderToPrint.customerAddress.city,
-            orderToPrint.customerAddress.state,
-          ]
-            .filter(Boolean)
-            .join(", ") || "Address not available";
-        const addressLines = doc.splitTextToSize(addressText, 170);
-        doc.text(addressLines, 20, 69);
-      }
-
-      // Items table
-      let yPos = 85;
-      const printableItems = getRestaurantVisibleItems(orderToPrint.items);
-      if (printableItems.length > 0) {
-        doc.setFont("helvetica", "bold");
-        doc.text("Items:", 20, yPos);
-        yPos += 8;
-
-        // Prepare table data
-        const tableData = printableItems.map((item) => [
-          item.name || "Item",
-          item.quantity || 1,
-          `₹${(item.price || 0).toFixed(2)}`,
-          `₹${((item.price || 0) * (item.quantity || 1)).toFixed(2)}`,
-        ]);
-
-        autoTable(doc, {
-          startY: yPos,
-          head: [["Item", "Qty", "Price", "Total"]],
-          body: tableData,
-          theme: "striped",
-          headStyles: {
-            fillColor: [0, 0, 0],
-            textColor: 255,
-            fontStyle: "bold",
-          },
-          styles: { fontSize: 9 },
-          columnStyles: {
-            0: { cellWidth: 80 },
-            1: { cellWidth: 30, halign: "center" },
-            2: { cellWidth: 35, halign: "right" },
-            3: { cellWidth: 35, halign: "right" },
-          },
-        });
-
-        yPos = doc.lastAutoTable.finalY + 10;
-      }
-
-      // Total
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(12);
-      doc.text(`Total: ₹${(orderToPrint.total || 0).toFixed(2)}`, 20, yPos);
-
-      // Payment status
-      yPos += 10;
-      doc.setFontSize(10);
-      doc.setFont("helvetica", "normal");
-      doc.text(
-        `Payment Status: ${orderToPrint.status === "confirmed" ? "Paid" : "Pending"}`,
-        20,
-        yPos,
-      );
-
-      // Estimated delivery time
-      if (orderToPrint.estimatedDeliveryTime) {
-        yPos += 8;
-        doc.text(
-          `Estimated Delivery: ${orderToPrint.estimatedDeliveryTime} minutes`,
-          20,
-          yPos,
-        );
-      }
-
-      // Notes
-      if (orderToPrint.note) {
-        yPos += 10;
-        doc.setFont("helvetica", "bold");
-        doc.text("Note:", 20, yPos);
-        doc.setFont("helvetica", "normal");
-        const noteLines = doc.splitTextToSize(orderToPrint.note, 170);
-        doc.text(noteLines, 20, yPos + 7);
-      }
-
-      // Cutlery preference
-      yPos += 15;
-      doc.setFont("helvetica", "normal");
-      doc.text(
-        orderToPrint.sendCutlery === false
-          ? "? Don't send cutlery"
-          : "? Send cutlery requested",
-        20,
-        yPos,
-      );
-
-      // Footer
-      const pageHeight = doc.internal.pageSize.height;
-      doc.setFontSize(8);
-      doc.setFont("helvetica", "italic");
-      doc.text(
-        `Generated on ${new Date().toLocaleString("en-GB")}`,
-        105,
-        pageHeight - 10,
-        { align: "center" },
-      );
-
-      // Download PDF
-      const fileName = `Order-${orderToPrint.orderId || "Receipt"}-${Date.now()}.pdf`;
-      doc.save(fileName);
-
-      debugLog("? PDF generated successfully:", fileName);
-    } catch (error) {
-      debugError("? Error generating PDF:", error);
-      alert("Failed to generate PDF. Please try again.");
-    }
   };
 
   // Handle swipe gestures with smooth animations
@@ -1965,6 +1185,7 @@ export default function OrdersMain() {
           <AllOrders
             onSelectOrder={handleSelectOrder}
             onCancel={handleCancelClick}
+            refreshToken={ordersRefreshToken}
           />
         );
       case "preparing":
@@ -2018,12 +1239,8 @@ export default function OrdersMain() {
     }
   };
 
-  const currentPopupOrder = popupOrder || newOrder;
-  const popupVisibleItems = getRestaurantVisibleItems(currentPopupOrder?.items);
-  const popupPrimaryItem = popupVisibleItems[0] || null;
-
   return (
-    <RestaurantPageShell title="Live Orders" flush maxWidth="full" contentClassName="flex flex-col">
+    <RestaurantPageShell title="Live Orders" flush maxWidth="full">
       {/* Top Filter Bar */}
       <div className="sticky top-0 z-40 pb-2 bg-gray-50 dark:bg-[#0a0a0a] px-3 sm:px-4">
         <div
@@ -2083,10 +1300,10 @@ export default function OrdersMain() {
         </div>
       </div>
 
-      {/* Content Area - Scrollable */}
+      {/* Content Area — scrolls via RestaurantLayout <main> */}
       <div
         ref={contentRef}
-        className="flex-1 overflow-y-auto px-4 pb-24 content-scroll"
+        className="px-4 pb-24"
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
@@ -2149,16 +1366,6 @@ export default function OrdersMain() {
           isMouseDown.current = false;
           isSwiping.current = false;
         }}>
-        <style>{`
-          .content-scroll {
-            scrollbar-width: none;
-            -ms-overflow-style: none;
-          }
-          .content-scroll::-webkit-scrollbar {
-            display: none;
-          }
-        `}</style>
-
         {/* Verification Pending Card - Show if onboarding is complete (all 4 steps) and restaurant is not active */}
         {!restaurantStatus.isLoading &&
           !restaurantStatus.isActive &&
@@ -2251,359 +1458,6 @@ export default function OrdersMain() {
           </motion.div>
         </AnimatePresence>
       </div>
-
-      {/* Audio element */}
-      <audio
-        ref={audioRef}
-        src={notificationSound}
-        preload="auto"
-        aria-label="New order notification sound"
-      />
-
-      {/* New Order Popup */}
-      <AnimatePresence>
-        {showNewOrderPopup && (
-          <>
-            <motion.div
-              className="fixed inset-0 z-[200] bg-black/60 flex items-end sm:items-center justify-center p-0 sm:p-4"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}>
-              <motion.div
-                className="w-full max-w-lg max-h-[90vh] bg-white rounded-t-[2.5rem] sm:rounded-[2.5rem] shadow-[0_-20px_60px_rgba(0,0,0,0.5)] overflow-hidden flex flex-col"
-                initial={{ y: "100%" }}
-                animate={{ y: 0 }}
-                exit={{ y: "100%" }}
-                transition={{ type: "spring", damping: 25, stiffness: 200 }}
-                onClick={(e) => e.stopPropagation()}>
-                {/* Header Ribbon */}
-                <div className="bg-[#FF6A00] px-5 py-4 flex justify-between items-center text-white border-b border-red-600/20">
-                  <div>
-                    <p className="text-white/90 text-[10px] font-bold uppercase tracking-widest mb-0.5">
-                      Incoming Order
-                    </p>
-                    <h3 className="text-xl font-bold text-white tracking-tight">
-                      {currentPopupOrder?.orderId || "#Order"}
-                    </h3>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={handlePrint}
-                      className="p-2 hover:bg-white/20 active:scale-95 rounded-full transition-all"
-                      aria-label="Print">
-                      <Printer className="w-5 h-5 text-white" />
-                    </button>
-                    <button
-                      onClick={toggleMute}
-                      className="p-2 hover:bg-white/20 active:scale-95 rounded-full transition-all"
-                      aria-label={isMuted ? "Unmute" : "Mute"}>
-                      {isMuted ? (
-                        <VolumeX className="w-5 h-5 text-white" />
-                      ) : (
-                        <Volume2 className="w-5 h-5 text-white" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Content */}
-                <div className="px-4 pt-4 pb-3 flex-1 overflow-y-auto min-h-0 bg-gray-50 space-y-3">
-                  {/* Scheduled Indicator */}
-                  {currentPopupOrder?.scheduledAt && (
-                    <div className="bg-green-50 border border-green-200 rounded-xl p-3 flex items-center gap-3 shadow-sm">
-                      <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center shrink-0">
-                        <Calendar className="w-4 h-4 text-green-600" />
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-bold text-[#FF6A00] uppercase tracking-wider">
-                          Scheduled Order
-                        </p>
-                        <p className="text-sm font-bold text-[#FF6A00]">
-                          For{" "}
-                          {new Date(
-                            currentPopupOrder.scheduledAt,
-                          ).toLocaleString("en-US", {
-                            day: "numeric",
-                            month: "short",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                            hour12: true,
-                          })}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Customer info & Details */}
-                  <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-                    <div className="p-3 border-b border-gray-100 flex justify-between items-center">
-                      <div>
-                        <h4 className="text-base font-bold text-gray-900 tracking-tight">
-                          {popupPrimaryItem?.name || "New Order"}
-                        </h4>
-                        <p className="text-[11px] text-gray-500 mt-0.5">
-                          {currentPopupOrder?.createdAt
-                            ? new Date(
-                              currentPopupOrder.createdAt,
-                            ).toLocaleString("en-GB", {
-                              day: "numeric",
-                              month: "short",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })
-                            : "Just now"}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <span className="block text-xs font-medium text-gray-500">
-                          {popupVisibleItems.length || 0} item
-                          {popupVisibleItems.length !== 1 ? "s" : ""}
-                        </span>
-                      </div>
-                    </div>
-
-                    <button
-                      onClick={() => setIsDetailsExpanded(!isDetailsExpanded)}
-                      className="w-full flex items-center justify-center py-2 bg-gray-50/50 hover:bg-gray-50 transition-colors">
-                      <span className="text-xs font-semibold text-gray-600 mr-1">
-                        {isDetailsExpanded ? "Hide Details" : "View Details"}
-                      </span>
-                      {isDetailsExpanded ? (
-                        <ChevronUp className="w-3.5 h-3.5 text-gray-500" />
-                      ) : (
-                        <ChevronDown className="w-3.5 h-3.5 text-gray-500" />
-                      )}
-                    </button>
-
-                    <AnimatePresence>
-                      {isDetailsExpanded && (
-                        <motion.div
-                          initial={{ height: 0, opacity: 0 }}
-                          animate={{ height: "auto", opacity: 1 }}
-                          exit={{ height: 0, opacity: 0 }}
-                          transition={{ duration: 0.2 }}
-                          className="overflow-hidden bg-gray-50/30">
-                          <div className="px-3 py-3 space-y-2 border-t border-gray-100">
-                            {popupVisibleItems.length > 0 ? popupVisibleItems.map(
-                              (item, index) => (
-                                <div
-                                  key={index}
-                                  className="flex items-start gap-2">
-                                  <div
-                                    className={`w-2.5 h-2.5 rounded-full mt-1 shrink-0 ${item.isVeg ? "bg-green-500" : "bg-red-500"}`}></div>
-                                  <div className="flex-1">
-                                    <div className="flex items-start justify-between">
-                                      <p className="text-xs font-semibold text-gray-900 leading-snug">
-                                        {item.quantity} × {item.name}
-                                      </p>
-                                      <p className="text-xs font-bold text-gray-900 ml-2 shrink-0">
-                                        ₹{item.price * item.quantity}
-                                      </p>
-                                    </div>
-                                  </div>
-                                </div>
-                              ),
-                            ) : (
-                              <p className="text-xs text-gray-500 text-center">No items</p>
-                            )}
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-
-                  {/* Order Summary & Settings Card */}
-                  <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
-                    {/* Cutlery preference & Payment */}
-                    <div className="flex items-center justify-between p-3 border-b border-gray-100">
-                      <div className="flex items-center gap-2">
-                        <Utensils className={`w-4 h-4 ${(popupOrder || newOrder)?.sendCutlery === false ? "text-red-500" : "text-gray-400"}`} />
-                        <span className={`text-[11px] font-bold uppercase tracking-wider ${(popupOrder || newOrder)?.sendCutlery === false ? "text-red-600" : "text-gray-600"}`}>
-                          {(popupOrder || newOrder)?.sendCutlery === false ? "No Cutlery" : "Send Cutlery"}
-                        </span>
-                      </div>
-                      {(() => {
-                        const raw = (popupOrder || newOrder)?.paymentMethod || (popupOrder || newOrder)?.payment?.method;
-                        const m = raw != null ? String(raw).toLowerCase().trim() : "";
-                        const isCod = m === "cash" || m === "cod";
-                        return (
-                          <span className={`px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded border ${isCod ? "bg-amber-50 text-amber-600 border-amber-200" : "bg-green-50 text-green-600 border-green-200"}`}>
-                            {isCod ? "COD" : "Paid"}
-                          </span>
-                        );
-                      })()}
-                    </div>
-
-                    {/* Prep Time Row */}
-                    <div className="flex items-center justify-between p-3 border-b border-gray-100">
-                      <div className="flex items-center gap-2">
-                        <Clock className="w-4 h-4 text-gray-400" />
-                        <div>
-                          <span className="text-sm font-semibold text-gray-700 block">
-                            Estimated Preparation Time
-                          </span>
-                          <span className="text-[10px] text-gray-400">
-                            1–180 minutes
-                          </span>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 bg-gray-50 p-1 rounded-lg border border-gray-100">
-                        <button
-                          type="button"
-                          onClick={() => setPrepTime((t) => Math.max(1, t - 1))}
-                          className="w-7 h-7 flex items-center justify-center bg-white hover:bg-gray-100 rounded shadow-sm transition-colors active:scale-95">
-                          <Minus className="w-3.5 h-3.5 text-gray-700" />
-                        </button>
-                        <input
-                          type="number"
-                          min={1}
-                          max={180}
-                          value={prepTime}
-                          onChange={(e) => {
-                            const n = Number(e.target.value);
-                            if (!Number.isFinite(n)) return;
-                            setPrepTime(Math.min(180, Math.max(1, Math.round(n))));
-                          }}
-                          className="text-sm font-bold text-gray-900 w-12 text-center bg-transparent outline-none"
-                        />
-                        <span className="text-xs font-semibold text-gray-500 pr-1">min</span>
-                        <button
-                          type="button"
-                          onClick={() => setPrepTime((t) => Math.min(180, t + 1))}
-                          className="w-7 h-7 flex items-center justify-center bg-white hover:bg-gray-100 rounded shadow-sm transition-colors active:scale-95">
-                          <Plus className="w-3.5 h-3.5 text-gray-700" />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Total bill */}
-                    <div className="flex items-center justify-between p-3 bg-gray-50/50 rounded-b-xl">
-                      <span className="text-sm font-bold text-gray-900">
-                        Total Bill
-                      </span>
-                      <span className="text-lg font-black text-gray-900">
-                        ₹{getPopupOrderTotal(popupOrder || newOrder)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="p-4 border-t border-gray-100 bg-white">
-                  <div className="space-y-3">
-                    <ActionSlider
-                      label={isAcceptingOrder ? "Accepting..." : `Slide to accept (${formatTime(countdown)})`}
-                      lockedLabel="Accepting..."
-                      onConfirm={handleAcceptOrder}
-                      disabled={isAcceptingOrder}
-                      color="bg-[#FF6A00]"
-                      successLabel="Accepted ✓"
-                      timeProgress={(countdown / 240) * 100}
-                    />
-
-                    <button
-                      onClick={handleRejectClick}
-                      disabled={isAcceptingOrder}
-                      className="w-full py-3 bg-white border border-[#FF6A00]/20 text-[#FF6A00] rounded-xl font-bold text-sm hover:bg-red-50 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
-                      Reject Order
-                    </button>
-                  </div>
-                </div>
-              </motion.div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
-
-      {/* Reject Order Popup */}
-      <AnimatePresence>
-        {showRejectPopup && (
-          <>
-            <motion.div
-              className="fixed inset-0 z-[70] bg-black/60 flex items-center justify-center p-4"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={handleRejectCancel}>
-              <motion.div
-                className="w-[95%] max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden"
-                initial={{ scale: 0.9, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.9, opacity: 0 }}
-                transition={{ type: "spring", damping: 25, stiffness: 300 }}
-                onClick={(e) => e.stopPropagation()}>
-                {/* Header */}
-                <div className="px-4 py-4 border-b border-gray-200">
-                  <h3 className="text-lg font-bold text-gray-900">
-                    Reject Order {(popupOrder || newOrder)?.orderId || "#Order"}
-                  </h3>
-                  <p className="text-sm text-gray-500 mt-1">
-                    Please select a reason for rejecting this order
-                  </p>
-                </div>
-
-                {/* Content */}
-                <div className="px-4 py-4 max-h-[60vh] overflow-y-auto">
-                  <div className="space-y-2">
-                    {rejectReasons.map((reason) => (
-                      <button
-                        key={reason}
-                        onClick={() => setRejectReason(reason)}
-                        className={`w-full text-left p-4 rounded-lg border-2 transition-all ${rejectReason === reason
-                          ? "border-black bg-black/5"
-                          : "border-gray-200 bg-white hover:border-gray-300"
-                          }`}>
-                        <div className="flex items-center justify-between">
-                          <span
-                            className={`text-sm font-medium ${rejectReason === reason
-                              ? "text-black"
-                              : "text-gray-900"
-                              }`}>
-                            {reason}
-                          </span>
-                          {rejectReason === reason && (
-                            <div className="w-5 h-5 rounded-full bg-black flex items-center justify-center">
-                              <svg
-                                className="w-3 h-3 text-white"
-                                fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24">
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  strokeWidth={3}
-                                  d="M5 13l4 4L19 7"
-                                />
-                              </svg>
-                            </div>
-                          )}
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Footer */}
-                <div className="px-4 py-4 bg-gray-50 border-t border-gray-200 flex gap-3">
-                  <button
-                    onClick={handleRejectCancel}
-                    className="flex-1 bg-white border-2 border-gray-300 text-gray-700 py-3 rounded-lg font-semibold text-sm hover:bg-gray-50 transition-colors">
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleRejectConfirm}
-                    disabled={!rejectReason}
-                    className={`flex-1 py-3 rounded-lg font-semibold text-sm transition-colors ${rejectReason
-                      ? "!bg-black !text-white"
-                      : "bg-gray-200 text-gray-400 cursor-not-allowed"
-                      }`}>
-                    Confirm Rejection
-                  </button>
-                </div>
-              </motion.div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
 
       {/* Cancel Order Popup */}
       <AnimatePresence>

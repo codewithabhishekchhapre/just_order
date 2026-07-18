@@ -70,6 +70,7 @@ import {
   clampPreparationTimeMinutes,
   maxPreparationTimeMinutes,
   emitPreparationTimeUpdate,
+  buildDeliverySocketPayload,
 } from './order.helpers.js';
 
 export {
@@ -1176,71 +1177,6 @@ async function applyAggregateRating(model, entityId, newRating) {
 /** Append-only food_order_payments row; never blocks main flow on failure */
 // 🗑️ Deprecated in favor of FoodTransaction system.
 
-function buildDeliverySocketPayload(orderDoc, restaurantDoc = null) {
-  const order = orderDoc?.toObject ? orderDoc.toObject() : orderDoc || {};
-  const restaurant = restaurantDoc || order?.restaurantId || null;
-  const restaurantLocation = restaurant?.location || {};
-  const pickupPoints = Array.isArray(order?.pickupPoints) ? order.pickupPoints : [];
-
-  return {
-    orderMongoId:
-      orderDoc?._id?.toString?.() || order?._id?.toString?.() || order?._id,
-    orderId: order?.orderId,
-    orderType: order?.orderType || "food",
-    status: orderDoc?.orderStatus || order?.orderStatus,
-    items: order?.items || [],
-    pickupPoints,
-    pricing: order?.pricing,
-    total: order?.pricing?.total,
-    payment: order?.payment,
-    paymentMethod: order?.payment?.method,
-    restaurantId:
-      order?.restaurantId?._id?.toString?.() ||
-      order?.restaurantId?.toString?.() ||
-      order?.restaurantId,
-    restaurantName: restaurant?.restaurantName || order?.restaurantName,
-    restaurantAddress:
-      restaurantLocation?.address ||
-      restaurantLocation?.formattedAddress ||
-      restaurant?.addressLine1 ||
-      "",
-    restaurantPhone: restaurant?.phone || "",
-    restaurantLocation: {
-      latitude:
-        restaurantLocation?.latitude ||
-        (Array.isArray(restaurantLocation?.coordinates)
-          ? restaurantLocation.coordinates[1]
-          : undefined),
-      longitude:
-        restaurantLocation?.longitude ||
-        (Array.isArray(restaurantLocation?.coordinates)
-          ? restaurantLocation.coordinates[0]
-          : undefined),
-      address:
-        restaurantLocation?.address ||
-        restaurantLocation?.formattedAddress ||
-        restaurant?.addressLine1 ||
-        "",
-      area: restaurantLocation?.area || restaurant?.area || "",
-      city: restaurantLocation?.city || restaurant?.city || "",
-      state: restaurantLocation?.state || restaurant?.state || "",
-    },
-    deliveryAddress: order?.deliveryAddress,
-    customerAddress: order?.deliveryAddress?.formattedAddress || order?.deliveryAddress?.addressLine1 || "",
-    customerName: order?.userId?.name || order?.customerName || "",
-    customerPhone: order?.userId?.phone || order?.deliveryAddress?.phone || "",
-    userName: order?.userId?.name || order?.customerName || "",
-    userPhone: order?.userId?.phone || order?.deliveryAddress?.phone || "",
-    riderEarning: order?.riderEarning || 0,
-    earnings: order?.riderEarning || order?.pricing?.deliveryFee || 0,
-    deliveryFee: order?.pricing?.deliveryFee || 0,
-    deliveryFleet: order?.deliveryFleet,
-    dispatch: order?.dispatch,
-    createdAt: order?.createdAt,
-    updatedAt: order?.updatedAt,
-  };
-}
-
 function buildSplitLegSocketPayload(orderDoc, leg, restaurantDoc = null) {
   const basePayload = buildDeliverySocketPayload(orderDoc, restaurantDoc);
   const legId = String(leg?.legId || "");
@@ -1326,6 +1262,119 @@ async function notifyRestaurantNewOrder(orderDoc) {
         ...orderDoc.toObject(),
         orderMongoId: orderDoc._id?.toString?.() || undefined,
       };
+
+      // Ensure popup can show customer + phone even when userId is an ObjectId.
+      const hasCustomerName = Boolean(
+        String(payload.customerName || payload.userName || payload.userId?.name || "").trim(),
+      );
+      const hasCustomerPhone = Boolean(
+        String(
+          payload.customerPhone ||
+            payload.userPhone ||
+            payload.userId?.phone ||
+            payload.deliveryAddress?.phone ||
+            "",
+        ).trim(),
+      );
+
+      if ((!hasCustomerName || !hasCustomerPhone) && orderDoc.userId) {
+        try {
+          let user = null;
+          if (
+            orderDoc.userId &&
+            typeof orderDoc.userId === "object" &&
+            (orderDoc.userId.name || orderDoc.userId.phone)
+          ) {
+            user = orderDoc.userId;
+          } else {
+            user = await FoodUser.findById(orderDoc.userId)
+              .select("name phone")
+              .lean();
+          }
+          if (user) {
+            if (!hasCustomerName) {
+              payload.customerName = user.name || "";
+              payload.userName = user.name || "";
+            }
+            if (!hasCustomerPhone) {
+              payload.customerPhone = user.phone || "";
+              payload.userPhone = user.phone || "";
+            }
+            if (!payload.userId || typeof payload.userId !== "object") {
+              payload.userId = {
+                _id: user._id || orderDoc.userId,
+                name: user.name || "",
+                phone: user.phone || "",
+              };
+            }
+          }
+        } catch {
+          // Non-blocking enrichment.
+        }
+      }
+
+      // Restaurant / outlet display names for the incoming popup.
+      try {
+        if (orderDoc.restaurantId) {
+          const restaurant = await FoodRestaurant.findById(orderDoc.restaurantId)
+            .select("restaurantName")
+            .lean();
+          if (restaurant?.restaurantName) {
+            payload.restaurantName = restaurant.restaurantName;
+            payload.outletName = restaurant.restaurantName;
+          }
+        }
+      } catch {
+        // Non-blocking.
+      }
+
+      // Delivery partner details when already assigned at notify time.
+      try {
+        const partnerId =
+          orderDoc.dispatch?.deliveryPartnerId ||
+          orderDoc.dispatchPlan?.legs?.[0]?.deliveryPartnerId ||
+          null;
+        if (partnerId) {
+          let partner = null;
+          if (
+            typeof partnerId === "object" &&
+            (partnerId.name || partnerId.phone)
+          ) {
+            partner = partnerId;
+          } else {
+            partner = await Driver.findById(partnerId)
+              .select("name phone status")
+              .lean();
+          }
+          if (partner) {
+            payload.deliveryPartner = {
+              _id: partner._id || partnerId,
+              name: partner.name || "",
+              phone: partner.phone || "",
+              status: partner.status || orderDoc.dispatch?.status || "",
+            };
+            payload.driverName = partner.name || "";
+            payload.driverPhone = partner.phone || "";
+            payload.driverStatus = partner.status || orderDoc.dispatch?.status || "";
+          }
+        }
+      } catch {
+        // Non-blocking.
+      }
+
+      // Accepted timestamp from status history (if already accepted somehow).
+      const history = Array.isArray(payload.statusHistory) ? payload.statusHistory : [];
+      const acceptedEntry = [...history]
+        .reverse()
+        .find((h) =>
+          ["preparing", "accepted", "confirmed"].includes(
+            String(h?.to || "").toLowerCase(),
+          ),
+        );
+      if (acceptedEntry?.at) {
+        payload.acceptedAt = acceptedEntry.at;
+      }
+
       io.to(rooms.restaurant(orderDoc.restaurantId)).emit("new_order", payload);
       io.to(rooms.restaurant(orderDoc.restaurantId)).emit(
         "play_notification_sound",
@@ -2804,12 +2853,21 @@ export async function createOrder(userId, dto) {
 
   let razorpayPayload = null;
 
-  if (paymentMethod === "razorpay" && isRazorpayConfigured()) {
+  if (paymentMethod === "razorpay") {
+    if (!isRazorpayConfigured()) {
+      throw new ValidationError(
+        "Online payment is temporarily unavailable. Please use Cash or Wallet, or try again later.",
+      );
+    }
     const amountPaise = Math.round((normalizedPricing.total ?? 0) * 100);
     if (amountPaise < 100)
       throw new ValidationError("Amount too low for online payment");
     try {
-      const rzOrder = await createRazorpayOrder(amountPaise, "INR", orderId);
+      const rzOrder = await createRazorpayOrder(amountPaise, "INR", orderId, {
+        type: "food_order",
+        orderId: String(orderId),
+        userId: String(userId),
+      });
       order.payment.razorpay = {
         orderId: rzOrder.id,
         paymentId: "",
@@ -3178,6 +3236,11 @@ export async function retryOnlinePayment(userId, orderId) {
       amountPaise,
       order.pricing?.currency || "INR",
       order.orderId,
+      {
+        type: "food_order",
+        orderId: String(order.orderId),
+        userId: String(userId),
+      },
     );
 
     claim.payment.razorpay = {
@@ -3221,8 +3284,20 @@ export async function verifyPayment(userId, dto) {
   if (order.payment.status === "paid")
     return { order: order.toObject(), payment: order.payment };
 
+  const storedRzOrderId = String(order.payment?.razorpay?.orderId || "").trim();
+  const dtoRzOrderId = String(dto.razorpayOrderId || "").trim();
+  if (!storedRzOrderId) {
+    throw new ValidationError("Order has no Razorpay payment session. Please retry payment.");
+  }
+  if (dtoRzOrderId !== storedRzOrderId) {
+    throw new ValidationError("Payment does not match this order. Please retry payment.");
+  }
+  if (!dto.razorpayPaymentId || !dto.razorpaySignature) {
+    throw new ValidationError("Incomplete payment response. Please retry payment.");
+  }
+
   const valid = verifyPaymentSignature(
-    dto.razorpayOrderId,
+    storedRzOrderId,
     dto.razorpayPaymentId,
     dto.razorpaySignature,
   );
@@ -3243,9 +3318,7 @@ export async function verifyPayment(userId, dto) {
   order.payment.status = "paid";
   order.payment.razorpay.paymentId = dto.razorpayPaymentId;
   order.payment.razorpay.signature = dto.razorpaySignature;
-  if (dto.razorpayOrderId) {
-    order.payment.razorpay.orderId = dto.razorpayOrderId;
-  }
+  order.payment.razorpay.orderId = storedRzOrderId;
   order.payment.retryInProgress = false;
   pushStatusHistory(order, {
     byRole: "USER",
@@ -3256,35 +3329,68 @@ export async function verifyPayment(userId, dto) {
   });
   await order.save();
 
-  try {
-    await consumeCouponForOrder(order);
-  } catch (err) {
-    logger.warn(`Coupon consume failed after verifyPayment for ${order.orderId}: ${err?.message || err}`);
-  }
-
-  if (order.orderType === "food" || order.orderType === "mixed") {
-    try {
-      await clearFoodCart(userId);
-    } catch (err) {
-      logger.warn(`Food cart clear failed after verifyPayment for ${order.orderId}: ${err?.message || err}`);
-    }
-  }
-
-  await foodTransactionService.updateTransactionStatus(order._id, 'captured', {
-    status: 'captured',
+  await finalizePaidOnlineOrder(order, {
     razorpayPaymentId: dto.razorpayPaymentId,
     razorpaySignature: dto.razorpaySignature,
     recordedByRole: "USER",
-    recordedById: new mongoose.Types.ObjectId(userId)
+    recordedById: new mongoose.Types.ObjectId(userId),
+    clearCart: true,
+    notifyCustomer: true,
+    source: "client_verify",
   });
 
-  // After online payment is verified, now notify restaurant about the new order.
+  return { order: order.toObject(), payment: order.payment };
+}
+
+/**
+ * Shared post-payment finalization for client verify + Razorpay webhook.
+ * Idempotent side-effects (coupon/ledger/notify) are best-effort and logged on failure.
+ */
+export async function finalizePaidOnlineOrder(order, meta = {}) {
+  if (!order) return;
+
+  try {
+    await consumeCouponForOrder(order);
+  } catch (err) {
+    logger.warn(`Coupon consume failed after payment for ${order.orderId}: ${err?.message || err}`);
+  }
+
+  if (meta.clearCart && (order.orderType === "food" || order.orderType === "mixed")) {
+    try {
+      await clearFoodCart(order.userId);
+    } catch (err) {
+      logger.warn(`Food cart clear failed after payment for ${order.orderId}: ${err?.message || err}`);
+    }
+  }
+
+  try {
+    await foodTransactionService.updateTransactionStatus(order._id, "captured", {
+      status: "captured",
+      razorpayPaymentId: meta.razorpayPaymentId,
+      razorpaySignature: meta.razorpaySignature || "webhook_verified",
+      recordedByRole: meta.recordedByRole || "SYSTEM",
+      recordedById: meta.recordedById || null,
+      note: meta.source ? `Payment finalized via ${meta.source}` : undefined,
+    });
+  } catch (err) {
+    logger.warn(`Ledger capture failed after payment for ${order.orderId}: ${err?.message || err}`);
+  }
+
+  // After online payment is verified, notify restaurant / sellers about the new order.
   if (order.orderType === "food" || order.orderType === "mixed") {
-    await notifyRestaurantNewOrder(order);
+    try {
+      await notifyRestaurantNewOrder(order);
+    } catch (err) {
+      logger.warn(`Restaurant notify failed after payment for ${order.orderId}: ${err?.message || err}`);
+    }
   }
   if (order.orderType === "quick" || order.orderType === "mixed") {
-    const sellerOrders = await upsertSellerOrdersForParent(order);
-    await notifySellerNewOrders(order, sellerOrders);
+    try {
+      const sellerOrders = await upsertSellerOrdersForParent(order);
+      await notifySellerNewOrders(order, sellerOrders);
+    } catch (err) {
+      logger.warn(`Seller notify failed after payment for ${order.orderId}: ${err?.message || err}`);
+    }
   }
 
   // Schedule delayed notification if it's a scheduled order and payment is now verified
@@ -3298,21 +3404,26 @@ export async function verifyPayment(userId, dto) {
       orderId: order.orderId,
       orderMongoId: order._id.toString(),
     }, { delay });
-    
+
     logger.info(`Scheduled notification for verified order ${order.orderId} with delay of ${delay}ms`);
   }
 
-  // Notify Customer about payment success
-  await notifyOwnersSafely([{ ownerType: "USER", ownerId: userId }], {
-    title: "Payment Successful! ✅",
-    body: `We have received your payment of ₹${order.payment.amountDue} for Order #${order.orderId}.`,
-    image: "https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png",
-    data: {
-      type: "payment_success",
-      orderId: String(order.orderId),
-      orderMongoId: String(order._id),
-    },
-  });
+  if (meta.notifyCustomer && order.userId) {
+    try {
+      await notifyOwnersSafely([{ ownerType: "USER", ownerId: order.userId }], {
+        title: "Payment Successful! ✅",
+        body: `We have received your payment of ₹${order.payment.amountDue} for Order #${order.orderId}.`,
+        image: "https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png",
+        data: {
+          type: "payment_success",
+          orderId: String(order.orderId),
+          orderMongoId: String(order._id),
+        },
+      });
+    } catch (err) {
+      logger.warn(`Customer notify failed after payment for ${order.orderId}: ${err?.message || err}`);
+    }
+  }
 
   const settings =
     order.orderType === "food" ||
@@ -3324,8 +3435,6 @@ export async function verifyPayment(userId, dto) {
       await tryAutoAssign(order._id);
     } catch {}
   }
-
-  return { order: order.toObject(), payment: order.payment };
 }
 
 // ----- Auto-assign -----
@@ -3842,11 +3951,25 @@ export async function updateOrderStatusRestaurant(
       console.log(
         `[DEBUG] Emitting status update to restaurant ${restaurantId} and user ${order.userId}: ${orderStatus}`,
       );
+      const prepMins = Number(order.preparationTime);
+      const prepStarted =
+        [...(order.statusHistory || [])]
+          .reverse()
+          .find((entry) => {
+            const to = String(entry?.to || "").toLowerCase();
+            return to === "preparing" || to === "confirmed";
+          })?.at || order.updatedAt || order.createdAt;
       const payload = {
         orderMongoId: order._id?.toString?.(),
         orderId: order.orderId,
         orderStatus: order.orderStatus,
+        status: order.orderStatus,
         preparationTime: order.preparationTime,
+        preparationStartedAt: prepStarted || null,
+        expectedReadyAt:
+          Number.isFinite(prepMins) && prepMins > 0 && prepStarted
+            ? new Date(new Date(prepStarted).getTime() + prepMins * 60 * 1000).toISOString()
+            : null,
         title: `Order ${order.orderId} updated`,
         message: `Status changed to ${String(orderStatus).replace(/_/g, " ")}`,
       };
@@ -3858,6 +3981,15 @@ export async function updateOrderStatusRestaurant(
       const assignedRiderId = order.dispatch?.deliveryPartnerId;
       if (assignedRiderId) {
         io.to(rooms.delivery(assignedRiderId)).emit("order_status_update", payload);
+      }
+      // Keep open offer popups in sync (prep countdown / ready / delayed).
+      const offered = Array.isArray(order.dispatch?.offeredTo)
+        ? order.dispatch.offeredTo
+        : [];
+      for (const offer of offered) {
+        const partnerId = offer?.partnerId?.toString?.() || offer?.partnerId;
+        if (!partnerId || String(partnerId) === String(assignedRiderId || "")) continue;
+        io.to(rooms.delivery(partnerId)).emit("order_status_update", payload);
       }
     }
 
@@ -3981,7 +4113,7 @@ export async function updateOrderStatusRestaurant(
         }
 
         const restaurant = await FoodRestaurant.findById(order.restaurantId)
-          .select("restaurantName location addressLine1 area city state")
+          .select("restaurantName shopName outletName branchName phone ownerPhone contactPhone location addressLine1 area city state")
           .lean();
         const payload = buildDeliverySocketPayload(order, restaurant);
 

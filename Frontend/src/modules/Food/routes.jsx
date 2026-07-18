@@ -6,8 +6,6 @@ import AuthRedirect from "@food/components/AuthRedirect"
 import Loader from "@food/components/Loader"
 import PushSoundEnableButton from "@food/components/PushSoundEnableButton"
 import { registerWebPushForCurrentModule } from "@food/utils/firebaseMessaging"
-import { isModuleAuthenticated } from "@food/utils/auth"
-import { useRestaurantNotifications } from "@food/hooks/useRestaurantNotifications"
 
 // Lazy Loading Components
 const UserRouter = lazy(() => import("@food/components/user/UserRouter"))
@@ -34,43 +32,6 @@ function ScrollToTop() {
   return null;
 }
 
-function RestaurantGlobalNotificationListenerInner() {
-  useRestaurantNotifications()
-  return null
-}
-
-function RestaurantGlobalNotificationListener() {
-  const location = useLocation()
-  const isRestaurantRoute =
-    location.pathname.startsWith("/food/restaurant") &&
-    !location.pathname.startsWith("/food/restaurants")
-  const isRestaurantAuthRoute =
-    location.pathname === "/food/restaurant/login" ||
-    location.pathname === "/food/restaurant/auth/sign-in" ||
-    location.pathname === "/food/restaurant/signup" ||
-    location.pathname === "/food/restaurant/signup-email" ||
-    location.pathname === "/food/restaurant/forgot-password" ||
-    location.pathname === "/food/restaurant/otp" ||
-    location.pathname === "/food/restaurant/welcome" ||
-    location.pathname === "/food/restaurant/auth/google-callback"
-  const isOrderManagedRoute =
-    location.pathname === "/food/restaurant" ||
-    location.pathname === "/food/restaurant/orders" ||
-    location.pathname.startsWith("/food/restaurant/orders/")
-
-  const shouldListen =
-    isRestaurantRoute &&
-    !isRestaurantAuthRoute &&
-    !isOrderManagedRoute &&
-    isModuleAuthenticated("restaurant")
-
-  if (!shouldListen) {
-    return null
-  }
-
-  return <RestaurantGlobalNotificationListenerInner />
-}
-
 export default function App() {
   const location = useLocation()
 
@@ -81,7 +42,6 @@ export default function App() {
   return (
     <>
       <ScrollToTop />
-      <RestaurantGlobalNotificationListener />
       <PushSoundEnableButton />
       <Suspense fallback={<Loader />}>
         <Routes>

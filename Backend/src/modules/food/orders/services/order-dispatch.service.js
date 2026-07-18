@@ -786,6 +786,20 @@ async function tryAutoAssignForwardOrder(orderId, options = {}) {
     return null;
   }
 
+  // Delivery partners must only be offered AFTER restaurant acceptance.
+  const orderStatus = String(order.orderStatus || "").toLowerCase();
+  const restaurantAcceptedStatuses = new Set([
+    "confirmed",
+    "preparing",
+    "ready_for_pickup",
+  ]);
+  if (!restaurantAcceptedStatuses.has(orderStatus)) {
+    logger.info(
+      `tryAutoAssign forward: Skip pre-accept status "${orderStatus}" for ${orderId}`,
+    );
+    return null;
+  }
+
   try {
     const offeredIds = (order.dispatch?.offeredTo || []).map((o) => o.partnerId.toString());
     const isQuickOrder = order.orderType === "quick";

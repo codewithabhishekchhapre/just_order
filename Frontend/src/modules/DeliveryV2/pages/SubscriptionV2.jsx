@@ -171,6 +171,7 @@ export default function SubscriptionV2() {
         order_id: data.order_id,
         name: "Subscription Wallet Topup",
         description: `Topup Amount: ₹${amt}`,
+        notes: data.notes || {},
         handler: async (response) => {
           try {
             await subscriptionAPI.verifyWalletTopup("DELIVERY_PARTNER", {

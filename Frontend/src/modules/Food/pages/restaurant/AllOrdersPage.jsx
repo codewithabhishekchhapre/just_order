@@ -15,7 +15,7 @@ import {
 } from "lucide-react"
 import { DateRangeCalendar } from "@food/components/ui/date-range-calendar"
 import { restaurantAPI } from "@food/api"
-import { useRestaurantNotifications } from "@food/hooks/useRestaurantNotifications"
+import { useRestaurantRealtimeOptional } from "@food/context/RestaurantRealtimeContext"
 import RestaurantPageShell from "@food/components/restaurant/RestaurantPageShell"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -150,7 +150,8 @@ export default function AllOrdersPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [restaurantData, setRestaurantData] = useState(null)
-  const { newOrder } = useRestaurantNotifications()
+  const realtime = useRestaurantRealtimeOptional()
+  const newOrder = realtime?.incomingOrder || null
   const ORDERS_PER_PAGE = 10
   const [currentPage, setCurrentPage] = useState(1)
 

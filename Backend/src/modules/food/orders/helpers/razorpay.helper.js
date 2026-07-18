@@ -4,29 +4,78 @@ import Razorpay from 'razorpay';
 
 import { config } from '../../../../config/env.js';
 
-const KEY_ID = config.razorpayKeyId || process.env.RAZORPAY_KEY_ID || '';
-const KEY_SECRET = config.razorpayKeySecret || process.env.RAZORPAY_KEY_SECRET || '';
+function normalizeCredential(value) {
+    if (value == null) return '';
+    return String(value).trim().replace(/^['"]|['"]$/g, '');
+}
+
+function getCredentials() {
+    // Read at call-time so credentials stay in sync with config/env.
+    const keyId = normalizeCredential(config.razorpayKeyId || process.env.RAZORPAY_KEY_ID);
+    const keySecret = normalizeCredential(config.razorpayKeySecret || process.env.RAZORPAY_KEY_SECRET);
+    return { keyId, keySecret };
+}
+
+function razorpayApiErrorMessage(err) {
+    const description =
+        err?.error?.description ||
+        err?.description ||
+        err?.message ||
+        (typeof err === 'string' ? err : null);
+    return description || 'Payment gateway error';
+}
 
 export function isRazorpayConfigured() {
-    return Boolean(KEY_ID && KEY_SECRET && Razorpay);
+    const { keyId, keySecret } = getCredentials();
+    return Boolean(keyId && keySecret && Razorpay);
 }
 
 export function getRazorpayKeyId() {
-    return KEY_ID;
+    return getCredentials().keyId;
 }
 
 export function getRazorpayInstance() {
     if (!isRazorpayConfigured()) return null;
-    return new Razorpay({ key_id: KEY_ID, key_secret: KEY_SECRET });
+    const { keyId, keySecret } = getCredentials();
+    return new Razorpay({ key_id: keyId, key_secret: keySecret });
 }
 
-export function createRazorpayOrder(amountPaise, currency = 'INR', receipt = '') {
+/**
+ * Create a Razorpay order.
+ * @param {number} amountPaise
+ * @param {string} [currency='INR']
+ * @param {string} [receipt=''] - max 40 chars (Razorpay limit)
+ * @param {Record<string, string|number>} [notes={}] - forwarded to Razorpay (used by webhooks)
+ */
+export function createRazorpayOrder(amountPaise, currency = 'INR', receipt = '', notes = {}) {
     const instance = getRazorpayInstance();
     if (!instance) return Promise.reject(new Error('Razorpay not configured'));
-    return instance.orders.create({
-        amount: Math.round(amountPaise),
-        currency,
-        receipt: receipt || undefined
+
+    const safeReceipt = receipt ? String(receipt).slice(0, 40) : undefined;
+    const payload = {
+        amount: Math.round(Number(amountPaise) || 0),
+        currency: currency || 'INR',
+        receipt: safeReceipt,
+    };
+
+    if (notes && typeof notes === 'object' && Object.keys(notes).length > 0) {
+        // Razorpay notes values must be strings.
+        const normalizedNotes = {};
+        for (const [k, v] of Object.entries(notes)) {
+            if (v == null) continue;
+            normalizedNotes[String(k)] = String(v).slice(0, 256);
+        }
+        if (Object.keys(normalizedNotes).length > 0) {
+            payload.notes = normalizedNotes;
+        }
+    }
+
+    return instance.orders.create(payload).catch((err) => {
+        const message = razorpayApiErrorMessage(err);
+        const wrapped = new Error(message);
+        wrapped.cause = err;
+        wrapped.statusCode = err?.statusCode || err?.status;
+        throw wrapped;
     });
 }
 
@@ -46,17 +95,34 @@ export function createPaymentLink({ amountPaise, currency = 'INR', description, 
 }
 
 export function verifyPaymentSignature(orderId, paymentId, signature) {
-    if (!KEY_SECRET) return false;
+    const { keySecret } = getCredentials();
+    if (!keySecret || !orderId || !paymentId || !signature) return false;
     const body = `${orderId}|${paymentId}`;
-    const expected = crypto.createHmac('sha256', KEY_SECRET).update(body).digest('hex');
-    return expected === signature;
+    const expected = crypto.createHmac('sha256', keySecret).update(body).digest('hex');
+    try {
+        return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(String(signature)));
+    } catch {
+        return expected === signature;
+    }
 }
 
 export function verifySubscriptionSignature(subscriptionId, paymentId, signature) {
-    if (!KEY_SECRET) return false;
+    const { keySecret } = getCredentials();
+    if (!keySecret || !subscriptionId || !paymentId || !signature) return false;
     const body = `${paymentId}|${subscriptionId}`;
-    const expected = crypto.createHmac('sha256', KEY_SECRET).update(body).digest('hex');
-    return expected === signature;
+    const expected = crypto.createHmac('sha256', keySecret).update(body).digest('hex');
+    try {
+        return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(String(signature)));
+    } catch {
+        return expected === signature;
+    }
+}
+
+export async function fetchRazorpayOrder(orderId) {
+    const instance = getRazorpayInstance();
+    if (!instance) throw new Error('Razorpay not configured');
+    if (!orderId) throw new Error('orderId is required');
+    return instance.orders.fetch(String(orderId));
 }
 
 /**
@@ -82,8 +148,7 @@ export async function fetchRazorpayPaymentLink(paymentLinkId) {
 }
 
 /**
- * ✅ NEW: Create a Razorpay Plan for recurring subscriptions.
- * Used for Week/Month plans.
+ * Create a Razorpay Plan for recurring subscriptions.
  * @param {Object} data - Plan details
  */
 export async function createRazorpayPlan({ name, description, amountPaise, interval, period }) {
@@ -104,7 +169,7 @@ export async function createRazorpayPlan({ name, description, amountPaise, inter
 }
 
 /**
- * ✅ NEW: Create a Razorpay Subscription for a user.
+ * Create a Razorpay Subscription for a user.
  * @param {Object} data - Subscription details
  */
 export async function createRazorpaySubscription({ planId, totalCount, customerNotes = {} }) {
@@ -124,7 +189,7 @@ export async function createRazorpaySubscription({ planId, totalCount, customerN
 }
 
 /**
- * ✅ NEW: Cancel an active Razorpay Subscription.
+ * Cancel an active Razorpay Subscription.
  * @param {string} subscriptionId
  * @param {boolean} atCycleEnd - If true, cancels at end of current period
  */
@@ -136,7 +201,7 @@ export async function cancelRazorpaySubscription(subscriptionId, atCycleEnd = tr
 }
 
 /**
- * ✅ NEW: Fetch Razorpay Subscription details.
+ * Fetch Razorpay Subscription details.
  * @param {string} subscriptionId
  */
 export async function fetchRazorpaySubscription(subscriptionId) {
@@ -147,8 +212,7 @@ export async function fetchRazorpaySubscription(subscriptionId) {
 }
 
 /**
- * ✅ NEW: Initiate a refund for a successful payment.
- * NON-BREAKING Extension for automated cancellation refunds.
+ * Initiate a refund for a successful payment.
  * @param {string} paymentId - Original Razorpay payment_id (captured)
  * @param {number} amount - Amount to refund (in major unit, e.g., INR 123.45)
  */
@@ -172,7 +236,6 @@ export async function initiateRazorpayRefund(paymentId, amount) {
             raw: refund
         };
     } catch (err) {
-        // Log locally but pass the error to the service to handle status update
         console.error(`Razorpay Refund API Failure [PaymentId: ${paymentId}]:`, err?.message || err);
         return {
             success: false,

@@ -157,6 +157,10 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 5173,
+    // Prevent Razorpay 3DS/bank auth popups from becoming about:blank#blocked
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
+    },
     proxy: {
       // Backend API (default 5000)
       '/api/v1': {

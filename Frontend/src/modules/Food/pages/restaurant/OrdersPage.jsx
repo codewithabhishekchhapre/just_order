@@ -4,7 +4,7 @@ import Lenis from "lenis"
 import BottomNavbar from "@food/components/restaurant/BottomNavbar"
 import MenuOverlay from "@food/components/restaurant/MenuOverlay"
 import NewOrderNotification from "@food/components/restaurant/NewOrderNotification"
-import { useRestaurantNotifications } from "@food/hooks/useRestaurantNotifications"
+import { useRestaurantRealtimeOptional } from "@food/context/RestaurantRealtimeContext"
 import { 
   Home,
   ShoppingBag,
@@ -37,8 +37,11 @@ export default function OrdersPage() {
   const [error, setError] = useState(null)
   const showOrdersSkeleton = useDelayedLoading(loading, { delay: 120, minDuration: 360 })
 
-  // Restaurant notifications hook
-  const { newOrder, clearNewOrder, isConnected } = useRestaurantNotifications()
+  // Shared realtime from RestaurantLayout (no second socket)
+  const realtime = useRestaurantRealtimeOptional()
+  const newOrder = realtime?.incomingOrder || null
+  const clearNewOrder = realtime?.clearIncoming || (() => {})
+  const isConnected = realtime?.isConnected || false
 
   const notificationOrder = newOrder
     ? {

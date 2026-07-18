@@ -41,7 +41,7 @@ import DeliveryTrackingMap from "@food/components/user/DeliveryTrackingMap"
 import { orderAPI, restaurantAPI } from "@food/api"
 import { useCompanyName } from "@food/hooks/useCompanyName"
 import { getCompanyNameAsync } from "@common/utils/businessSettings"
-import { initRazorpayPayment, isFlutterWebView, handleFlutterRazorpayPayment } from "@food/utils/razorpay"
+import { initRazorpayPayment, isFlutterWebView, handleFlutterRazorpayPayment, pollOrderPaidAfterDismiss } from "@food/utils/razorpay"
 import { useUserNotifications } from "@food/hooks/useUserNotifications"
 import { customerApi } from "../../../../quickCommerce/user/services/customerApi"
 import DeliveryOtpDisplay from "../../../../quickCommerce/user/components/DeliveryOtpDisplay"
@@ -1462,6 +1462,10 @@ export default function OrderTracking() {
             }
           },
           onError: async (error) => {
+            if (error?.code === "METHOD_SELECTION_FAILED") {
+              toast.error(error?.description || "Please select another payment method.");
+              return;
+            }
             try {
               await orderAPI.markPaymentFailed(trackingId, {
                 note: error?.description || error?.message || "Payment retry failed",
@@ -1472,8 +1476,24 @@ export default function OrderTracking() {
             toast.error(error?.description || error?.message || "Payment failed. You can try again.");
             await handleRefresh();
           },
-          onClose: () => {
+          onClose: async () => {
+            // about:blank / 3DS close can fire dismiss after a successful capture
+            try {
+              const paid = await pollOrderPaidAfterDismiss(async () => {
+                const res = await orderAPI.getOrderDetails(trackingId, { force: true });
+                return res?.data?.data?.order || res?.data?.data || null;
+              });
+              if (paid) {
+                toast.success("Payment successful");
+                setShowConfirmation(true);
+                await handleRefresh();
+                return;
+              }
+            } catch {
+              /* fall through */
+            }
             toast.message("Payment not completed. You can retry anytime.");
+            await handleRefresh();
           },
         });
       };

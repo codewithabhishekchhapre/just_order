@@ -7,7 +7,7 @@ import { Button } from "@food/components/ui/button";
 import { useCart } from "@food/context/CartContext";
 import { useProfile } from "@food/context/ProfileContext";
 import { orderAPI } from "@food/api";
-import { initRazorpayPayment } from "@food/utils/razorpay";
+import { initRazorpayPayment, pollOrderPaidAfterDismiss } from "@food/utils/razorpay";
 import { useCompanyName } from "@food/hooks/useCompanyName";
 import { sanitizeOrderImage, sanitizeOrderNotes } from "@food/utils/orderPayload";
 
@@ -317,8 +317,25 @@ export default function MixedSharedCart({ initialAddress = null, addressMode = "
         },
         onClose: async () => {
           // Keep unpaid order for Retry Payment — do not auto-cancel.
+          // Also cover about:blank dismiss after a successful capture.
           const trackingId = order?._id || order?.id || order?.orderId;
           if (trackingId) {
+            try {
+              const paid = await pollOrderPaidAfterDismiss(async () => {
+                const res = await orderAPI.getOrderDetails(trackingId, { force: true });
+                return res?.data?.data?.order || res?.data?.data || null;
+              });
+              if (paid) {
+                toast.success("Mixed order placed successfully");
+                clearCart();
+                navigate(`/user/orders/${order?.orderId || order?._id}?confirmed=true`, {
+                  state: order ? { prefetchedOrder: order } : undefined,
+                });
+                return;
+              }
+            } catch {
+              /* fall through */
+            }
             clearCart();
             toast.message("Payment not completed. You can retry from this order.");
             navigate(`/food/user/orders/${trackingId}`, {
@@ -328,6 +345,10 @@ export default function MixedSharedCart({ initialAddress = null, addressMode = "
           setIsPlacingOrder(false);
         },
         onError: async (error) => {
+          if (error?.code === "METHOD_SELECTION_FAILED") {
+            toast.error(error?.description || "Please select another payment method.");
+            return;
+          }
           const trackingId = order?._id || order?.id || order?.orderId;
           if (trackingId) {
             try {

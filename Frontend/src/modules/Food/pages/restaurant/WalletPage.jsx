@@ -93,6 +93,7 @@ export default function WalletPage() {
           order_id: orderData.order_id,
           name: "ITZO Subscriptions",
           description: "Wallet Top-up",
+          notes: orderData.notes || {},
           prefill: {
             name: "Restaurant Partner",
           },
