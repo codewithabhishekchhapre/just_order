@@ -7,6 +7,31 @@
  */
 
 import axios from "axios";
+import { redirectToModuleLogin, getModuleFromPathname } from "@core/utils/sessionExpiry";
+
+// Only force a redirect if the module whose session just died is the one actually being
+// viewed — a background 401 for an unrelated module shouldn't hijack the active session.
+function redirectIfCurrentModule(module) {
+  if (typeof window === "undefined") return;
+  if (getModuleFromPathname(window.location.pathname) === module) {
+    redirectToModuleLogin(module);
+  }
+}
+
+// AuthContext (core/context/AuthContext.jsx) tracks its own "auth_*" keys and reacts to
+// these custom events. Keep it in sync when this instance silently refreshes a token,
+// otherwise AuthContext keeps seeing the old token and can force a logout on its own axios
+// instance shortly after a successful refresh here.
+const AUTH_CONTEXT_KEY_BY_MODULE = {
+  user: "auth_customer",
+  admin: "auth_admin",
+  delivery: "auth_delivery",
+};
+const AUTH_CONTEXT_EVENT_BY_MODULE = {
+  user: "userAuthChanged",
+  admin: "adminAuthChanged",
+  delivery: "deliveryAuthChanged",
+};
 
 // Prefer explicit env. If not set, use same-origin (works with a Vite proxy).
 // This avoids hardcoding ports like 5000 that may conflict with local setups.
@@ -139,8 +164,9 @@ function onRefreshFailed(module) {
   // Fail any queued requests that were waiting for this refresh
   refreshSubscribers.forEach((cb) => cb(null, module));
   refreshSubscribers = [];
-  
+
   if (typeof window !== "undefined") {
+    redirectIfCurrentModule(module);
     window.dispatchEvent(new CustomEvent("authRefreshFailed", { detail: { module } }));
   }
 }
@@ -182,9 +208,15 @@ apiClient.interceptors.response.use(
       return Promise.reject(err);
     }
     const module = original.contextModule || getModuleFromUrl(original.url);
+    // Was a token actually attached to this request? If not, this is likely an anonymous/guest
+    // call to an optional endpoint — don't force a login redirect for those.
+    const hadAccessToken = Boolean(original.headers?.Authorization);
     const refreshToken = getRefreshToken(module);
     if (!refreshToken) {
       clearModuleAuth(module);
+      if (hadAccessToken) {
+        redirectIfCurrentModule(module);
+      }
       return Promise.reject(err);
     }
 
@@ -213,16 +245,24 @@ apiClient.interceptors.response.use(
       if (newAccessToken) {
         try {
           localStorage.setItem(`${module}_accessToken`, newAccessToken);
-          
+
           // Also sync legacy and global keys for consistency across the app
           if (module === "admin") {
             localStorage.setItem("adminToken", newAccessToken);
           }
           localStorage.setItem("accessToken", newAccessToken);
 
+          // Also sync the "auth_*" keys AuthContext reads, and fire its expected event,
+          // so AuthContext doesn't keep the stale (expired) token after a silent refresh here.
+          const authContextKey = AUTH_CONTEXT_KEY_BY_MODULE[module];
+          if (authContextKey) {
+            localStorage.setItem(authContextKey, newAccessToken);
+          }
+          window.dispatchEvent(new Event(AUTH_CONTEXT_EVENT_BY_MODULE[module] || "userAuthChanged"));
+
           // Dispatch a custom event specifically for the module that refreshed
-          window.dispatchEvent(new CustomEvent("authRefreshed", { 
-            detail: { module, token: newAccessToken } 
+          window.dispatchEvent(new CustomEvent("authRefreshed", {
+            detail: { module, token: newAccessToken }
           }));
         } catch (_) {}
         onRefreshed(newAccessToken, module);

@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { isTokenExpired } from '@food/utils/auth';
+import { redirectToModuleLogin } from '@core/utils/sessionExpiry';
 
 const pickCustomerToken = () => {
   const candidates = [
@@ -126,10 +127,7 @@ axiosInstance.interceptors.response.use(
             const keysToClear = moduleStorageKeys[currentModule] || ['token'];
             keysToClear.forEach((key) => localStorage.removeItem(key));
 
-            if (currentModule === 'seller') window.location.href = '/seller/auth';
-            else if (currentModule === 'admin') window.location.href = '/admin/login';
-            else if (currentModule === 'delivery') window.location.href = '/delivery/auth';
-            else window.location.href = '/user/auth/login';
+            redirectToModuleLogin(currentModule, 'Your session has expired. Please log in again.');
         }
         return Promise.reject(error);
     }
