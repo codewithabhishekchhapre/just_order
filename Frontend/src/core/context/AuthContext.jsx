@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import axiosInstance from '@core/api/axios';
 import { getWithDedupe } from '@core/api/dedupe';
 import { isTokenExpired } from '@core/utils/token';
+import { MODULE_LOGIN_PATHS } from '@core/utils/sessionExpiry';
 import { useAuthStore } from '../auth/auth.store';
 
 const AuthContext = createContext(undefined);
@@ -213,10 +214,10 @@ export const AuthProvider = ({ children }) => {
 
         // Final fallback: redirect based on current path if needed
         // (ProtectedRoute usually handles this, but explicit navigation is safer for some UI edge cases)
-        if (path.startsWith('/admin')) window.location.href = '/admin/login';
-        else if (path.startsWith('/seller')) window.location.href = '/seller/auth';
-        else if (path.startsWith('/delivery')) window.location.href = '/delivery/auth';
-        else window.location.href = '/user/auth/login';
+        if (path.startsWith('/admin')) window.location.href = MODULE_LOGIN_PATHS.admin;
+        else if (path.startsWith('/seller')) window.location.href = MODULE_LOGIN_PATHS.seller;
+        else if (path.startsWith('/delivery')) window.location.href = MODULE_LOGIN_PATHS.delivery;
+        else window.location.href = MODULE_LOGIN_PATHS.user;
     };
 
     const refreshUser = async () => {

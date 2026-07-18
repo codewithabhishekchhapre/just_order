@@ -299,7 +299,13 @@ const AppRoutes = () => {
             </Suspense>
           }
         />
-        
+
+        {/* RoleGuard redirects here on a role mismatch — without this route it 404s into the catch-all below */}
+        <Route
+          path="/unauthorized"
+          element={<div className="flex h-screen items-center justify-center font-outfit">Unauthorized Access</div>}
+        />
+
         {/* Fallback 404 */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
