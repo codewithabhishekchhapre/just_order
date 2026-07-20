@@ -10,6 +10,14 @@ const foodCartItemSchema = new mongoose.Schema(
     },
     variantId: { type: String, default: '', trim: true },
     quantity: { type: Number, required: true, min: 1, default: 1 },
+    /** Snapshot of pricing when line was added/updated — stays stable until cart refresh. */
+    basePrice: { type: Number, default: null, min: 0 },
+    otherPrice: { type: Number, default: 0, min: 0 },
+    appliedPricingType: { type: String, default: null },
+    appliedPricingValue: { type: Number, default: null },
+    pricingScope: { type: String, default: null },
+    pricingRule: { type: mongoose.Schema.Types.Mixed, default: null },
+    pricingCapturedAt: { type: Date, default: null },
   },
   { _id: true }
 );

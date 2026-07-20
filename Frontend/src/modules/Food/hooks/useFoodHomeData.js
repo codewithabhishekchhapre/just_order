@@ -120,21 +120,38 @@ export const useFoodHomeData = ({
 
       const newBootstrapCache = { banners: {}, categories: [], exploreMore: [], settings: {} };
 
-      // Process Banners
+      // Process Banners — support several response shapes from publicGetOnce / cache
       if (results[0].status === "fulfilled") {
-        const data = results[0].value?.data?.data;
-        const list = Array.isArray(data?.banners) ? data.banners : (Array.isArray(data) ? data : []);
-        const normalized = list.map((b) => ({
-          ...b,
-          title: b?.title || "",
-          subtitle: b?.subtitle || "",
-          description: b?.description || "",
-          ctaText: b?.ctaText || "",
-          ctaLink: b?.ctaLink || "",
-          action: b?.action || b?.ctaText || "",
-        }));
+        const raw = results[0].value;
+        const payload =
+          raw?.data?.data ??
+          raw?.data ??
+          raw;
+        const list = Array.isArray(payload?.banners)
+          ? payload.banners
+          : Array.isArray(payload)
+            ? payload
+            : [];
+        const normalized = list
+          .filter((b) => b && (b.isActive === undefined || b.isActive !== false))
+          .map((b) => ({
+            ...b,
+            _id: b?._id || b?.id || "",
+            imageUrl: b?.imageUrl || b?.image || b?.url || "",
+            title: b?.title || "",
+            subtitle: b?.subtitle || "",
+            description: b?.description || "",
+            ctaText: b?.ctaText || b?.action || "",
+            ctaLink: b?.ctaLink || "",
+            action: b?.action || b?.ctaText || "",
+            linkedRestaurants: Array.isArray(b?.linkedRestaurants)
+              ? b.linkedRestaurants
+              : [],
+            sortOrder: Number(b?.sortOrder ?? b?.order ?? 0),
+          }))
+          .sort((a, b) => a.sortOrder - b.sortOrder);
         setHeroBannersData(normalized);
-        const imgs = normalized.map(b => b?.imageUrl).filter(Boolean);
+        const imgs = normalized.map((b) => b.imageUrl).filter(Boolean);
         setHeroBannerImages(imgs);
         newBootstrapCache.banners = { data: normalized, images: imgs };
       }

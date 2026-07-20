@@ -68,7 +68,12 @@ export default function useDebouncedSearch(
         })
     }, delay)
 
-    return () => window.clearTimeout(timer)
+    return () => {
+      window.clearTimeout(timer)
+      // If a request already started for this query, cancel it when the
+      // query changes or the component unmounts before it resolves.
+      if (abortRef.current) abortRef.current.abort()
+    }
   }, [query, delay, minChars])
 
   useEffect(() => () => abortRef.current?.abort(), [])

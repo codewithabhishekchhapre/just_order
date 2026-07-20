@@ -3,6 +3,7 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@core/context/AuthContext';
 import { isTokenExpired } from '@core/utils/token';
 import { MODULE_LOGIN_PATHS, getModuleFromPathname } from '@core/utils/sessionExpiry';
+import { buildLoginRedirectState } from '@core/utils/postLoginRedirect';
 
 // requiredRole values used by callers ("user") map onto the AuthContext authData keys ("customer").
 const ROLE_ALIASES = {
@@ -34,7 +35,7 @@ const ProtectedRoute = ({ children, requiredRole, loginPath }) => {
 
     if (!authenticatedForRoute) {
         const redirectTo = loginPath || getDefaultLoginPath(location.pathname);
-        return <Navigate to={redirectTo} state={{ from: location }} replace />;
+        return <Navigate to={redirectTo} state={buildLoginRedirectState(location)} replace />;
     }
 
     return <>{children}</>;

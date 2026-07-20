@@ -50,7 +50,6 @@ const createVariantDraft = (variant = {}) => ({
   persistedId: String(variant?.id || variant?._id || ""),
   name: String(variant?.name || ""),
   price: variant?.price != null ? String(variant.price) : "",
-  otherPrice: variant?.otherPrice != null ? String(variant.otherPrice) : "",
   unit: String(variant?.unit || ""),
 })
 
@@ -77,7 +76,6 @@ export default function ItemDetailsPage() {
   const [itemDescription, setItemDescription] = useState("")
   const [foodType, setFoodType] = useState("Non-Veg")
   const [basePrice, setBasePrice] = useState("")
-  const [otherPrice, setOtherPrice] = useState("")
   const [variants, setVariants] = useState([])
   const [preparationTime, setPreparationTime] = useState("")
   const [gst, setGst] = useState("5.0")
@@ -242,7 +240,6 @@ export default function ItemDetailsPage() {
     const itemVariants = getFoodVariants(item)
     setVariants(itemVariants.map(createVariantDraft))
     setBasePrice(itemVariants.length === 0 ? item.price?.toString() || "" : "")
-    setOtherPrice(itemVariants.length === 0 ? item.otherPrice?.toString() || "" : "")
     setPreparationTime(item.preparationTime || "")
     setGst(item.gst?.toString() || "5.0")
     setIsRecommended(item.isRecommended || false)
@@ -864,7 +861,7 @@ export default function ItemDetailsPage() {
         ...(variant.persistedId ? { _id: variant.persistedId } : {}),
         name: variant.name,
         price: variant.price,
-        otherPrice: Number(variant.otherPrice) || 0,
+        otherPrice: 0,
         unit: variant.unit,
       }))
 
@@ -875,7 +872,7 @@ export default function ItemDetailsPage() {
           name: itemName.trim(),
           description: itemDescription.trim(),
           price: parsedBasePrice,
-          otherPrice: Number(otherPrice) || 0,
+          otherPrice: 0,
           variants: variantPayload,
           image: allImageUrls.length > 0 ? allImageUrls[0] : "",
           images: allImageUrls,
@@ -899,7 +896,7 @@ export default function ItemDetailsPage() {
           name: itemName.trim(),
           description: itemDescription.trim(),
           price: parsedBasePrice,
-          otherPrice: Number(otherPrice) || 0,
+          otherPrice: 0,
           variants: variantPayload,
           image: allImageUrls.length > 0 ? allImageUrls[0] : "",
           images: allImageUrls,
@@ -1298,7 +1295,7 @@ export default function ItemDetailsPage() {
             </label>
             <div className="space-y-3">
               {variants.length === 0 ? (
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4">
                     <div className="relative">
                       <label className="block text-xs text-gray-600 mb-1">Selling price</label>
                       <div className="relative">
@@ -1323,31 +1320,9 @@ export default function ItemDetailsPage() {
                         />
                         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-600">{"\u20B9"}</span>
                       </div>
-                    </div>
-                    <div className="relative">
-                      <label className="block text-xs text-gray-600 mb-1">Original price (Optional)</label>
-                      <div className="relative">
-                        <input
-                          type="text"
-                          value={otherPrice}
-                          onChange={(e) => {
-                            const value = e.target.value.replace(/[\u20B9\s,]/g, '').replace(/[^0-9.]/g, '')
-                            const parts = value.split('.')
-                            const cleanedValue = parts.length > 2
-                              ? parts[0] + '.' + parts.slice(1).join('')
-                              : value
-                            setOtherPrice(cleanedValue)
-                          }}
-                          onFocus={(e) => {
-                            if (e.target.value.startsWith('\u20B9')) {
-                              e.target.value = e.target.value.replace(/[\u20B9\s]+/g, '')
-                            }
-                          }}
-                          placeholder="MRP"
-                          className="w-full pl-8 pr-3 py-3 border border-gray-300 rounded-lg text-sm text-gray-900 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#FF6A00] focus:border-transparent"
-                        />
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-600">{"\u20B9"}</span>
-                      </div>
+                      <p className="mt-1.5 text-[11px] text-gray-500">
+                        Other Price markup is configured in Admin → Pricing Management.
+                      </p>
                     </div>
                   </div>
               ) : (
@@ -1403,26 +1378,6 @@ export default function ItemDetailsPage() {
                                   handleVariantChange(variant.localId, "price", cleanedValue)
                                 }}
                                 placeholder="Price"
-                                className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#FF6A00] focus:border-transparent"
-                              />
-                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-600">{"\u20B9"}</span>
-                            </div>
-                          </div>
-                          <div>
-                            <label className="block text-xs text-gray-600 mb-1">Original price</label>
-                            <div className="relative">
-                              <input
-                                type="text"
-                                value={variant.otherPrice || ""}
-                                onChange={(e) => {
-                                  const value = e.target.value.replace(/[\u20B9\s,]/g, '').replace(/[^0-9.]/g, '')
-                                  const parts = value.split('.')
-                                  const cleanedValue = parts.length > 2
-                                    ? parts[0] + '.' + parts.slice(1).join('')
-                                    : value
-                                  handleVariantChange(variant.localId, "otherPrice", cleanedValue)
-                                }}
-                                placeholder="MRP"
                                 className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#FF6A00] focus:border-transparent"
                               />
                               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-600">{"\u20B9"}</span>

@@ -3,7 +3,10 @@ import { ValidationError } from '../../../../core/auth/errors.js';
 import { FoodRestaurant } from '../models/restaurant.model.js';
 import { FoodItem } from '../../admin/models/food.model.js';
 import { FoodCategory } from '../../admin/models/category.model.js';
-import { getFoodDisplayPrice, getFoodDisplayOtherPrice, serializeFoodVariants } from '../../admin/services/foodVariant.service.js';
+import {
+  applyOtherPriceToFood,
+  loadActivePricingRules,
+} from '../../admin/services/otherPrice.service.js';
 
 const buildMenuFromFoods = async (foods = []) => {
     const categoryIds = Array.from(
@@ -25,8 +28,15 @@ const buildMenuFromFoods = async (foods = []) => {
         : [];
     const categoryMap = new Map(categoryDocs.map((doc) => [String(doc._id), doc]));
 
+    const restaurantId = foods[0]?.restaurantId || null;
+    const pricingRules = await loadActivePricingRules({
+        restaurantId,
+        menuItemIds: foods.map((f) => f?._id).filter(Boolean),
+    });
+
     const byCategory = new Map();
     for (const food of foods) {
+        const priced = applyOtherPriceToFood(food, pricingRules);
         const categoryId = food?.categoryId ? String(food.categoryId) : '';
         const categoryDoc = categoryMap.get(categoryId) || null;
         
@@ -53,10 +63,16 @@ const buildMenuFromFoods = async (foods = []) => {
             category: sectionName,
             name: food.name,
             description: food.description || '',
-            price: getFoodDisplayPrice(food),
-            otherPrice: getFoodDisplayOtherPrice(food),
-            variants: serializeFoodVariants(food.variants),
-            variations: serializeFoodVariants(food.variants),
+            price: priced.basePrice,
+            basePrice: priced.basePrice,
+            otherPrice: priced.otherPrice,
+            appliedPricingType: priced.appliedPricingType,
+            appliedPricingValue: priced.appliedPricingValue,
+            pricingScope: priced.pricingScope,
+            discountPercentage: priced.discountPercentage,
+            pricingRule: priced.pricingRule,
+            variants: priced.variants,
+            variations: priced.variations,
             image: food.image || '',
             images: Array.isArray(food.images) && food.images.length > 0 ? food.images.filter(Boolean) : (food.image ? [food.image] : []),
             foodType: food.foodType || 'Non-Veg',
@@ -146,7 +162,13 @@ export async function listRestaurantMenuItems(restaurantId, query = {}) {
         : [];
     const categoryMap = new Map(categoryDocs.map((doc) => [String(doc._id), doc]));
 
+    const pricingRules = await loadActivePricingRules({
+        restaurantId,
+        menuItemIds: foods.map((f) => f?._id).filter(Boolean),
+    });
+
     const items = foods.map((food) => {
+        const priced = applyOtherPriceToFood(food, pricingRules);
         const categoryId = food?.categoryId ? String(food.categoryId) : '';
         const categoryName = categoryMap.get(categoryId)?.name || food?.categoryName || food?.category || 'Menu';
         return {
@@ -157,10 +179,16 @@ export async function listRestaurantMenuItems(restaurantId, query = {}) {
             category: categoryName,
             name: food.name,
             description: food.description || '',
-            price: getFoodDisplayPrice(food),
-            otherPrice: getFoodDisplayOtherPrice(food),
-            variants: serializeFoodVariants(food.variants),
-            variations: serializeFoodVariants(food.variants),
+            price: priced.basePrice,
+            basePrice: priced.basePrice,
+            otherPrice: priced.otherPrice,
+            appliedPricingType: priced.appliedPricingType,
+            appliedPricingValue: priced.appliedPricingValue,
+            pricingScope: priced.pricingScope,
+            discountPercentage: priced.discountPercentage,
+            pricingRule: priced.pricingRule,
+            variants: priced.variants,
+            variations: priced.variations,
             image: food.image || '',
             images: Array.isArray(food.images) && food.images.length > 0 ? food.images.filter(Boolean) : (food.image ? [food.image] : []),
             foodType: food.foodType || 'Non-Veg',

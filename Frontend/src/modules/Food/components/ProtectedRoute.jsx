@@ -1,5 +1,6 @@
 import { Navigate, useLocation } from "react-router-dom";
 import { isModuleAuthenticated } from "@food/utils/auth";
+import { buildLoginRedirectState } from "@core/utils/postLoginRedirect";
 
 /**
  * Role-based Protected Route Component
@@ -15,9 +16,15 @@ export default function ProtectedRoute({ children, requiredRole, loginPath = "/u
 
   const isAuthenticated = isModuleAuthenticated(requiredRole);
 
-  // If not authenticated for this module, redirect to login
+  // If not authenticated for this module, redirect to login (preserve full route for return).
   if (!isAuthenticated) {
-    return <Navigate to={loginPath} state={{ from: location.pathname }} replace />;
+    return (
+      <Navigate
+        to={loginPath}
+        state={buildLoginRedirectState(location)}
+        replace
+      />
+    );
   }
 
   return children;

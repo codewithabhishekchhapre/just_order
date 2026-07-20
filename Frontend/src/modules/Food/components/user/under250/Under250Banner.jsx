@@ -1,132 +1,149 @@
+import { useMemo, Suspense } from "react"
+import { useNavigate } from "react-router-dom"
 import { motion } from "framer-motion"
-import OptimizedImage from "@food/components/OptimizedImage"
+import { MapPin, ChevronDown } from "lucide-react"
 import PageNavbar from "@food/components/user/PageNavbar"
+import BannerSection from "@food/components/user/home/BannerSection"
+import { HeroBannerSkeleton } from "@food/components/ui/loading-skeletons"
+import { useLocationSelector } from "@food/components/user/UserLayout"
+import { useLocation } from "@food/hooks/useLocation"
+import * as imgUtils from "@food/utils/imageUtils"
+import { API_BASE_URL } from "@food/api/config"
 
+const BACKEND_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, "")
 const RUPEE_SYMBOL = "\u20B9"
+
+const isMeaningfulLocationValue = (value) => {
+  const normalized = String(value || "").trim().toLowerCase()
+  return Boolean(
+    normalized &&
+    normalized !== "select location" &&
+    normalized !== "current location"
+  )
+}
+
+/** Same address title/subtitle rules as HomeHeader on `/food/user`. */
+const buildLocationDisplay = (savedAddressText, location) => {
+  if (isMeaningfulLocationValue(savedAddressText)) {
+    const parts = String(savedAddressText)
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean)
+
+    if (parts.length >= 3) {
+      return {
+        title: parts.slice(0, 2).join(", "),
+        subtitle: parts.slice(2).join(", "),
+      }
+    }
+
+    if (parts.length === 2) {
+      return {
+        title: parts.join(", "),
+        subtitle: "Tap to choose delivery location",
+      }
+    }
+
+    return {
+      title: String(savedAddressText).trim(),
+      subtitle: "Tap to choose delivery location",
+    }
+  }
+
+  return {
+    title: location?.area || location?.city || "Select Location",
+    subtitle: location?.address || location?.city || "Tap to choose delivery location",
+  }
+}
 
 export default function Under250Banner({
   banners = [],
-  bannerImages,
+  bannerImages = [],
   loadingBanner,
   currentBannerIndex,
-  hasScrolledPastBanner,
+  setCurrentBannerIndex,
   bannerShellRef,
-  stickyHeaderRef,
-  onTouchStart,
-  onTouchMove,
-  onTouchEnd,
-  onDotClick,
 }) {
+  const navigate = useNavigate()
+  const { location } = useLocation()
+  const { openLocationSelector } = useLocationSelector()
+
+  const savedAddressText = useMemo(
+    () => imgUtils.formatSavedAddress(location),
+    [location],
+  )
+  const { title: locationTitle, subtitle: locationSubtitle } = useMemo(
+    () => buildLocationDisplay(savedAddressText, location),
+    [savedAddressText, location],
+  )
+
   const slides = Array.isArray(banners) && banners.length > 0
     ? banners
     : (bannerImages || []).map((imageUrl) => ({ imageUrl }))
 
-  const active = slides[currentBannerIndex] || {}
+  const showBanner = loadingBanner || slides.length > 0
 
   return (
     <>
-      {/* Mobile header — overlays banner, but content below keeps a safe top inset */}
-      <div
-        ref={stickyHeaderRef}
-        className={`fixed top-0 left-0 right-0 z-40 w-full md:hidden transition-all duration-300 ${
-          hasScrolledPastBanner
-            ? "bg-white/95 dark:bg-[#08080a]/95 backdrop-blur-md shadow-sm border-b border-gray-100 dark:border-gray-900"
-            : "bg-transparent"
-        }`}
-      >
-        <div className="relative z-50 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2">
+      {/* Sticky header in document flow — same single-address pattern as Home (no overlay) */}
+      <div className="sticky top-0 z-40 w-full bg-white/90 dark:bg-[#08080a]/90 backdrop-blur-md border-b border-gray-100 dark:border-gray-900 md:hidden">
+        <div className="flex items-center justify-between px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-2.5">
+          <button
+            type="button"
+            onClick={openLocationSelector}
+            className="flex items-center gap-2 cursor-pointer bg-transparent border-0 p-0 text-left outline-none shrink min-w-0"
+          >
+            <div className="flex items-center justify-center w-8 h-8 rounded-xl shrink-0 bg-[#FF6A00]/15">
+              <MapPin className="h-4 w-4 shrink-0 text-[#FF6A00]" strokeWidth={2.5} />
+            </div>
+            <div className="flex flex-col min-w-0">
+              <div className="flex items-center gap-0.5">
+                <span className="font-extrabold text-sm truncate max-w-[150px] text-gray-900 dark:text-white">
+                  {locationTitle}
+                </span>
+                <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70 text-gray-900 dark:text-white" strokeWidth={2.5} />
+              </div>
+              <span className="text-[10px] truncate max-w-[170px] mt-0.5 text-gray-500 dark:text-gray-400">
+                {locationSubtitle}
+              </span>
+            </div>
+          </button>
+
           <PageNavbar
-            textColor={hasScrolledPastBanner ? "dark" : "white"}
+            textColor="dark"
             zIndex={20}
             showProfile={false}
             showLogo={false}
+            showLocation={false}
+            onNavClick={(e) => e.stopPropagation()}
           />
         </div>
       </div>
 
-      {/* Hero banner — full-bleed under mobile header; overlay padded so copy clears navbar */}
-      <div className="max-w-7xl mx-auto w-full min-w-0 overflow-hidden px-4 sm:px-6 lg:px-8 pt-0 md:pt-4">
+      {/* Hero banner — starts below header; Home BannerSection rendering */}
+      <div className="max-w-7xl mx-auto w-full min-w-0 overflow-hidden px-4 sm:px-6 lg:px-8 pt-4 pb-2">
         <motion.div
-          ref={bannerShellRef}
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, ease: "easeOut" }}
-          className="relative w-full min-w-0 h-[260px] sm:h-[280px] md:h-[300px] rounded-3xl overflow-hidden shadow-[0_12px_40px_-12px_rgba(255,106,0,0.25)] border border-orange-100/50 dark:border-gray-800/50"
-          onTouchStart={onTouchStart}
-          onTouchMove={onTouchMove}
-          onTouchEnd={onTouchEnd}
+          className="relative w-full min-w-0 h-[220px] sm:h-[260px] md:h-[300px] rounded-3xl overflow-hidden shadow-[0_12px_40px_-12px_rgba(255,106,0,0.25)] border border-orange-100/50 dark:border-gray-800/50 bg-neutral-900"
         >
-          {slides.length > 0 ? (
-            <>
-              <div
-                className="flex h-full w-full min-w-0 transition-transform duration-500 ease-out"
-                style={{ transform: `translateX(-${currentBannerIndex * 100}%)` }}
-              >
-                {slides.map((banner, index) => (
-                  <div
-                    key={`${banner._id || banner.imageUrl}-${index}`}
-                    className="relative h-full w-full min-w-full max-w-full shrink-0"
-                  >
-                    <OptimizedImage
-                      src={banner.imageUrl}
-                      alt={`Under ${RUPEE_SYMBOL}250 Banner ${index + 1}`}
-                      className="w-full h-full"
-                      objectFit="cover"
-                      priority={index === 0}
-                      sizes="100vw"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/35 to-black/25" />
-                  </div>
-                ))}
-              </div>
-
-              {/* Overlay: top pad clears fixed PageNavbar on mobile */}
-              <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-5 sm:p-6 pt-[4.75rem] md:pt-5">
-                <div className="flex items-start justify-between">
-                  <div className="bg-white/10 backdrop-blur-md border border-white/20 rounded-xl px-3 py-1.5">
-                    <span className="text-[10px] font-extrabold uppercase tracking-widest text-white">
-                      {active.title || "Budget bites"}
-                    </span>
-                  </div>
-                </div>
-                <div className="pr-12">
-                  <span className="inline-block bg-[#FF6A00] text-white text-[9px] font-extrabold uppercase tracking-wider px-2.5 py-0.5 rounded-md mb-2">
-                    {active.ctaText || active.action || "Best deals"}
-                  </span>
-                  <h1 className="text-2xl sm:text-3xl md:text-4xl font-black text-white leading-tight tracking-tight">
-                    {active.subtitle || `Under ${RUPEE_SYMBOL}250`}
-                  </h1>
-                  <p className="text-white/75 text-xs sm:text-sm font-medium mt-1 line-clamp-2">
-                    {active.description || "Delicious meals that won't break the bank"}
-                  </p>
-                </div>
-              </div>
-
-              {slides.length > 1 && (
-                <div className="absolute bottom-4 right-4 z-10 flex items-center gap-1.5 rounded-full bg-black/30 px-2.5 py-1.5 backdrop-blur-sm">
-                  {slides.map((_, index) => (
-                    <button
-                      key={`banner-dot-${index}`}
-                      type="button"
-                      aria-label={`Go to banner ${index + 1}`}
-                      onClick={() => onDotClick(index)}
-                      className={`h-1.5 rounded-full transition-all duration-300 ${
-                        currentBannerIndex === index ? "w-4 bg-white" : "w-1.5 bg-white/50"
-                      }`}
-                    />
-                  ))}
-                </div>
-              )}
-            </>
-          ) : loadingBanner ? (
-            <div className="absolute inset-0 shimmer-bg bg-gradient-to-br from-orange-50 to-amber-50 dark:from-orange-950/30 dark:to-amber-950/20" />
+          {showBanner ? (
+            <Suspense fallback={<HeroBannerSkeleton className="h-full w-full" />}>
+              <BannerSection
+                showBannerSkeleton={loadingBanner}
+                heroBannerImages={bannerImages}
+                heroBannersData={slides}
+                currentBannerIndex={currentBannerIndex}
+                setCurrentBannerIndex={setCurrentBannerIndex}
+                heroShellRef={bannerShellRef}
+                navigate={navigate}
+                backendOrigin={BACKEND_ORIGIN}
+                hideOverlay={false}
+              />
+            </Suspense>
           ) : (
-            <div className="absolute inset-0 bg-gradient-to-br from-[#FF6A00] via-[#E85D04] to-[#C84B00] flex flex-col justify-between p-5 sm:p-6 pt-[4.75rem] md:pt-5">
-              <div className="bg-white/10 backdrop-blur-md border border-white/20 rounded-xl px-3 py-1.5 w-fit">
-                <span className="text-[10px] font-extrabold uppercase tracking-widest text-white">
-                  Budget bites
-                </span>
-              </div>
+            <div className="absolute inset-0 bg-gradient-to-br from-[#FF6A00] via-[#E85D04] to-[#C84B00] flex flex-col justify-end p-5 sm:p-6">
               <div>
                 <span className="inline-block bg-white/20 text-white text-[9px] font-extrabold uppercase tracking-wider px-2.5 py-0.5 rounded-md mb-2 w-fit">
                   Best deals

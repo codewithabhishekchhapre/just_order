@@ -6,6 +6,16 @@ import apiClient from "./axios.js";
 import { API_ENDPOINTS } from "./config.js";
 import * as authService from "./auth.js";
 
+export {
+  ApiErrorCode,
+  normalizeApiError,
+  getApiErrorMessage,
+  classifyApiError,
+  isRetryableApiError,
+} from "./errors.js";
+export { notifyApiError } from "./networkToast.js";
+export { isOnline, subscribeNetworkStatus, installNetworkMonitor } from "./networkMonitor.js";
+
 const stub = () =>
   Promise.resolve({
     data: { success: false, message: "Backend not connected", data: null },
@@ -569,6 +579,39 @@ export const adminAPI = {
     }),
   deleteFood: (id) =>
     apiClient.delete(`/food/admin/foods/${id}`, { contextModule: "admin" }),
+  /** Other Price / Pricing Management */
+  getPricingSummary: () =>
+    apiClient.get("/food/admin/pricing/summary", { contextModule: "admin" }),
+  getPricingRules: (params = {}) =>
+    apiClient.get("/food/admin/pricing/rules", {
+      params,
+      contextModule: "admin",
+    }),
+  upsertPricingRule: (body) =>
+    apiClient.post("/food/admin/pricing/rules", body ?? {}, {
+      contextModule: "admin",
+    }),
+  bulkUpsertRestaurantPricingRules: (body) =>
+    apiClient.post("/food/admin/pricing/rules/bulk-restaurant", body ?? {}, {
+      contextModule: "admin",
+    }),
+  bulkUpsertMenuItemPricingRules: (body) =>
+    apiClient.post("/food/admin/pricing/rules/bulk-menu-item", body ?? {}, {
+      contextModule: "admin",
+    }),
+  deletePricingRule: (id) =>
+    apiClient.delete(`/food/admin/pricing/rules/${id}`, {
+      contextModule: "admin",
+    }),
+  previewPricingRule: (body) =>
+    apiClient.post("/food/admin/pricing/preview", body ?? {}, {
+      contextModule: "admin",
+    }),
+  getPricingAudits: (params = {}) =>
+    apiClient.get("/food/admin/pricing/audits", {
+      params,
+      contextModule: "admin",
+    }),
   /** Food approvals (admin) - pending items created by restaurants */
   getPendingFoodApprovals: (params = {}) =>
     apiClient.get("/food/admin/foods/pending-approvals", {

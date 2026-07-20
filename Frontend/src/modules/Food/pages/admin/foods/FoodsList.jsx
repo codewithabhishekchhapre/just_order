@@ -39,7 +39,6 @@ const createVariantDraft = (variant = {}) => ({
   id: String(variant?.id || variant?._id || `variant-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
   name: String(variant?.name || ""),
   price: variant?.price != null ? String(variant.price) : "",
-  otherPrice: variant?.otherPrice != null ? String(variant.otherPrice) : "",
 })
 
 export default function FoodsList() {
@@ -333,7 +332,6 @@ export default function FoodsList() {
       categoryName: String(food.categoryName || ""),
       name: String(food.name || ""),
       price: String(food.basePrice ?? food.price ?? ""),
-      otherPrice: String(food.otherPrice || ""),
       variants: getFoodVariants(food).map(createVariantDraft),
       description: String(food.description || ""),
       image: String(food.image || ""),
@@ -471,12 +469,12 @@ export default function FoodsList() {
         categoryName: String(foodForm.categoryName || "").trim(),
         name: foodForm.name.trim(),
         price: parsedPrice,
-        otherPrice: Number(foodForm.otherPrice) || 0,
+        otherPrice: 0,
         variants: normalizedVariants.map((variant) => ({
           ...(variant.id && !variant.id.startsWith("variant-") ? { _id: variant.id } : {}),
           name: variant.name,
           price: variant.price,
-          otherPrice: Number(variant.otherPrice) || 0,
+          otherPrice: 0,
         })),
         description: foodForm.description.trim(),
         image: imageUrl,
@@ -986,15 +984,6 @@ export default function FoodsList() {
                     placeholder="Price"
                     className={formInputClass}
                   />
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={foodForm.otherPrice}
-                    onChange={(e) => setFoodForm((prev) => ({ ...prev, otherPrice: e.target.value }))}
-                    placeholder="Other Price"
-                    className={formInputClass}
-                  />
                 </div>
               </FormField>
               <FormField label="Food Type" htmlFor="food-type">
@@ -1105,7 +1094,7 @@ export default function FoodsList() {
                             className={formInputClass}
                           />
                         </FormField>
-                        <div className="grid grid-cols-2 gap-2">
+                        <div className="grid grid-cols-1 gap-2">
                           <FormField label="Price">
                             <input
                               type="number"
@@ -1113,16 +1102,6 @@ export default function FoodsList() {
                               step="0.01"
                               value={variant.price}
                               onChange={(e) => handleVariantChange(variant.id, "price", e.target.value)}
-                              className={formInputClass}
-                            />
-                          </FormField>
-                          <FormField label="Other Price">
-                            <input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              value={variant.otherPrice}
-                              onChange={(e) => handleVariantChange(variant.id, "otherPrice", e.target.value)}
                               className={formInputClass}
                             />
                           </FormField>

@@ -5,6 +5,10 @@ import AnimatedPage from "@food/components/user/AnimatedPage"
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@food/components/ui/card"
 import { Button } from "@food/components/ui/button"
 import { setAuthData } from "@food/utils/auth"
+import {
+  resolvePostLoginRedirect,
+  clearPostLoginRedirect,
+} from "@core/utils/postLoginRedirect"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -56,9 +60,15 @@ export default function AuthCallback() {
 
             setStatus("success")
 
-            // Redirect to home after short delay
+            const target = resolvePostLoginRedirect({
+              searchParams,
+              defaultPath: "/food/user",
+            })
+            clearPostLoginRedirect()
+
+            // Redirect back to the page that required login (or home).
             setTimeout(() => {
-              navigate("/food/user", { replace: true })
+              navigate(target, { replace: true })
             }, 1000)
             return
           } catch (err) {
@@ -87,9 +97,14 @@ export default function AuthCallback() {
             timestamp: Date.now(),
           }))
 
-          // Redirect to home after short delay
+          // Redirect to return path (or home) after short delay
           setTimeout(() => {
-            navigate("/food/user")
+            const target = resolvePostLoginRedirect({
+              searchParams,
+              defaultPath: "/food/user",
+            })
+            clearPostLoginRedirect()
+            navigate(target)
           }, 1500)
           return
         }

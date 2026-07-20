@@ -19,6 +19,7 @@ export default function PageNavbar({
   zIndex = 20,
   showProfile = false,
   showLogo = true,
+  showLocation = true,
   onNavClick
 }) {
   const { location, loading, requestLocation } = useLocation()
@@ -42,6 +43,7 @@ export default function PageNavbar({
 
   // Auto-trigger location fetch once when location is missing/placeholder and permission is already granted.
   useEffect(() => {
+    if (!showLocation) return
     if (autoLocationAttemptedRef.current || loading || !requestLocationRef.current) return
 
     // If we already have stored coordinates, do not auto-geocode again.
@@ -100,16 +102,17 @@ export default function PageNavbar({
       cancelled = true
       clearTimeout(timeoutId)
     }
-  }, [location, loading])
+  }, [location, loading, showLocation])
 
   // Reset one-time auto-attempt if location becomes valid, so future invalid states can retry.
   useEffect(() => {
+    if (!showLocation) return
     if (location &&
       location.formattedAddress !== "Select location" &&
       location.city !== "Current Location") {
       autoLocationAttemptedRef.current = false
     }
-  }, [location])
+  }, [location, showLocation])
 
   // Load business settings logo
   useEffect(() => {
@@ -944,7 +947,7 @@ export default function PageNavbar({
       className={`relative ${zIndexClass} w-full px-3 sm:px-4 md:px-6 lg:px-8 py-2 sm:py-3 bg-transparent !bg-transparent shadow-none border-0`}
       onClick={onNavClick}
     >
-      <div className="flex items-center justify-between max-w-7xl mx-auto">
+      <div className={`flex items-center max-w-7xl mx-auto ${showLocation ? "justify-between" : "justify-end"}`}>
 
         {/* Left: Company Logo */}
         {showLogo && (
@@ -968,40 +971,42 @@ export default function PageNavbar({
         )}
 
         {/* Center/Left: Location Selector */}
-        <div className={`flex-1 flex items-center min-w-0 ${showLogo ? "justify-center absolute left-1/2 -translate-x-1/2" : "justify-start pr-2"}`}>
-          <Button
-            variant="ghost"
-            onClick={handleLocationClick}
-            disabled={loading}
-            className={`h-auto px-0 py-0 hover:bg-transparent transition-colors flex flex-col max-w-full ${showLogo ? "items-center flex-shrink-0" : "items-start justify-center min-w-0 shrink"}`}
-          >
-            {loading ? (
-              <span className={`text-sm font-bold ${textColorClass}`}>
-                Loading...
-              </span>
-            ) : (
-              <div className={`flex flex-col ${showLogo ? "items-center" : "items-start w-full"} min-w-0 max-w-full`}>
-                <div className={`flex items-center min-w-0 max-w-full ${showLogo ? "justify-center gap-1" : "gap-1.5"}`}>
-                  {!showLogo && <MapPin className={`h-[18px] w-[18px] ${textColor === "white" ? "text-white" : "text-[#FF6A00]"} flex-shrink-0`} strokeWidth={2.5} />}
-                  <div className={`flex items-center gap-1 min-w-0 max-w-full`}>
-                    <span className={`${showLogo ? "text-sm sm:text-base md:text-lg" : "text-[16px]"} font-bold ${textColorClass} truncate block`}>
-                      {mainLocationName}
-                    </span>
-                    <ChevronDown className={`${showLogo ? "h-3 w-3 sm:h-4 sm:w-4" : "h-[14px] w-[14px] mt-0.5"} ${textColorClass} flex-shrink-0`} strokeWidth={showLogo ? 2.5 : 3} />
+        {showLocation && (
+          <div className={`flex-1 flex items-center min-w-0 ${showLogo ? "justify-center absolute left-1/2 -translate-x-1/2" : "justify-start pr-2"}`}>
+            <Button
+              variant="ghost"
+              onClick={handleLocationClick}
+              disabled={loading}
+              className={`h-auto px-0 py-0 hover:bg-transparent transition-colors flex flex-col max-w-full ${showLogo ? "items-center flex-shrink-0" : "items-start justify-center min-w-0 shrink"}`}
+            >
+              {loading ? (
+                <span className={`text-sm font-bold ${textColorClass}`}>
+                  Loading...
+                </span>
+              ) : (
+                <div className={`flex flex-col ${showLogo ? "items-center" : "items-start w-full"} min-w-0 max-w-full`}>
+                  <div className={`flex items-center min-w-0 max-w-full ${showLogo ? "justify-center gap-1" : "gap-1.5"}`}>
+                    {!showLogo && <MapPin className={`h-[18px] w-[18px] ${textColor === "white" ? "text-white" : "text-[#FF6A00]"} flex-shrink-0`} strokeWidth={2.5} />}
+                    <div className={`flex items-center gap-1 min-w-0 max-w-full`}>
+                      <span className={`${showLogo ? "text-sm sm:text-base md:text-lg" : "text-[16px]"} font-bold ${textColorClass} truncate block`}>
+                        {mainLocationName}
+                      </span>
+                      <ChevronDown className={`${showLogo ? "h-3 w-3 sm:h-4 sm:w-4" : "h-[14px] w-[14px] mt-0.5"} ${textColorClass} flex-shrink-0`} strokeWidth={showLogo ? 2.5 : 3} />
+                    </div>
                   </div>
+                  {locationSubText && (
+                    <span className={`${showLogo ? "text-[10px] sm:text-xs font-medium text-center max-w-[140px] sm:max-w-[200px]" : "text-[11px] font-semibold text-left pl-6"} ${textColorClass}/80 truncate block w-full`}>
+                      {locationSubText}
+                    </span>
+                  )}
                 </div>
-                {locationSubText && (
-                  <span className={`${showLogo ? "text-[10px] sm:text-xs font-medium text-center max-w-[140px] sm:max-w-[200px]" : "text-[11px] font-semibold text-left pl-6"} ${textColorClass}/80 truncate block w-full`}>
-                    {locationSubText}
-                  </span>
-                )}
-              </div>
-            )}
-          </Button>
-        </div>
+              )}
+            </Button>
+          </div>
+        )}
 
         {/* Right: Actions (Wallet & Cart) */}
-        <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 ml-auto">
+        <div className={`flex items-center gap-2 sm:gap-3 flex-shrink-0 ${showLocation ? "ml-auto" : ""}`}>
           <Link
             to="/user/wallet"
             className={`p-2 bg-gray-100 dark:bg-gray-800 rounded-full hover:scale-105 active:scale-95 transition-all ${textColor === "white" ? "text-black dark:text-white" : "text-gray-700 dark:text-white"}`}

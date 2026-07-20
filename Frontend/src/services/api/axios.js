@@ -4,11 +4,19 @@
  * - When baseURL ends with /api/v1, request paths must NOT include /v1 (use /food/..., /auth/...)
  * - Attaches Bearer token (user or admin based on request URL)
  * - On 401: attempts refresh, retries once; on refresh failure logs out
+ * - Centralized normalize + GET retry + deduped infra toasts via httpErrorHandling
  */
 
 import axios from "axios";
 import { redirectToModuleLogin, getModuleFromPathname } from "@core/utils/sessionExpiry";
 import { installHttpCache } from "./httpCache.js";
+import {
+  attachSlowNetworkWatcher,
+  clearRequestWatchers,
+  installHttpErrorHandling,
+} from "./httpErrorHandling.js";
+import { notifyNetworkStatus } from "./networkToast.js";
+import { ApiErrorCode } from "./errors.js";
 
 // Only force a redirect if the module whose session just died is the one actually being
 // viewed — a background 401 for an unrelated module shouldn't hijack the active session.
@@ -53,6 +61,10 @@ const apiClient = axios.create({
 // double effect invocation in dev). Opt out per request with `noCache: true`, or tune the
 // window with `cacheTTL: <ms>`. See ./httpCache.js.
 installHttpCache(apiClient);
+
+// Register error finalizer BEFORE the 401 interceptor so Axios (LIFO on errors)
+// runs auth refresh first, then normalization / GET-retry / infra toasts.
+installHttpErrorHandling(apiClient);
 
 function getModuleFromUrl(url = "") {
   const normalized = (typeof url === "string" ? url : (url?.url || "")).toLowerCase();
@@ -200,14 +212,22 @@ apiClient.interceptors.request.use(
       config.headers['x-context-module'] = config.contextModule;
     }
 
+    attachSlowNetworkWatcher(config, () =>
+      notifyNetworkStatus(ApiErrorCode.SLOW_NETWORK),
+    );
+
     return config;
   },
   (err) => Promise.reject(err)
 );
 
 apiClient.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    clearRequestWatchers(response?.config);
+    return response;
+  },
   async (err) => {
+    clearRequestWatchers(err?.config);
     const original = err?.config;
     if (err?.response?.status === 429) {
       return Promise.reject(err);

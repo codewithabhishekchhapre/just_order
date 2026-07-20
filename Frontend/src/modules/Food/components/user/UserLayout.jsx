@@ -44,8 +44,8 @@ function SearchOverlayProvider({ children }) {
   }
 
   const closeSearch = () => {
+    // Keep typed query so reopening the overlay doesn't lose focus context.
     setIsSearchOpen(false)
-    setSearchValue("")
   }
 
   return (

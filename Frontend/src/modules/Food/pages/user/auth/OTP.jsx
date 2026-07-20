@@ -1,14 +1,19 @@
 import { useState, useEffect, useRef } from "react"
-import { useNavigate } from "react-router-dom"
+import { useNavigate, useLocation } from "react-router-dom"
 import { ArrowLeft, Loader2 } from "lucide-react"
 import AnimatedPage from "@food/components/user/AnimatedPage"
 import { Input } from "@food/components/ui/input"
 import { Button } from "@food/components/ui/button"
 import { authAPI } from "@food/api"
 import { setAuthData as setUserAuthData } from "@food/utils/auth"
+import {
+  resolvePostLoginRedirect,
+  clearPostLoginRedirect,
+} from "@core/utils/postLoginRedirect"
 
 export default function OTP() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [otp, setOtp] = useState(["", "", "", ""]) // exactly 4 digits
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
@@ -26,11 +31,21 @@ export default function OTP() {
   const inputRefs = useRef([])
   const submittingRef = useRef(false)
 
+  const postLoginPath = () => {
+    const target = resolvePostLoginRedirect({
+      location,
+      searchParams: new URLSearchParams(location.search || ""),
+      defaultPath: "/food/user",
+    })
+    clearPostLoginRedirect()
+    return target
+  }
+
   useEffect(() => {
-    // Redirect to home if already authenticated
+    // Redirect to return path (or home) if already authenticated
     const isAuthenticated = localStorage.getItem("user_authenticated") === "true"
     if (isAuthenticated) {
-      navigate("/food/user", { replace: true })
+      navigate(postLoginPath(), { replace: true })
       return
     }
 
@@ -259,7 +274,7 @@ export default function OTP() {
 
       // Redirect to user home after short delay
       setTimeout(() => {
-        navigate("/food/user")
+        navigate(postLoginPath())
       }, 500)
     } catch (err) {
       const status = err?.response?.status
@@ -345,7 +360,7 @@ export default function OTP() {
       setSuccess(true)
 
       setTimeout(() => {
-        navigate("/food/user")
+        navigate(postLoginPath())
       }, 500)
     } catch (err) {
       const message =

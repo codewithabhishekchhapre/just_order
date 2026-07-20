@@ -9,6 +9,8 @@ import { AuthProvider } from '@core/context/AuthContext'
 import { SettingsProvider } from '@core/context/SettingsContext'
 import { ToastProvider } from '@shared/components/ui/Toast'
 import { consumeAuthFlashMessage } from '@core/utils/sessionExpiry'
+import AppErrorBoundary from '@shared/components/AppErrorBoundary'
+import { NetworkStatusBanner } from '@shared/components/NetworkStatusBanner'
 
 // A 401 handler may redirect to a login page via a hard navigation (window.location.href),
 // which unmounts the app before a toast shown at that moment would be visible. It stashes a
@@ -49,20 +51,23 @@ export function AppProviders({ children }) {
         storageKey="appTheme"
         enableSystem={false}
       >
-        <AuthProvider>
-          <SettingsProvider>
-            <ToastProvider>
-              <ReduxProvider store={store}>
-                <Router>
-                  <AuthFlashMessage />
-                  {children}
-                  <Toaster position="top-center" richColors offset="80px" />
-                  <HotToaster position="top-center" reverseOrder={false} />
-                </Router>
-              </ReduxProvider>
-            </ToastProvider>
-          </SettingsProvider>
-        </AuthProvider>
+        <AppErrorBoundary>
+          <AuthProvider>
+            <SettingsProvider>
+              <ToastProvider>
+                <ReduxProvider store={store}>
+                  <Router>
+                    <NetworkStatusBanner />
+                    <AuthFlashMessage />
+                    {children}
+                    <Toaster position="top-center" richColors offset="80px" />
+                    <HotToaster position="top-center" reverseOrder={false} />
+                  </Router>
+                </ReduxProvider>
+              </ToastProvider>
+            </SettingsProvider>
+          </AuthProvider>
+        </AppErrorBoundary>
       </ThemeProvider>
     </StrictMode>
   )

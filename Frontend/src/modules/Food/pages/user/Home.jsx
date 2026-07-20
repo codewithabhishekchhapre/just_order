@@ -305,20 +305,23 @@ export default function Home() {
     return slides;
   }, [activeBannerData, activeBannerImages, landing?.videoUrl]);
 
+  // Prefer full banner objects so image index always matches title/subtitle/cta.
+  // Do NOT filter images independently — that desyncs overlay text from the active slide.
   const heroBannerImages = useMemo(
-    () => heroSlides.map((slide) => slide.imageUrl).filter(Boolean),
+    () => heroSlides.map((slide) => slide.imageUrl || ""),
     [heroSlides],
   );
 
   // Auto-slide banners
   useEffect(() => {
-    if (!heroBannerImages.length) return;
-    setCurrentBannerIndex((prev) => Math.min(prev, heroBannerImages.length - 1));
+    const count = heroSlides.filter((s) => s?.imageUrl).length;
+    if (!count) return undefined;
+    setCurrentBannerIndex((prev) => Math.min(prev, count - 1));
     const interval = setInterval(() => {
-      setCurrentBannerIndex((prev) => (prev + 1) % heroBannerImages.length);
+      setCurrentBannerIndex((prev) => (prev + 1) % count);
     }, HERO_BANNER_AUTO_SLIDE_MS);
     return () => clearInterval(interval);
-  }, [heroBannerImages.length]);
+  }, [heroSlides]);
 
   // Prevent body scroll when popups are open
   useEffect(() => {

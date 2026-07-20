@@ -6,6 +6,10 @@ import { logger } from '../../../../utils/logger.js';
 import { FoodUser } from '../../../../core/users/user.model.js';
 import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { FoodItem } from '../../admin/models/food.model.js';
+import {
+  applyOtherPriceToFood,
+  loadActivePricingRulesForRestaurants,
+} from '../../admin/services/otherPrice.service.js';
 import { Driver } from '../../../../core/models/driver.model.js';
 import { FoodZone } from '../../admin/models/zone.model.js';
 import { FoodFeeSettings } from '../../admin/models/feeSettings.model.js';
@@ -1923,8 +1927,9 @@ export async function processScheduledOrderNotification(orderMongoId) {
  * could submit any price it wanted. This does not (yet) reconstruct add-on pricing
  * server-side (order items don't carry a structured add-on selection today), so it
  * enforces a floor rather than an exact match: the submitted price can't be below the
- * item's real base price (or matched variant price). That blocks the "pay ₹1 for a
- * ₹500 item" class of exploit without breaking legitimate add-on totals baked into price.
+ * Forces each food line's charged price to the item's real base price (or matched
+ * variant price). That blocks the "pay ₹1 for a ₹500 item" class of exploit.
+ * Addon line totals must stay on separate addon fields — they are not baked into price.
  */
 async function enforceMinimumFoodItemPrices(items, sourceMap) {
   const foodItems = (items || []).filter((item) => item.type === "food");
@@ -1942,6 +1947,12 @@ async function enforceMinimumFoodItemPrices(items, sourceMap) {
         .lean()
     : [];
   const foodDocMap = new Map(foodDocs.map((doc) => [String(doc._id), doc]));
+
+  const restaurantIds = [...new Set(foodDocs.map((d) => String(d.restaurantId || "")).filter(Boolean))];
+  const pricingRules = await loadActivePricingRulesForRestaurants({
+    restaurantIds,
+    menuItemIds: foodDocs.map((d) => d._id),
+  });
 
   for (const item of foodItems) {
     const label = item.name || "This item";
@@ -1964,16 +1975,26 @@ async function enforceMinimumFoodItemPrices(items, sourceMap) {
       throw new ValidationError(`Please select an option for "${label}" before adding to cart.`);
     }
 
-    let basePrice = Number(doc.price) || 0;
-    let baseOtherPrice = Number(doc.otherPrice) || 0;
+    const priced = applyOtherPriceToFood(doc, pricingRules);
+
+    let basePrice = Number(priced.basePrice) || Number(doc.price) || 0;
+    let liveOtherPrice = Number(priced.otherPrice) || 0;
+    let appliedPricingType = priced.appliedPricingType || null;
+    let appliedPricingValue = priced.appliedPricingValue ?? null;
+    let pricingScope = priced.pricingScope || null;
+    let pricingRule = priced.pricingRule || null;
     
     if (item.variantId && hasVariantsInDB) {
-      const variant = doc.variants.find((v) => String(v._id) === String(item.variantId));
+      const variant = (priced.variants || []).find((v) => String(v.id || v._id) === String(item.variantId))
+        || doc.variants.find((v) => String(v._id) === String(item.variantId));
       if (!variant) {
         throw new ValidationError(`Selected option for "${label}" is no longer available. Please refresh your cart.`);
       }
       basePrice = Number(variant.price) || 0;
-      baseOtherPrice = Number(variant.otherPrice) || 0;
+      liveOtherPrice = Number(variant.otherPrice) || 0;
+      appliedPricingType = variant.appliedPricingType || appliedPricingType;
+      appliedPricingValue = variant.appliedPricingValue ?? appliedPricingValue;
+      pricingScope = variant.pricingScope || pricingScope;
     }
 
     const submittedPrice = Number(item.price);
@@ -1981,9 +2002,39 @@ async function enforceMinimumFoodItemPrices(items, sourceMap) {
       throw new ValidationError(`Price for "${label}" has changed. Please refresh your cart and try again.`);
     }
 
-    // Force DB authoritative pricing on the item object directly
+    // Prefer cart compare-at snapshot when selling base is unchanged so the receipt
+    // matches what the customer saw. Always force charged price to DB base.
+    const snapshotBase = Number(item.basePrice);
+    const snapshotOther = Number(item.otherPrice);
+    const baseMatchesSnapshot =
+      Number.isFinite(snapshotBase) && Math.abs(snapshotBase - basePrice) < 0.01;
+    const useCartOtherPrice =
+      baseMatchesSnapshot &&
+      Number.isFinite(snapshotOther) &&
+      snapshotOther >= basePrice - 0.01 &&
+      (item.pricingScope || item.appliedPricingType);
+
+    const finalOther = useCartOtherPrice ? snapshotOther : liveOtherPrice;
+
     item.price = basePrice;
-    item.otherPrice = baseOtherPrice;
+    item.basePrice = basePrice;
+    item.otherPrice = finalOther;
+    item.markupAmount = Math.max(
+      0,
+      Math.round((finalOther - basePrice) * 100) / 100,
+    );
+    if (useCartOtherPrice) {
+      item.appliedPricingType = item.appliedPricingType || appliedPricingType;
+      item.appliedPricingValue =
+        item.appliedPricingValue != null ? item.appliedPricingValue : appliedPricingValue;
+      item.pricingScope = item.pricingScope || pricingScope;
+      item.pricingRule = item.pricingRule || pricingRule;
+    } else {
+      item.appliedPricingType = appliedPricingType;
+      item.appliedPricingValue = appliedPricingValue;
+      item.pricingScope = pricingScope;
+      item.pricingRule = pricingRule;
+    }
   }
 }
 
@@ -2056,10 +2107,6 @@ export async function calculateOrder(userId, dto) {
   if (resolved.couponCode && !dto.couponCode) {
     dto.couponCode = resolved.couponCode;
   }
-  const subtotal = items.reduce(
-    (sum, it) => sum + (Number(it.price) || 0) * (Number(it.quantity) || 1),
-    0,
-  );
 
   // Fee settings (admin-configured). Use safe fallbacks for dev if not configured.
   const feeDoc = await FoodFeeSettings.findOne({ isActive: true })
@@ -2068,7 +2115,12 @@ export async function calculateOrder(userId, dto) {
   const feeSettings = normalizeFoodFeeSettings(feeDoc);
 
   const sourceMap = await fetchPickupSourcesByType(items);
+  // MUST run before subtotal — enforce mutates item.price to authoritative base.
   await enforceMinimumFoodItemPrices(items, sourceMap);
+  const subtotal = items.reduce(
+    (sum, it) => sum + (Number(it.price) || 0) * (Number(it.quantity) || 1),
+    0,
+  );
   const pickupPoints = buildPickupPointsFromItems(items, sourceMap);
   const eligibility =
     orderType === "mixed"

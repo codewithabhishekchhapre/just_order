@@ -13,6 +13,7 @@ import * as diningAdminController from '../../dining/controllers/diningAdmin.con
 import * as orderController from '../../orders/controllers/order.controller.js';
 import { getAdminPageController, upsertAdminPageController } from '../controllers/pageContent.controller.js';
 import * as employeeController from '../controllers/employee.controller.js';
+import * as otherPriceController from '../controllers/otherPrice.controller.js';
 import { upload } from '../../../../middleware/upload.js';
 import { checkPermission } from '../../../../core/auth/auth.middleware.js';
 
@@ -105,6 +106,17 @@ router.get('/foods', adminController.getFoods);
 router.post('/foods', checkPermission('food::food_management::foods::list', 'create'), adminController.createFood);
 router.patch('/foods/:id', checkPermission('food::food_management::foods::list', 'edit'), adminController.updateFood);
 router.delete('/foods/:id', checkPermission('food::food_management::foods::list', 'delete'), adminController.deleteFood);
+
+// ----- Other Price / Pricing Management -----
+router.get('/pricing/summary', checkPermission('food::food_management::foods::list', 'view'), otherPriceController.getPricingSummary);
+router.get('/pricing/rules', checkPermission('food::food_management::foods::list', 'view'), otherPriceController.listPricingRules);
+router.post('/pricing/rules/bulk-restaurant', checkPermission('food::food_management::foods::list', 'edit'), otherPriceController.bulkUpsertRestaurantPricingRules);
+router.post('/pricing/rules/bulk-menu-item', checkPermission('food::food_management::foods::list', 'edit'), otherPriceController.bulkUpsertMenuItemPricingRules);
+router.post('/pricing/rules', checkPermission('food::food_management::foods::list', 'edit'), otherPriceController.upsertPricingRule);
+router.delete('/pricing/rules/:id', checkPermission('food::food_management::foods::list', 'delete'), otherPriceController.deletePricingRule);
+router.post('/pricing/preview', checkPermission('food::food_management::foods::list', 'view'), otherPriceController.previewPricing);
+router.get('/pricing/audits', checkPermission('food::food_management::foods::list', 'view'), otherPriceController.listPricingAudits);
+
 // Food approval queue (pending items created by restaurants)
 router.get('/foods/pending-approvals', checkPermission('food::food_management::food_approval', 'view'), foodApprovalController.getPendingFoodApprovals);
 router.patch('/foods/:id/approve', checkPermission('food::food_management::food_approval', 'edit'), foodApprovalController.approveFoodItemController);

@@ -304,6 +304,16 @@ function RestaurantDetailSkeleton({ className }) {
               <SkeletonLines lines={2} />
             </div>
           </div>
+          {/* Offers banner — matches RestaurantOffersBanner fixed height to prevent CLS */}
+          <div className="h-[92px] rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-[#141414]">
+            <div className="flex h-full items-center gap-4">
+              <Skeleton className="h-12 w-12 shrink-0 rounded-full" />
+              <div className="min-w-0 flex-1 space-y-2">
+                <Skeleton className="h-4 w-2/3 rounded-full" />
+                <Skeleton className="h-3 w-1/3 rounded-full" />
+              </div>
+            </div>
+          </div>
           <CategoryChipRowSkeleton count={5} />
           <div className="space-y-4">
             {Array.from({ length: 5 }, (_, index) => (

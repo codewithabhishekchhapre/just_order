@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom"
+import { useNavigate, useLocation as useRouterLocation } from "react-router-dom"
 import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { Tag } from "lucide-react"
 import { toast } from "sonner"
@@ -8,10 +8,12 @@ import { useCart } from "@food/context/CartContext"
 import AddToCartAnimation from "@food/components/user/AddToCartAnimation"
 import api from "@food/api"
 import { restaurantAPI, adminAPI } from "@food/api"
+import { API_BASE_URL } from "@food/api/config"
 import { isModuleAuthenticated } from "@food/utils/auth"
+import { navigateToLogin } from "@core/utils/postLoginRedirect"
 import { flattenMenuItems, getMenuFromResponse } from "@food/utils/menuItems"
 import { calculateDistance, formatDistance } from "@food/utils/common"
-
+import * as imgUtils from "@food/utils/imageUtils"
 import Under250Banner from "@food/components/user/under250/Under250Banner"
 import Under250CategoryRail from "@food/components/user/under250/Under250CategoryRail"
 import Under250FilterBar from "@food/components/user/under250/Under250FilterBar"
@@ -21,6 +23,7 @@ import Under250ItemDetailSheet from "@food/components/user/under250/Under250Item
 import Under250ShareSheet from "@food/components/user/under250/Under250ShareSheet"
 import { RestaurantSectionSkeleton, ShimmerStyles } from "@food/components/user/under250/Skeletons"
 
+const BACKEND_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, "")
 const RUPEE_SYMBOL = "\u20B9"
 const UNDER_250_FILTERS_STORAGE_KEY = "food-under-250-filters"
 
@@ -72,6 +75,7 @@ export default function Under250() {
   const { location } = useLocation()
   const { zoneId, isOutOfService } = useZone(location)
   const navigate = useNavigate()
+  const routerLocation = useRouterLocation()
   const { addToCart, updateQuantity, removeFromCart, getCartItem, cart } = useCart()
 
   const [activeCategory, setActiveCategory] = useState(initialFiltersRef.current.activeCategory)
@@ -99,14 +103,8 @@ export default function Under250() {
   const [currentBannerIndex, setCurrentBannerIndex] = useState(0)
   const [under250Restaurants, setUnder250Restaurants] = useState([])
   const [loadingRestaurants, setLoadingRestaurants] = useState(true)
-  const [hasScrolledPastBanner, setHasScrolledPastBanner] = useState(false)
   const bannerShellRef = useRef(null)
-  const stickyHeaderRef = useRef(null)
   const autoSlideIntervalRef = useRef(null)
-  const touchStartXRef = useRef(0)
-  const touchStartYRef = useRef(0)
-  const touchEndXRef = useRef(0)
-  const touchEndYRef = useRef(0)
   const isBannerSwipingRef = useRef(false)
 
   const sortOptions = [
@@ -182,7 +180,7 @@ export default function Under250() {
     return filtered
   }, [under250Restaurants, selectedSort, under30MinsFilter, activeCategory, categories])
 
-  // Banner fetch
+  // Banner fetch — Under ₹250 banners from Hero Banner Management
   useEffect(() => {
     let cancelled = false
     setLoadingBanner(true)
@@ -190,19 +188,45 @@ export default function Under250() {
       .get("/food/hero-banners/under-250/public")
       .then((res) => {
         if (cancelled) return
-        const data = res?.data?.data
-        const list = Array.isArray(data?.banners) ? data.banners : Array.isArray(data) ? data : []
+        // Same response-shape handling + field mapping as Home (`useFoodHomeData`).
+        const raw = res
+        const payload =
+          raw?.data?.data ??
+          raw?.data ??
+          raw
+        const list = Array.isArray(payload?.banners)
+          ? payload.banners
+          : Array.isArray(payload)
+            ? payload
+            : []
+
         const normalized = list
-          .map((banner) => ({
-            ...banner,
-            imageUrl: typeof banner?.imageUrl === "string" ? banner.imageUrl.trim() : "",
-            title: banner?.title || "",
-            subtitle: banner?.subtitle || "",
-            description: banner?.description || "",
-            ctaText: banner?.ctaText || banner?.action || "",
-            ctaLink: banner?.ctaLink || "",
-          }))
-          .filter((banner) => Boolean(banner.imageUrl))
+          .filter((b) => b && (b.isActive === undefined || b.isActive !== false))
+          .map((b, index) => {
+            const imageUrl = imgUtils.normalizeImageUrl(
+              b?.imageUrl || b?.image || b?.url || "",
+              BACKEND_ORIGIN,
+            )
+            if (!imageUrl) return null
+            return {
+              ...b,
+              _id: b?._id || b?.id || `under250-banner-${index}`,
+              imageUrl,
+              title: b?.title || "",
+              subtitle: b?.subtitle || "",
+              description: b?.description || "",
+              ctaText: b?.ctaText || b?.action || "",
+              ctaLink: b?.ctaLink || "",
+              action: b?.action || b?.ctaText || "",
+              linkedRestaurants: Array.isArray(b?.linkedRestaurants)
+                ? b.linkedRestaurants
+                : [],
+              sortOrder: Number(b?.sortOrder ?? b?.order ?? index),
+            }
+          })
+          .filter(Boolean)
+          .sort((a, b) => a.sortOrder - b.sortOrder)
+
         setBanners(normalized)
         setBannerImages(normalized.map((banner) => banner.imageUrl))
       })
@@ -244,52 +268,12 @@ export default function Under250() {
     }, 3500)
   }, [bannerImages.length])
 
-  const resetBannerAutoSlide = useCallback(() => {
-    startBannerAutoSlide()
-  }, [startBannerAutoSlide])
-
   useEffect(() => {
     startBannerAutoSlide()
     return () => {
       if (autoSlideIntervalRef.current) clearInterval(autoSlideIntervalRef.current)
     }
   }, [startBannerAutoSlide])
-
-  const handleBannerTouchStart = useCallback(
-    (event) => {
-      if (bannerImages.length <= 1) return
-      touchStartXRef.current = event.touches[0].clientX
-      touchStartYRef.current = event.touches[0].clientY
-      touchEndXRef.current = event.touches[0].clientX
-      touchEndYRef.current = event.touches[0].clientY
-      isBannerSwipingRef.current = true
-    },
-    [bannerImages.length]
-  )
-
-  const handleBannerTouchMove = useCallback((event) => {
-    if (!isBannerSwipingRef.current) return
-    touchEndXRef.current = event.touches[0].clientX
-    touchEndYRef.current = event.touches[0].clientY
-  }, [])
-
-  const handleBannerTouchEnd = useCallback(() => {
-    if (!isBannerSwipingRef.current || bannerImages.length <= 1) {
-      isBannerSwipingRef.current = false
-      return
-    }
-    const deltaX = touchEndXRef.current - touchStartXRef.current
-    const deltaY = Math.abs(touchEndYRef.current - touchStartYRef.current)
-    if (Math.abs(deltaX) > 40 && Math.abs(deltaX) > deltaY) {
-      setCurrentBannerIndex((prev) =>
-        deltaX > 0
-          ? (prev - 1 + bannerImages.length) % bannerImages.length
-          : (prev + 1) % bannerImages.length
-      )
-      resetBannerAutoSlide()
-    }
-    isBannerSwipingRef.current = false
-  }, [bannerImages.length, resetBannerAutoSlide])
 
   // Restaurants fetch
   useEffect(() => {
@@ -491,31 +475,10 @@ export default function Under250() {
     return () => window.removeEventListener("scroll", handleScroll)
   }, [])
 
-  useEffect(() => {
-    const handleBannerScroll = () => {
-      const bannerShell = bannerShellRef.current
-      const stickyHeader = stickyHeaderRef.current
-      if (!bannerShell) {
-        setHasScrolledPastBanner(false)
-        return
-      }
-      const bannerRect = bannerShell.getBoundingClientRect()
-      const stickyHeight = stickyHeader?.getBoundingClientRect().height || 0
-      setHasScrolledPastBanner(bannerRect.bottom <= stickyHeight)
-    }
-    handleBannerScroll()
-    window.addEventListener("scroll", handleBannerScroll, { passive: true })
-    window.addEventListener("resize", handleBannerScroll)
-    return () => {
-      window.removeEventListener("scroll", handleBannerScroll)
-      window.removeEventListener("resize", handleBannerScroll)
-    }
-  }, [])
-
   const updateItemQuantity = async (item, newQuantity, event = null, restaurantName = null) => {
     if (!isModuleAuthenticated("user")) {
       toast.error("Please login to add items to cart")
-      navigate("/user/auth/login", { state: { from: location.pathname } })
+      navigateToLogin(navigate, routerLocation)
       return
     }
     if (isOutOfService) {
@@ -741,16 +704,8 @@ export default function Under250() {
         bannerImages={bannerImages}
         loadingBanner={loadingBanner}
         currentBannerIndex={currentBannerIndex}
-        hasScrolledPastBanner={hasScrolledPastBanner}
+        setCurrentBannerIndex={setCurrentBannerIndex}
         bannerShellRef={bannerShellRef}
-        stickyHeaderRef={stickyHeaderRef}
-        onTouchStart={handleBannerTouchStart}
-        onTouchMove={handleBannerTouchMove}
-        onTouchEnd={handleBannerTouchEnd}
-        onDotClick={(index) => {
-          setCurrentBannerIndex(index)
-          resetBannerAutoSlide()
-        }}
       />
 
       <Under250CategoryRail

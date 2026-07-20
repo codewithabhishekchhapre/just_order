@@ -3,6 +3,10 @@ import { FoodCart } from '../models/foodCart.model.js';
 import { FoodItem } from '../../admin/models/food.model.js';
 import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { ValidationError, NotFoundError } from '../../../../core/auth/errors.js';
+import {
+  applyOtherPriceToFood,
+  loadActivePricingRules,
+} from '../../admin/services/otherPrice.service.js';
 
 const MAX_QTY = 99;
 
@@ -76,6 +80,29 @@ function resolveVariant(itemDoc, variantId) {
   };
 }
 
+function buildPricingSnapshot(priced, variantId = '') {
+  const pricedVariant =
+    (priced.variants || []).find(
+      (v) => String(v.id || v._id || '') === String(variantId || ''),
+    ) || null;
+  const basePrice = Number(pricedVariant?.price ?? priced.basePrice ?? priced.price) || 0;
+  const otherPrice = Number(pricedVariant?.otherPrice ?? priced.otherPrice) || 0;
+  return {
+    basePrice,
+    otherPrice,
+    appliedPricingType: pricedVariant?.appliedPricingType || priced.appliedPricingType || null,
+    appliedPricingValue:
+      pricedVariant?.appliedPricingValue ?? priced.appliedPricingValue ?? null,
+    pricingScope: pricedVariant?.pricingScope || priced.pricingScope || null,
+    pricingRule: priced.pricingRule || null,
+    pricingCapturedAt: new Date(),
+  };
+}
+
+function lineHasPricingSnapshot(line) {
+  return line && line.basePrice != null && Number.isFinite(Number(line.basePrice));
+}
+
 function assertItemSellable(itemDoc) {
   if (itemDoc.approvalStatus !== 'approved') {
     throw new ValidationError('Item is not available');
@@ -141,6 +168,12 @@ export async function hydrateFoodCart(cartDoc) {
   const keep = [];
   const removedUnavailable = [];
   const hydrated = [];
+  let pricingDirty = false;
+
+  const pricingRules = await loadActivePricingRules({
+    restaurantId: cartDoc.restaurantId || docs[0]?.restaurantId,
+    menuItemIds: docs.map((f) => f._id),
+  });
 
   for (const line of rawItems) {
     const doc = docMap.get(String(line.itemId));
@@ -178,17 +211,48 @@ export async function hydrateFoodCart(cartDoc) {
     }
 
     const quantity = Math.min(MAX_QTY, Math.max(1, Number(line.quantity) || 1));
+    const priced = applyOtherPriceToFood(doc, pricingRules);
+    const liveSnapshot = buildPricingSnapshot(priced, variant.variantId);
+    const liveBase = liveSnapshot.basePrice;
+
+    // Prefer cart snapshot when base price unchanged so admin markup edits
+    // don't silently rewrite an open cart until the line is refreshed.
+    let snapshot = liveSnapshot;
+    if (lineHasPricingSnapshot(line)) {
+      const snappedBase = Number(line.basePrice) || 0;
+      if (Math.abs(snappedBase - liveBase) < 0.01) {
+        snapshot = {
+          basePrice: snappedBase,
+          otherPrice: Number(line.otherPrice) || 0,
+          appliedPricingType: line.appliedPricingType || null,
+          appliedPricingValue:
+            line.appliedPricingValue != null ? Number(line.appliedPricingValue) : null,
+          pricingScope: line.pricingScope || null,
+          pricingRule: line.pricingRule || null,
+          pricingCapturedAt: line.pricingCapturedAt || null,
+        };
+      } else {
+        pricingDirty = true;
+      }
+    } else {
+      pricingDirty = true;
+    }
+
     keep.push({
       _id: line._id,
       itemId: line.itemId,
       variantId: variant.variantId,
       quantity,
+      ...snapshot,
     });
 
     const image =
       (typeof doc.image === 'string' && doc.image) ||
       (Array.isArray(doc.images) && doc.images[0]) ||
       '';
+
+    const unitPrice = snapshot.basePrice;
+    const unitOther = snapshot.otherPrice;
 
     hydrated.push({
       id: lineId,
@@ -197,11 +261,16 @@ export async function hydrateFoodCart(cartDoc) {
       productId: String(doc._id),
       variantId: variant.variantId,
       variantName: variant.variantName,
-      variantPrice: variant.price,
+      variantPrice: unitPrice,
       name: doc.name,
       quantity,
-      price: variant.price,
-      otherPrice: Number(doc.otherPrice) || 0,
+      price: unitPrice,
+      basePrice: unitPrice,
+      otherPrice: unitOther,
+      appliedPricingType: snapshot.appliedPricingType,
+      appliedPricingValue: snapshot.appliedPricingValue,
+      pricingScope: snapshot.pricingScope,
+      pricingRule: snapshot.pricingRule,
       image,
       imageUrl: image,
       isVeg: String(doc.foodType || '') === 'Veg',
@@ -216,7 +285,7 @@ export async function hydrateFoodCart(cartDoc) {
       categoryName: doc.categoryName || '',
       addons: Array.isArray(line.addons) ? line.addons : [],
       notes: typeof line.notes === 'string' ? line.notes : '',
-      lineTotal: variant.price * quantity,
+      lineTotal: unitPrice * quantity,
       available: true,
     });
   }
@@ -230,7 +299,7 @@ export async function hydrateFoodCart(cartDoc) {
     // Keep items but frontend/checkout will block; mark flag.
   }
 
-  if (removedUnavailable.length || keep.length !== rawItems.length) {
+  if (removedUnavailable.length || keep.length !== rawItems.length || pricingDirty) {
     await FoodCart.updateOne(
       { _id: cartDoc._id },
       {
@@ -273,6 +342,13 @@ export async function addFoodCartItem(userId, body = {}) {
   const restaurant = await assertRestaurantAccepting(itemDoc.restaurantId);
   const variant = resolveVariant(itemDoc, variantId);
 
+  const pricingRules = await loadActivePricingRules({
+    restaurantId: itemDoc.restaurantId,
+    menuItemIds: [itemDoc._id],
+  });
+  const priced = applyOtherPriceToFood(itemDoc, pricingRules);
+  const pricingSnapshot = buildPricingSnapshot(priced, variant.variantId);
+
   const cart = await getOrCreateCart(userId);
 
   if (cart.restaurantId && String(cart.restaurantId) !== String(itemDoc.restaurantId)) {
@@ -295,6 +371,20 @@ export async function addFoodCartItem(userId, body = {}) {
   let saved;
   if (existingIdx >= 0) {
     const nextQty = Math.min(MAX_QTY, Number(cart.items[existingIdx].quantity || 0) + addQty);
+    // Keep existing pricing snapshot when topping up quantity of the same line.
+    const existingLine = cart.items[existingIdx];
+    const keepSnapshot = lineHasPricingSnapshot(existingLine)
+      ? {
+          basePrice: existingLine.basePrice,
+          otherPrice: existingLine.otherPrice,
+          appliedPricingType: existingLine.appliedPricingType,
+          appliedPricingValue: existingLine.appliedPricingValue,
+          pricingScope: existingLine.pricingScope,
+          pricingRule: existingLine.pricingRule,
+          pricingCapturedAt: existingLine.pricingCapturedAt,
+        }
+      : pricingSnapshot;
+
     saved = await FoodCart.findOneAndUpdate(
       {
         _id: cart._id,
@@ -308,6 +398,13 @@ export async function addFoodCartItem(userId, body = {}) {
       {
         $set: {
           'items.$.quantity': nextQty,
+          'items.$.basePrice': keepSnapshot.basePrice,
+          'items.$.otherPrice': keepSnapshot.otherPrice,
+          'items.$.appliedPricingType': keepSnapshot.appliedPricingType,
+          'items.$.appliedPricingValue': keepSnapshot.appliedPricingValue,
+          'items.$.pricingScope': keepSnapshot.pricingScope,
+          'items.$.pricingRule': keepSnapshot.pricingRule,
+          'items.$.pricingCapturedAt': keepSnapshot.pricingCapturedAt,
           restaurantId: itemDoc.restaurantId,
         },
       },
@@ -325,6 +422,7 @@ export async function addFoodCartItem(userId, body = {}) {
             itemId: itemDoc._id,
             variantId: variant.variantId,
             quantity: addQty,
+            ...pricingSnapshot,
           },
         },
       },
@@ -439,6 +537,17 @@ export async function buildOrderItemsFromFoodCart(userId) {
     variantName: line.variantName || undefined,
     variantPrice: line.price,
     price: line.price,
+    basePrice: line.basePrice ?? line.price,
+    otherPrice: line.otherPrice || 0,
+    appliedPricingType: line.appliedPricingType || null,
+    appliedPricingValue: line.appliedPricingValue ?? null,
+    pricingScope: line.pricingScope || null,
+    pricingRule: line.pricingRule || null,
+    markupAmount: Math.max(
+      0,
+      Math.round(((Number(line.otherPrice) || 0) - (Number(line.basePrice ?? line.price) || 0)) * 100) /
+        100,
+    ),
     quantity: line.quantity,
     isVeg: Boolean(line.isVeg),
     image: line.image || '',

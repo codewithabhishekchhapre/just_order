@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react"
+import React, { useEffect, useState, useRef, useMemo } from "react"
 import { motion } from "framer-motion"
 import { Routes, Route, Navigate, Link, useLocation, useNavigate } from "react-router-dom"
 import { Phone, Lock, ArrowRight, ArrowLeft, ShieldCheck, Loader2, UserRound, Sparkles } from "lucide-react"
@@ -7,6 +7,11 @@ import { authAPI, userAPI } from "@food/api"
 import { isModuleAuthenticated, setAuthData } from "@food/utils/auth"
 import { loadBusinessSettings, getCachedSettings, getAppLogo, getCompanyName, setAppType } from "@common/utils/businessSettings"
 import loginBg from "@food/assets/loginbanner.png"
+import {
+  resolvePostLoginRedirect,
+  clearPostLoginRedirect,
+  rememberPostLoginRedirect,
+} from "@core/utils/postLoginRedirect"
 
 export default function UnifiedOTPFastLogin() {
   const RESEND_COOLDOWN_SECONDS = 60
@@ -56,14 +61,34 @@ export default function UnifiedOTPFastLogin() {
   const referralCode = searchParams.get("ref") || ""
   
   const submitting = useRef(false)
-  const redirectTo = typeof location.state?.redirectTo === "string" && location.state.redirectTo.trim()
-    ? location.state.redirectTo.trim()
-    : "/portal"
+  // Honor redirectTo, from (string|location), ?redirect=, and sessionStorage (refresh-safe).
+  const redirectTo = useMemo(
+    () =>
+      resolvePostLoginRedirect({
+        location,
+        searchParams,
+        defaultPath: "/portal",
+      }),
+    [location],
+  )
+
+  useEffect(() => {
+    // Persist so a refresh on the login page still returns to the prior route.
+    if (redirectTo && redirectTo !== "/portal") {
+      rememberPostLoginRedirect(redirectTo)
+    }
+  }, [redirectTo])
+
+  const finishLoginAndRedirect = () => {
+    clearPostLoginRedirect()
+    navigate(redirectTo, { replace: true })
+  }
 
   useEffect(() => {
     if (!isModuleAuthenticated("user")) return
-    navigate(redirectTo, { replace: true })
-  }, [navigate, redirectTo])
+    finishLoginAndRedirect()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional one-shot when already auth
+  }, [])
 
   const clearNameFlow = () => {
     setShowNameInput(false)
@@ -249,7 +274,7 @@ export default function UnifiedOTPFastLogin() {
       setAuthData("user", accessToken, user, refreshToken)
       window.dispatchEvent(new Event("userAuthChanged"))
       toast.success("Login successful!")
-      navigate(redirectTo, { replace: true })
+      finishLoginAndRedirect()
     } catch (err) {
       const status = err?.response?.status
       let msg = err?.response?.data?.message || err?.response?.data?.error || err?.message || "Invalid OTP. Please try again."
@@ -304,7 +329,7 @@ export default function UnifiedOTPFastLogin() {
       window.dispatchEvent(new Event("userAuthChanged"))
       clearNameFlow()
       toast.success("Profile saved successfully!")
-      navigate(redirectTo, { replace: true })
+      finishLoginAndRedirect()
     } catch (err) {
       const status = err?.response?.status
       let msg = err?.response?.data?.message || err?.response?.data?.error || err?.message || "Failed to save your name."

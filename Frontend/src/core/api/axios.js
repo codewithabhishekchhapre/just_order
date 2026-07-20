@@ -1,6 +1,13 @@
 import axios from 'axios';
 import { isTokenExpired } from '@food/utils/auth';
 import { redirectToModuleLogin } from '@core/utils/sessionExpiry';
+import {
+  attachSlowNetworkWatcher,
+  clearRequestWatchers,
+  installHttpErrorHandling,
+} from '@/services/api/httpErrorHandling';
+import { notifyNetworkStatus } from '@/services/api/networkToast';
+import { ApiErrorCode } from '@/services/api/errors';
 
 const pickCustomerToken = () => {
   const candidates = [
@@ -15,10 +22,14 @@ const pickCustomerToken = () => {
 
 const axiosInstance = axios.create({
     baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api/v1',
+    timeout: 30000,
     headers: {
         'Content-Type': 'application/json',
     },
 });
+
+// Shared normalize / GET-retry / infra toasts — must register before 401 handler (LIFO).
+installHttpErrorHandling(axiosInstance);
 
 // Request interceptor for API calls
 axiosInstance.interceptors.request.use(
@@ -70,6 +81,15 @@ axiosInstance.interceptors.request.use(
         if (token) {
             config.headers.Authorization = `Bearer ${token}`;
         }
+
+        if (config.data instanceof FormData && config.headers?.['Content-Type']) {
+            delete config.headers['Content-Type'];
+        }
+
+        attachSlowNetworkWatcher(config, () =>
+            notifyNetworkStatus(ApiErrorCode.SLOW_NETWORK),
+        );
+
         return config;
     },
     (error) => {
@@ -79,8 +99,12 @@ axiosInstance.interceptors.request.use(
 
 // Response interceptor for API calls
 axiosInstance.interceptors.response.use(
-    (response) => response,
+    (response) => {
+        clearRequestWatchers(response?.config);
+        return response;
+    },
     async (error) => {
+        clearRequestWatchers(error?.config);
         const originalRequest = error.config;
         if (error.response?.status === 401 && !originalRequest._retry) {
             originalRequest._retry = true;

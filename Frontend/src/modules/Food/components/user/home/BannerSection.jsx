@@ -45,11 +45,17 @@ const BannerSection = memo(({
     );
   }
 
-  if (!heroBannerImages || heroBannerImages.length === 0) return null;
+  // Prefer full banner objects so title/subtitle/cta stay aligned with each image.
+  const slides = (Array.isArray(heroBannersData) && heroBannersData.length > 0
+    ? heroBannersData
+    : (heroBannerImages || []).map((imageUrl) => ({ imageUrl }))
+  ).filter((slide) => Boolean(slide?.imageUrl));
+
+  if (!slides.length) return null;
 
   const handleBannerClick = () => {
-    const bannerData = heroBannersData[currentBannerIndex] || {};
-    if (bannerData?.type === "video" || isVideoSource(bannerData, heroBannerImages[currentBannerIndex])) {
+    const bannerData = slides[currentBannerIndex] || {};
+    if (bannerData?.type === "video" || isVideoSource(bannerData, bannerData.imageUrl)) {
       return;
     }
 
@@ -101,8 +107,8 @@ const BannerSection = memo(({
             />
           </div>
 
-          {heroBannerImages.map((image, index) => {
-            const bannerData = heroBannersData[index] || {};
+          {slides.map((bannerData, index) => {
+            const image = bannerData.imageUrl || heroBannerImages[index] || "";
             const isVideo = isVideoSource(bannerData, image);
             const isActive = currentBannerIndex === index;
             const title = bannerData.title || "";
@@ -136,66 +142,65 @@ const BannerSection = memo(({
                     style={{ filter: "brightness(0.95)" }}
                   />
                 ) : (
-                  <>
-                    <OptimizedImage
-                      src={image}
-                      alt={subtitle || title || `Hero Banner ${index + 1}`}
-                      className="h-full w-full object-cover"
-                      priority={index === currentBannerIndex}
-                      backendOrigin={backendOrigin}
-                      draggable={false}
-                    />
-                    {showOverlay && (
-                      <>
-                        <div className="absolute inset-0 bg-gradient-to-r from-black/75 via-black/40 to-transparent pointer-events-none" />
-                        <div className="relative z-10 h-full w-full flex items-center px-4 sm:px-6 lg:px-10">
-                          <div className="flex flex-col justify-center h-full text-white w-[85%] sm:w-[70%] max-w-xl">
-                            {showTitle && (
-                              <div className="flex items-center gap-1.5 mb-1">
-                                <span className="text-[10px] sm:text-xs md:text-sm font-bold italic tracking-wider text-orange-200 uppercase">
-                                  <TextReveal text={title || "A SIX IS HIT! 🏏"} isActive={isActive} delay={0.1} />
-                                </span>
-                              </div>
-                            )}
-                            {showSubtitle && (
-                              <h3 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold leading-[1.1] mb-2 sm:mb-3 text-white uppercase italic drop-shadow-[0_2px_4px_rgba(0,0,0,0.4)]">
-                                <TextReveal
-                                  text={subtitle || description || "66% OFF FOR 10 MIN!"}
-                                  isActive={isActive}
-                                  delay={0.35}
-                                />
-                              </h3>
-                            )}
-                            {description && subtitle && (
-                              <p className="hidden sm:block text-white/80 text-xs md:text-sm font-medium mb-3 line-clamp-2 max-w-md">
-                                {description}
-                              </p>
-                            )}
-                            {showAction && (
-                              <motion.div
-                                initial={{ opacity: 0, scale: 0.8 }}
-                                animate={
-                                  isActive
-                                    ? { opacity: 1, scale: 1, y: [0, -4, 0, -2, 0] }
-                                    : { opacity: 0, scale: 0.8, y: 0 }
-                                }
-                                transition={{
-                                  opacity: { delay: 0.7, duration: 0.4 },
-                                  scale: { delay: 0.7, duration: 0.4, type: "spring" },
-                                  y: { delay: 1.4, duration: 1.2, ease: "easeInOut", repeat: Infinity, repeatDelay: 2.5 },
-                                }}
-                                className="w-fit"
-                              >
-                                <span className="bg-[#FF6A00] hover:bg-[#E85D04] shadow-[0_4px_12px_rgba(255,106,0,0.5)] inline-flex items-center gap-1 px-4 py-2 rounded-xl text-white text-sm font-bold">
-                                  {action || "Order Now"} <span className="font-bold tracking-tighter">&gt;&gt;</span>
-                                </span>
-                              </motion.div>
-                            )}
+                  <OptimizedImage
+                    src={image}
+                    alt={subtitle || title || `Hero Banner ${index + 1}`}
+                    className="absolute inset-0 h-full w-full object-cover"
+                    priority={index === currentBannerIndex}
+                    backendOrigin={backendOrigin}
+                    draggable={false}
+                  />
+                )}
+
+                {showOverlay && (
+                  <div className="absolute inset-0 z-10 pointer-events-none">
+                    <div className="absolute inset-0 bg-gradient-to-r from-black/75 via-black/40 to-transparent" />
+                    <div className="relative z-10 h-full w-full flex items-center px-4 sm:px-6 lg:px-10">
+                      <div className="flex flex-col justify-center h-full text-white w-[85%] sm:w-[70%] max-w-xl">
+                        {showTitle && (
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <span className="text-[10px] sm:text-xs md:text-sm font-bold italic tracking-wider text-orange-200 uppercase">
+                              <TextReveal text={title || "A SIX IS HIT! 🏏"} isActive={isActive} delay={0.1} />
+                            </span>
                           </div>
-                        </div>
-                      </>
-                    )}
-                  </>
+                        )}
+                        {showSubtitle && (
+                          <h3 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold leading-[1.1] mb-2 sm:mb-3 text-white uppercase italic drop-shadow-[0_2px_4px_rgba(0,0,0,0.4)]">
+                            <TextReveal
+                              text={subtitle || description || "66% OFF FOR 10 MIN!"}
+                              isActive={isActive}
+                              delay={0.35}
+                            />
+                          </h3>
+                        )}
+                        {description && subtitle && (
+                          <p className="hidden sm:block text-white/80 text-xs md:text-sm font-medium mb-3 line-clamp-2 max-w-md">
+                            {description}
+                          </p>
+                        )}
+                        {showAction && (
+                          <motion.div
+                            initial={{ opacity: 0, scale: 0.8 }}
+                            animate={
+                              isActive
+                                ? { opacity: 1, scale: 1, y: [0, -4, 0, -2, 0] }
+                                : { opacity: 0, scale: 0.8, y: 0 }
+                            }
+                            transition={{
+                              opacity: { delay: 0.7, duration: 0.4 },
+                              scale: { delay: 0.7, duration: 0.4, type: "spring" },
+                              y: { delay: 1.4, duration: 1.2, ease: "easeInOut", repeat: Infinity, repeatDelay: 2.5 },
+                            }}
+                            className="w-fit"
+                          >
+                            <span className="bg-[#FF6A00] hover:bg-[#E85D04] shadow-[0_4px_12px_rgba(255,106,0,0.5)] inline-flex items-center gap-1 px-4 py-2 rounded-xl text-white text-sm font-bold">
+                              {action || "Order Now"} <span className="font-bold tracking-tighter">&gt;&gt;</span>
+                            </span>
+                          </motion.div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 )}
               </div>
             );
@@ -209,9 +214,9 @@ const BannerSection = memo(({
           aria-label={`Open hero banner ${currentBannerIndex + 1}`}
         />
 
-        {heroBannerImages.length > 1 && (
+        {slides.length > 1 && (
           <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1.5 px-2 py-1 z-30 pointer-events-none">
-            {heroBannerImages.map((_, index) => (
+            {slides.map((_, index) => (
               <div
                 key={index}
                 className={`h-1 rounded-full transition-all duration-300 ${

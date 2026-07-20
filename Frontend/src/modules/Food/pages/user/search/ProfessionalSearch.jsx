@@ -12,6 +12,7 @@ import { useLocation as useGeoLocation } from "@food/hooks/useLocation"
 import { useZone } from "@food/hooks/useZone"
 import { searchAPI } from "@/services/api"
 import { motion, AnimatePresence } from "framer-motion"
+import { sanitizeSearchQuery } from "@food/utils/foodSearchUtils"
 
 // Helper to resolve media URLs consistently
 const getMediaUrl = (url) => {
@@ -48,6 +49,10 @@ export default function ProfessionalSearch() {
   const urlQuery = searchParams.get("q") || location.state?.query || ""
   const [query, setQuery] = useState(urlQuery)
   const debouncedQuery = useDebounce(query, 400)
+  const sanitizedDebouncedQuery = useMemo(
+    () => sanitizeSearchQuery(debouncedQuery),
+    [debouncedQuery],
+  )
   
   const [results, setResults] = useState({ restaurants: [], dishes: [] })
   const [loading, setLoading] = useState(false)
@@ -57,6 +62,7 @@ export default function ProfessionalSearch() {
   const [history, setHistory] = useState([])
   const searchCacheRef = useRef(new Map())
   const abortControllerRef = useRef(null)
+  const lastRequestKeyRef = useRef("")
 
   // URL query change hone par query state sync karein
   useEffect(() => {
@@ -64,12 +70,19 @@ export default function ProfessionalSearch() {
     if (currentUrlQuery && currentUrlQuery !== query) {
       setQuery(currentUrlQuery)
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- sync from URL only
   }, [searchParams])
 
   // Load search history
   useEffect(() => {
     const savedHistory = localStorage.getItem(SEARCH_HISTORY_KEY)
-    if (savedHistory) setHistory(JSON.parse(savedHistory))
+    if (savedHistory) {
+      try {
+        setHistory(JSON.parse(savedHistory))
+      } catch {
+        setHistory([])
+      }
+    }
     fetchCategories()
   }, [])
 
@@ -82,24 +95,37 @@ export default function ProfessionalSearch() {
     }
   }
 
-  const addToHistory = (term) => {
-    const newHistory = [term, ...history.filter(h => h !== term)].slice(0, 5)
-    setHistory(newHistory)
-    localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(newHistory))
-  }
+  const addToHistory = useCallback((term) => {
+    const clean = sanitizeSearchQuery(term)
+    if (!clean) return
+    setHistory((prev) => {
+      const newHistory = [clean, ...prev.filter((h) => h.toLowerCase() !== clean.toLowerCase())].slice(0, 5)
+      localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(newHistory))
+      return newHistory
+    })
+  }, [])
 
   const performSearch = useCallback(async (searchTerm, catId) => {
-    if (!searchTerm && !catId) {
+    const cleanTerm = sanitizeSearchQuery(searchTerm)
+    if (!cleanTerm && !catId) {
       setResults({ restaurants: [], dishes: [] })
+      setLoading(false)
       return
     }
 
     // Cache key covers everything the response depends on, so identical
     // re-searches (typing then backspacing, revisiting a term) skip the network.
-    const cacheKey = JSON.stringify({ q: searchTerm || "", catId: catId || "", zoneId: zoneId || "" })
+    const cacheKey = JSON.stringify({ q: cleanTerm || "", catId: catId || "", zoneId: zoneId || "" })
+    if (lastRequestKeyRef.current === cacheKey && searchCacheRef.current.has(cacheKey)) {
+      setResults(searchCacheRef.current.get(cacheKey))
+      return
+    }
+
     const cached = searchCacheRef.current.get(cacheKey)
     if (cached) {
+      lastRequestKeyRef.current = cacheKey
       setResults(cached)
+      setLoading(false)
       return
     }
 
@@ -108,16 +134,19 @@ export default function ProfessionalSearch() {
     abortControllerRef.current?.abort()
     const controller = new AbortController()
     abortControllerRef.current = controller
+    lastRequestKeyRef.current = cacheKey
 
     setLoading(true)
     try {
       const res = await searchAPI.unifiedSearch({
-        q: searchTerm,
+        q: cleanTerm,
         categoryId: catId,
         lat: userCoords?.latitude,
         lng: userCoords?.longitude,
         zoneId
       }, { signal: controller.signal })
+
+      if (controller.signal.aborted) return
 
       if (res.data?.success) {
         // Grouping results into Restaurants and potential Dishes
@@ -131,6 +160,7 @@ export default function ProfessionalSearch() {
         }
         searchCacheRef.current.set(cacheKey, grouped)
         setResults(grouped)
+        if (cleanTerm) addToHistory(cleanTerm)
       } else {
         setResults({ restaurants: [], dishes: [] })
       }
@@ -141,14 +171,14 @@ export default function ProfessionalSearch() {
     } finally {
       if (!controller.signal.aborted) setLoading(false)
     }
-  }, [userCoords, zoneId])
+  }, [userCoords, zoneId, addToHistory])
 
   useEffect(() => {
-    performSearch(debouncedQuery, selectedCategoryId)
-    if (debouncedQuery) {
-        setSearchParams({ q: debouncedQuery, ...(selectedCategoryId ? { cat: selectedCategoryId } : {}) }, { replace: true })
+    performSearch(sanitizedDebouncedQuery, selectedCategoryId)
+    if (sanitizedDebouncedQuery) {
+        setSearchParams({ q: sanitizedDebouncedQuery, ...(selectedCategoryId ? { cat: selectedCategoryId } : {}) }, { replace: true })
     }
-  }, [debouncedQuery, selectedCategoryId, performSearch, setSearchParams])
+  }, [sanitizedDebouncedQuery, selectedCategoryId, performSearch, setSearchParams])
 
   // Speech Recognition Implementation
   const handleVoiceSearch = () => {
@@ -393,8 +423,10 @@ export default function ProfessionalSearch() {
                  <div className="w-20 h-20 bg-slate-100 dark:bg-zinc-900 rounded-full flex items-center justify-center mb-4">
                     <Search className="w-8 h-8 text-slate-300" />
                  </div>
-                 <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-2">We couldn't find any results</h2>
-                 <p className="text-slate-500 text-sm max-w-xs">Maybe try searching for something else or check your spelling</p>
+                 <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-2">No restaurants found</h2>
+                 <p className="text-slate-500 text-sm max-w-xs">
+                   No matches for restaurants or dishes. Try another name, cuisine, or category.
+                 </p>
                  <Button variant="outline" onClick={handleClear} className="mt-6 rounded-xl border-[#FF6A00] text-[#FF6A00] hover:bg-[#fff5f5]">
                     Clear all filters
                  </Button>

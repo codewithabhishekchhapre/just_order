@@ -37,6 +37,7 @@ const RestaurantReviews = lazy(() => import("@food/pages/admin/restaurant/Restau
 const RestaurantCommission = lazy(() => import("@food/pages/admin/restaurant/RestaurantCommission"));
 // Food Management
 const FoodsList = lazy(() => import("@food/pages/admin/foods/FoodsList"));
+const PricingManagement = lazy(() => import("@food/pages/admin/pricing/PricingManagement"));
 const AddonsList = lazy(() => import("@food/pages/admin/addons/AddonsList"));
 // Promotions Management
 const BasicCampaign = lazy(() => import("@food/pages/admin/campaigns/BasicCampaign"));
@@ -280,6 +281,7 @@ export default function AdminRouter() {
             <Route path="referral-settings" element={<ReferralSettings />} />
             <Route path="foods" element={<FoodsList />} />
             <Route path="food/list" element={<FoodsList />} />
+            <Route path="pricing" element={<PricingManagement />} />
             <Route path="addons" element={<AddonsList />} />
 
             {/* PROMOTIONS, CUSTOMERS, DELIVERYMEN, etc. */}

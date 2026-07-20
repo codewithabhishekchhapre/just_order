@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react"
 import { createPortal } from "react-dom"
-import { Link, useNavigate } from "react-router-dom"
+import { Link, useNavigate, useLocation } from "react-router-dom"
 import { Plus, Minus, ArrowLeft, ChevronRight, Clock, MapPin, Phone, FileText, Utensils, Tag, Percent, Share2, ChevronUp, ChevronDown, X, Check, Settings, CreditCard, Wallet, Building2, Sparkles, Banknote, Zap, CheckCircle2, MessageCircle, Send, Mail, Copy } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import confetti from "canvas-confetti"
@@ -24,6 +24,7 @@ import { toast } from "sonner"
 import { getCompanyNameAsync } from "@common/utils/businessSettings"
 import { useCompanyName } from "@food/hooks/useCompanyName"
 import { getRestaurantAvailabilityStatus } from "@food/utils/restaurantAvailability"
+import { navigateToLogin } from "@core/utils/postLoginRedirect"
 import {
   normalizeDeliverySpeedOptions,
   pickDefaultDeliverySpeedCode,
@@ -31,6 +32,11 @@ import {
 } from "@food/utils/deliverySpeedOptions"
 import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 import zoopSound from "@food/assets/audio/zomato_sms.mp3"
+import CartItemRow from "@food/components/user/cart/CartItemRow"
+import CartBillSummary from "@food/components/user/cart/CartBillSummary"
+import CartCouponSection from "@food/components/user/cart/CartCouponSection"
+import CartCouponSheet from "@food/components/user/cart/CartCouponSheet"
+import CartAddressCard from "@food/components/user/cart/CartAddressCard"
 const debugLog = (...args) => { }
 const debugWarn = (...args) => { }
 const debugError = (...args) => { }
@@ -144,6 +150,7 @@ const normalizeOrderAddress = (address, { recipientName = "", recipientPhone = "
 export default function Cart() {
   const companyName = useCompanyName()
   const navigate = useNavigate()
+  const location = useLocation()
   const goBack = useAppBackNavigation()
   const orderSuccessAudioRef = useRef(null)
   const hasRestoredRecipientRef = useRef(false)
@@ -257,7 +264,10 @@ export default function Cart() {
   const [availableCoupons, setAvailableCoupons] = useState([])
   const [loadingCoupons, setLoadingCoupons] = useState(false)
   const [userOrderCount, setUserOrderCount] = useState(0)
-  const [showAllCoupons, setShowAllCoupons] = useState(false)
+  const [showCouponSheet, setShowCouponSheet] = useState(false)
+  const [showAddressPicker, setShowAddressPicker] = useState(false)
+  const [applyingCouponCode, setApplyingCouponCode] = useState("")
+  const couponsFetchedKeyRef = useRef("")
 
   // Fee settings from database (used for platform fee and GST fallback only)
   const [feeSettings, setFeeSettings] = useState({
@@ -850,17 +860,31 @@ export default function Cart() {
     fetchAddons()
   }, [restaurantData, cart.length, loadingRestaurant, isQuickCart])
 
-  // Fetch coupons for items in cart
+  // Fetch coupons once per restaurant + unique item-id set (not on every qty change).
+  const cartCouponItemsKey = useMemo(() => {
+    if (isQuickCart) return "quick"
+    const ids = cart
+      .map((item) => String(item.itemId || item.id || "").trim())
+      .filter(Boolean)
+    return `${restaurantId || ""}::${[...new Set(ids)].sort().join(",")}`
+  }, [cart, restaurantId, isQuickCart])
+
   useEffect(() => {
     const fetchCouponsForCartItems = async () => {
       if (isQuickCart) {
         setAvailableCoupons([])
         setLoadingCoupons(false)
+        couponsFetchedKeyRef.current = cartCouponItemsKey
         return
       }
 
       if (cart.length === 0 || !restaurantId) {
         setAvailableCoupons([])
+        couponsFetchedKeyRef.current = ""
+        return
+      }
+
+      if (couponsFetchedKeyRef.current === cartCouponItemsKey) {
         return
       }
 
@@ -869,25 +893,19 @@ export default function Cart() {
 
       const allCoupons = []
       const uniqueCouponCodes = new Set()
+      const itemIds = [...new Set(
+        cart.map((item) => item.itemId || item.id).filter(Boolean),
+      )]
 
-      // Fetch coupons for each item in cart
-      for (const cartItem of cart) {
-        const couponItemId = cartItem.itemId || cartItem.id
-        if (!couponItemId) {
-          debugLog(`[CART-COUPONS] Skipping item without id:`, cartItem)
-          continue
-        }
-
+      for (const couponItemId of itemIds) {
+        const cartItem = cart.find((item) => (item.itemId || item.id) === couponItemId)
         try {
-          debugLog(`[CART-COUPONS] Fetching coupons for itemId: ${couponItemId}, name: ${cartItem.name}`)
+          debugLog(`[CART-COUPONS] Fetching coupons for itemId: ${couponItemId}`)
           const response = await restaurantAPI.getCouponsByItemIdPublic(restaurantId, couponItemId)
 
           if (response?.data?.success && response?.data?.data?.coupons) {
             const coupons = response.data.data.coupons
-            debugLog(`[CART-COUPONS] Found ${coupons.length} coupons for item ${couponItemId}`)
-
-            // Add coupons, avoiding duplicates
-            coupons.forEach(coupon => {
+            coupons.forEach((coupon) => {
               if (!uniqueCouponCodes.has(coupon.couponCode)) {
                 uniqueCouponCodes.add(coupon.couponCode)
                 const isPct = coupon.discountType === "percentage"
@@ -912,24 +930,37 @@ export default function Cart() {
                   isGlobalCoupon: Boolean(coupon.isGlobalCoupon),
                   freeDelivery: Boolean(coupon.freeDelivery),
                   maxDiscount: coupon.maxDiscount != null ? Number(coupon.maxDiscount) : null,
+                  startDate: coupon.startDate || null,
+                  endDate: coupon.endDate || null,
+                  terms: coupon.terms || coupon.termsAndConditions || "",
+                  restaurantEligible: coupon.restaurantEligible,
+                  restaurantNotEligible: coupon.restaurantNotEligible,
+                  categoryRestricted: coupon.categoryRestricted,
+                  categoryEligible: coupon.categoryEligible,
+                  alreadyUsed: coupon.alreadyUsed || coupon.isUsed,
+                  eligible: coupon.eligible,
+                  ineligibilityReason: coupon.ineligibilityReason || coupon.reason || "",
                   itemId: couponItemId,
-                  itemName: cartItem.name,
+                  itemName: cartItem?.name,
                 })
               }
             })
           }
         } catch (error) {
-          debugError(`[CART-COUPONS] Error fetching coupons for item ${cartItem.id}:`, error)
+          debugError(`[CART-COUPONS] Error fetching coupons for item ${couponItemId}:`, error)
         }
       }
 
       debugLog(`[CART-COUPONS] Total unique coupons found: ${allCoupons.length}`, allCoupons)
       setAvailableCoupons(allCoupons)
+      couponsFetchedKeyRef.current = cartCouponItemsKey
       setLoadingCoupons(false)
     }
 
     fetchCouponsForCartItems()
-  }, [cart, restaurantId, isQuickCart])
+    // Intentionally omit availableCoupons from deps — guarded by couponsFetchedKeyRef.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cartCouponItemsKey, isQuickCart, restaurantId])
 
   // Calculate pricing from backend whenever cart, address, or coupon changes.
   // Debounced + aborted to avoid rapid-click / StrictMode duplicate storms.
@@ -1137,7 +1168,8 @@ export default function Cart() {
   const deliverySpeedFee = Number(pricing?.deliverySpeedFee || 0)
   const selectedDeliverySpeedOption =
     pricing?.deliverySpeed || deliverySpeedOptions.find((option) => option.code === selectedDeliveryFleet) || null
-  const totalBeforeDiscount = subtotal + deliveryFee + deliverySpeedFee + platformFee + gstCharges
+  const packingCharges = Number(pricing?.packingCharges ?? pricing?.packingFee ?? 0)
+  const totalBeforeDiscount = subtotal + deliveryFee + deliverySpeedFee + platformFee + gstCharges + packingCharges
   const total = pricing?.total ?? (totalBeforeDiscount - discount)
 
   // Calculate other platform total for comparison
@@ -1409,6 +1441,7 @@ export default function Cart() {
     // Validate with backend first; only set applied if backend accepts
     if (cart.length > 0 && hasSavedAddress) {
       try {
+        setApplyingCouponCode(coupon.code)
         const response = await orderAPI.calculateOrder({
           orderType: "food",
           useCart: true,
@@ -1427,12 +1460,15 @@ export default function Cart() {
         setAppliedCoupon(coupon)
         setCouponCode(coupon.code)
         setManualCouponCode(coupon.code)
+        setShowCouponSheet(false)
         if (typeof setCartCoupon === "function") {
           await setCartCoupon(coupon.code)
         }
       } catch (error) {
         debugError("Error recalculating pricing:", error)
         toast.error("Failed to apply coupon")
+      } finally {
+        setApplyingCouponCode("")
       }
     }
   }
@@ -1460,6 +1496,7 @@ export default function Cart() {
     }
 
     try {
+      setApplyingCouponCode(inputCode)
       const response = await orderAPI.calculateOrder({
         orderType: "food",
         useCart: true,
@@ -1490,6 +1527,7 @@ export default function Cart() {
           customerGroup: "all",
         },
       )
+      setShowCouponSheet(false)
       if (typeof setCartCoupon === "function") {
         await setCartCoupon(inputCode)
       }
@@ -1497,6 +1535,8 @@ export default function Cart() {
     } catch (error) {
       debugError("Error applying coupon code:", error)
       toast.error("Failed to apply coupon")
+    } finally {
+      setApplyingCouponCode("")
     }
   }
 
@@ -1535,7 +1575,7 @@ export default function Cart() {
     const isAuthenticated = !!localStorage.getItem('accessToken') || !!localStorage.getItem('user_accessToken');
     if (!isAuthenticated) {
       toast.error("Please login to place an order");
-      navigate('/user/auth/login?redirect=/cart');
+      navigateToLogin(navigate, location || "/cart");
       return;
     }
 
@@ -2287,123 +2327,57 @@ export default function Cart() {
       </div>
 
       {/* Scrollable Content Area */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden pb-44 md:pb-48 lg:pb-12">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden pb-40 md:pb-44 lg:pb-10">
         {/* Savings Banner */}
         {otherPlatformSavings > 0 && (
-          <div className="flex-shrink-0 bg-[#fff7ed] px-4 py-2.5 dark:bg-[#2b1408] sm:px-6">
+          <div className="flex-shrink-0 bg-[#fff7ed] px-3 py-2 dark:bg-[#2b1408] sm:px-5">
             <div className="mx-auto flex max-w-6xl items-center gap-2">
-              <Sparkles className="h-4 w-4 text-[#FF6A00]" />
-              <p className="text-xs font-extrabold text-[#c2410c] dark:text-orange-200 sm:text-sm">
+              <Sparkles className="h-3.5 w-3.5 text-[#FF6A00]" />
+              <p className="text-xs font-extrabold text-[#c2410c] dark:text-orange-200">
                 You're saving {RUPEE_SYMBOL}{Math.round(otherPlatformSavings)} compared to other platforms!
               </p>
             </div>
           </div>
         )}
 
-        <div className="mx-auto max-w-6xl px-3 py-3 sm:px-5 sm:py-5 lg:px-6 lg:py-7">
+        <div className="mx-auto max-w-6xl px-3 py-2.5 sm:px-5 sm:py-3 lg:px-6">
           <div className="mx-auto max-w-3xl">
             {/* Main Cart Content */}
-            <div className="space-y-3 sm:space-y-4">
+            <div className="space-y-2.5 sm:space-y-3">
               {/* Cart Items */}
-              <div className="overflow-hidden rounded-[24px] border border-black/5 bg-white shadow-[0_8px_24px_rgba(15,23,42,0.05)] dark:border-white/10 dark:bg-[#151515]">
-                <div className="flex items-center justify-between border-b border-dashed border-gray-100 px-4 py-3 dark:border-white/10 sm:px-5">
+              <div className="overflow-hidden rounded-2xl border border-black/5 bg-white shadow-sm dark:border-white/10 dark:bg-[#151515]">
+                <div className="flex items-center justify-between border-b border-dashed border-gray-100 px-3 py-2.5 dark:border-white/10 sm:px-4">
                   <div>
-                    <p className="text-[11px] font-black uppercase tracking-[0.18em] text-gray-400">Your order</p>
-                    <h2 className="mt-0.5 text-base font-black text-gray-950 dark:text-white">{cart.length} item{cart.length === 1 ? "" : "s"}</h2>
+                    <p className="text-[10px] font-black uppercase tracking-[0.16em] text-gray-400">Your order</p>
+                    <h2 className="text-sm font-black text-gray-950 dark:text-white">{cart.length} item{cart.length === 1 ? "" : "s"}</h2>
                   </div>
                   <button
                     onClick={handleBack}
-                    className="inline-flex items-center gap-1.5 rounded-full bg-[#fff3eb] px-3 py-1.5 text-xs font-black text-[#FF6A00] transition active:scale-95 dark:bg-[#FF6A00]/10"
+                    className="inline-flex items-center gap-1 rounded-full bg-[#fff3eb] px-2.5 py-1 text-[11px] font-black text-[#FF6A00] transition active:scale-95 dark:bg-[#FF6A00]/10"
                   >
-                    <Plus className="h-3.5 w-3.5" />
+                    <Plus className="h-3 w-3" />
                     Add items
                   </button>
                 </div>
 
                 <div className="divide-y divide-gray-100 dark:divide-white/10">
                   {cart.map((item) => (
-                    <div key={item.id} className="flex min-w-0 items-start gap-3 px-4 py-3.5 sm:gap-4 sm:px-5 sm:py-4">
-                      <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-2xl bg-gray-100 dark:bg-white/10 sm:h-20 sm:w-20">
-                        {item.image ? (
-                          <img
-                            src={item.image}
-                            alt={item.name}
-                            className="h-full w-full object-cover"
-                            loading="lazy"
-                          />
-                        ) : (
-                          <div className="flex h-full w-full items-center justify-center">
-                            <Utensils className="h-6 w-6 text-gray-300" />
-                          </div>
-                        )}
-                        <div className={`absolute left-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-[4px] border bg-white ${item.isVeg !== false ? 'border-green-600' : 'border-red-600'}`}>
-                          <div className={`h-2 w-2 rounded-full ${item.isVeg !== false ? 'bg-green-600' : 'bg-red-600'}`} />
-                        </div>
-                      </div>
-
-                      <div className="min-w-0 flex-1">
-                        <p className="line-clamp-2 text-sm font-extrabold leading-tight text-gray-950 dark:text-gray-100 sm:text-base">{item.name}</p>
-                        {item.variantName ? (
-                          <p className="mt-1 text-xs font-semibold text-gray-500 dark:text-gray-400">{item.variantName}</p>
-                        ) : null}
-                        {Number(item.otherPrice || 0) > Number(item.price || 0) ? (
-                          <div className="mt-2 flex flex-wrap items-center gap-2">
-                            <span className="text-xs font-black text-gray-950 dark:text-gray-100">
-                              {RUPEE_SYMBOL}{Number(item.price || 0).toFixed(0)}
-                            </span>
-                            <span className="text-[11px] text-gray-400 line-through">
-                              {RUPEE_SYMBOL}{Number(item.otherPrice || 0).toFixed(0)}
-                            </span>
-                            <span className="rounded-full bg-green-50 px-2 py-0.5 text-[10px] font-black text-green-700 dark:bg-green-950/40 dark:text-green-400">
-                              Save {RUPEE_SYMBOL}{Math.max(0, Number(item.otherPrice || 0) - Number(item.price || 0)).toFixed(0)}
-                            </span>
-                          </div>
-                        ) : null}
-                      </div>
-
-                      <div className="flex shrink-0 flex-col items-end gap-2">
-                        {/* Quantity controls */}
-                        <div className="flex h-8 items-center overflow-hidden rounded-lg border border-[#FF6A00] bg-white shadow-sm dark:bg-[#111]">
-                          <button
-                            className="flex h-full w-8 items-center justify-center text-[#FF6A00] hover:bg-orange-50 dark:hover:bg-[#FF6A00]/10"
-                            onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                          >
-                            <Minus className="h-3.5 w-3.5" />
-                          </button>
-                          <span className="min-w-7 px-1 text-center text-sm font-black text-[#FF6A00]">
-                            {item.quantity}
-                          </span>
-                          <button
-                            className="flex h-full w-8 items-center justify-center text-[#FF6A00] hover:bg-orange-50 dark:hover:bg-[#FF6A00]/10"
-                            onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                          >
-                            <Plus className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-
-                        <div className="text-right">
-                          {Number(item.otherPrice || 0) > Number(item.price || 0) ? (
-                            <p className="text-[11px] text-gray-400 line-through">
-                              {RUPEE_SYMBOL}{(Number(item.otherPrice || 0) * (item.quantity || 1)).toFixed(0)}
-                            </p>
-                          ) : null}
-                          <p className="text-sm font-black text-gray-950 dark:text-gray-100">
-                            {RUPEE_SYMBOL}{((item.price || 0) * (item.quantity || 1)).toFixed(0)}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
+                    <CartItemRow
+                      key={item.id}
+                      item={item}
+                      onDecrement={(row) => updateQuantity(row.id, row.quantity - 1)}
+                      onIncrement={(row) => updateQuantity(row.id, row.quantity + 1)}
+                    />
                   ))}
                 </div>
-
               </div>
 
               {/* Delivery Time + Speed */}
-              <div className="rounded-[22px] border border-black/5 bg-white px-4 py-3.5 shadow-[0_8px_24px_rgba(15,23,42,0.04)] dark:border-white/10 dark:bg-[#151515]">
+              <div className="rounded-2xl border border-black/5 bg-white px-3.5 py-3 shadow-sm dark:border-white/10 dark:bg-[#151515]">
                 <div className="flex items-center justify-between gap-3">
-                  <div className="flex min-w-0 items-center gap-2.5">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#FF6A00]/10 text-[#FF6A00]">
-                      <Zap className="h-4 w-4" />
+                  <div className="flex min-w-0 items-center gap-2">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#FF6A00]/10 text-[#FF6A00]">
+                      <Zap className="h-3.5 w-3.5" />
                     </div>
                     <div className="min-w-0">
                       <p className="truncate text-sm font-bold text-gray-900 dark:text-white">
@@ -2414,33 +2388,33 @@ export default function Cart() {
                             : getMaxDeliveryTime(cart, restaurantData)}
                         </span>
                       </p>
-                      <p className="truncate text-xs text-gray-500 dark:text-gray-400">Choose your delivery speed</p>
+                      <p className="truncate text-[11px] text-gray-500 dark:text-gray-400">Choose delivery speed</p>
                     </div>
                   </div>
                   <button
                     onClick={() => setIsScheduled(!isScheduled)}
-                    className="shrink-0 rounded-full border border-dashed border-[#FF6A00]/50 bg-[#fff3eb] px-3 py-1.5 text-xs font-black text-[#FF6A00] transition active:scale-95 dark:bg-[#FF6A00]/10"
+                    className="shrink-0 rounded-full border border-dashed border-[#FF6A00]/50 bg-[#fff3eb] px-2.5 py-1 text-[11px] font-black text-[#FF6A00] transition active:scale-95 dark:bg-[#FF6A00]/10"
                   >
                     {isScheduled ? "Deliver now" : "Schedule"}
                   </button>
                 </div>
 
                 {loadingDeliverySpeedOptions ? (
-                  <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">Loading delivery speed options...</p>
+                  <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">Loading delivery speed options...</p>
                 ) : deliverySpeedOptions.length > 0 ? (
-                  <div className="mt-3 flex gap-2 overflow-x-auto pb-0.5">
+                  <div className="mt-2 flex gap-2 overflow-x-auto pb-0.5">
                     {deliverySpeedOptions.map((option) => {
                       const isSelected = option.code === selectedDeliveryFleet
                       return (
                         <button
                           key={option.code}
                           onClick={() => setSelectedDeliveryFleet(option.code)}
-                          className={`flex shrink-0 flex-col items-start rounded-xl border px-3 py-1.5 text-left transition-colors ${isSelected
+                          className={`flex shrink-0 flex-col items-start rounded-lg border px-2.5 py-1.5 text-left transition-colors ${isSelected
                             ? "border-[#FF6A00] bg-[#FF6A00]/10"
                             : "border-gray-200 dark:border-gray-700"
                             }`}
                         >
-                          <span className={`text-xs font-bold ${isSelected ? "text-[#FF6A00]" : "text-gray-800 dark:text-gray-200"}`}>
+                          <span className={`text-[11px] font-bold ${isSelected ? "text-[#FF6A00]" : "text-gray-800 dark:text-gray-200"}`}>
                             {option.label}
                           </span>
                           <span className="text-[10px] text-gray-500 dark:text-gray-400">
@@ -2452,32 +2426,32 @@ export default function Cart() {
                     })}
                   </div>
                 ) : (
-                  <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+                  <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
                     Delivery speed options are not configured yet.
                   </p>
                 )}
 
                 {isScheduled && (
-                  <div className="relative mt-3 flex flex-col gap-3 border-t border-gray-100 pt-3 dark:border-gray-800 sm:flex-row">
+                  <div className="relative mt-2.5 flex flex-col gap-2.5 border-t border-gray-100 pt-2.5 dark:border-gray-800 sm:flex-row">
                     <div className="flex-1">
-                      <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">Date (Up to Tomorrow)</label>
+                      <label className="mb-1 block text-[11px] font-medium text-gray-500 dark:text-gray-400">Date (Up to Tomorrow)</label>
                       <input
                         type="date"
                         min={new Date().toLocaleDateString('en-CA')}
                         max={new Date(Date.now() + 86400000).toLocaleDateString('en-CA')}
                         value={scheduledDate}
                         onChange={(e) => setScheduledDate(e.target.value)}
-                        className="w-full rounded-xl border border-red-200 bg-white/90 p-2.5 text-sm text-gray-800 focus:outline-none focus:border-[#FF6A00] dark:border-red-900/50 dark:bg-[#0f0f0f] dark:text-gray-200"
+                        className="w-full rounded-xl border border-red-200 bg-white/90 p-2 text-sm text-gray-800 focus:outline-none focus:border-[#FF6A00] dark:border-red-900/50 dark:bg-[#0f0f0f] dark:text-gray-200"
                       />
                     </div>
                     <div className="flex-1">
-                      <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">Time</label>
+                      <label className="mb-1 block text-[11px] font-medium text-gray-500 dark:text-gray-400">Time</label>
                       {availableTimeSlots.length > 0 ? (
                         <div className="relative">
                           <select
                             value={scheduledTime}
                             onChange={(e) => setScheduledTime(e.target.value)}
-                            className="w-full appearance-none rounded-xl border border-red-200 bg-white/90 p-2.5 pr-8 text-sm text-gray-800 focus:outline-none focus:border-[#FF6A00] dark:border-red-900/50 dark:bg-[#0f0f0f] dark:text-gray-200"
+                            className="w-full appearance-none rounded-xl border border-red-200 bg-white/90 p-2 pr-8 text-sm text-gray-800 focus:outline-none focus:border-[#FF6A00] dark:border-red-900/50 dark:bg-[#0f0f0f] dark:text-gray-200"
                           >
                             {availableTimeSlots.map(slot => (
                               <option key={slot.value} value={slot.value}>{slot.label}</option>
@@ -2486,7 +2460,7 @@ export default function Cart() {
                           <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
                         </div>
                       ) : (
-                        <div className="w-full rounded-xl border border-dashed border-red-200 bg-white/70 p-2.5 text-center text-sm text-gray-500 dark:border-red-900/50 dark:bg-white/5 dark:text-gray-400">
+                        <div className="w-full rounded-xl border border-dashed border-red-200 bg-white/70 p-2 text-center text-sm text-gray-500 dark:border-red-900/50 dark:bg-white/5 dark:text-gray-400">
                           {scheduledDate ? "No slots available" : "Select date first"}
                         </div>
                       )}
@@ -2497,19 +2471,19 @@ export default function Cart() {
 
 
               {/* Note & Cutlery */}
-              <div className="flex flex-col gap-3 rounded-[22px] border border-black/5 bg-white px-4 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.04)] dark:border-white/10 dark:bg-[#151515] sm:flex-row">
+              <div className="flex flex-col gap-2 rounded-2xl border border-black/5 bg-white px-3 py-2.5 shadow-sm dark:border-white/10 dark:bg-[#151515] sm:flex-row">
                 <button
                   onClick={() => setShowNoteInput(!showNoteInput)}
-                  className="flex flex-1 items-center gap-2 rounded-2xl border border-gray-100 bg-gray-50 px-3 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-100 dark:border-white/10 dark:bg-white/5 dark:text-gray-300 dark:hover:bg-white/10"
+                  className="flex flex-1 items-center gap-2 rounded-xl border border-gray-100 bg-gray-50 px-2.5 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 dark:border-white/10 dark:bg-white/5 dark:text-gray-300 dark:hover:bg-white/10"
                 >
-                  <FileText className="h-4 w-4 md:h-5 md:w-5" />
+                  <FileText className="h-3.5 w-3.5 shrink-0" />
                   <span className="truncate">{note || "Add a note for the delivery partner"}</span>
                 </button>
                 <button
                   onClick={() => setSendCutlery(!sendCutlery)}
-                  className={`flex items-center gap-2 rounded-2xl border px-3 py-3 text-sm font-semibold ${sendCutlery ? 'border-gray-100 bg-gray-50 text-gray-700 dark:border-white/10 dark:bg-white/5 dark:text-gray-300' : 'border-[#FF6A00]/50 bg-[#fff3eb] text-[#FF6A00] dark:bg-[#FF6A00]/10'}`}
+                  className={`flex items-center gap-2 rounded-xl border px-2.5 py-2 text-xs font-semibold ${sendCutlery ? 'border-gray-100 bg-gray-50 text-gray-700 dark:border-white/10 dark:bg-white/5 dark:text-gray-300' : 'border-[#FF6A00]/50 bg-[#fff3eb] text-[#FF6A00] dark:bg-[#FF6A00]/10'}`}
                 >
-                  <Utensils className="h-4 w-4 md:h-5 md:w-5" />
+                  <Utensils className="h-3.5 w-3.5" />
                   <span className="whitespace-nowrap">
                     {sendCutlery ? "Send cutlery" : "Don't send cutlery"}
                   </span>
@@ -2518,22 +2492,22 @@ export default function Cart() {
 
               {/* Note Input */}
               {showNoteInput && (
-                <div className="rounded-[22px] border border-black/5 bg-white px-4 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.04)] dark:border-white/10 dark:bg-[#151515]">
-                  <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">
+                <div className="rounded-2xl border border-black/5 bg-white px-3.5 py-3 shadow-sm dark:border-white/10 dark:bg-[#151515]">
+                  <p className="mb-1.5 text-[11px] font-medium text-gray-500 dark:text-gray-400">
                     Delivery instructions
                   </p>
                   <textarea
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
                     placeholder="Eg. Call when outside, ring bell once, leave at gate"
-                    className="h-24 w-full resize-none rounded-2xl border border-gray-100 bg-gray-50 p-3 text-sm text-gray-900 outline-none focus:border-[#FF6A00] dark:border-white/10 dark:bg-[#0f0f0f] dark:text-gray-100"
+                    className="h-20 w-full resize-none rounded-xl border border-gray-100 bg-gray-50 p-2.5 text-sm text-gray-900 outline-none focus:border-[#FF6A00] dark:border-white/10 dark:bg-[#0f0f0f] dark:text-gray-100"
                     maxLength={240}
                   />
-                  <div className="mt-2 flex items-center justify-between gap-3">
-                    <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                      This note will be saved with the order and will be visible to the delivery partner.
+                  <div className="mt-1.5 flex items-center justify-between gap-3">
+                    <p className="text-[10px] text-gray-500 dark:text-gray-400">
+                      Visible to the delivery partner.
                     </p>
-                    <span className="text-[11px] text-gray-400 dark:text-gray-500 whitespace-nowrap">
+                    <span className="whitespace-nowrap text-[10px] text-gray-400 dark:text-gray-500">
                       {note.length}/240
                     </span>
                   </div>
@@ -2542,12 +2516,12 @@ export default function Cart() {
 
               {/* Complete your meal section - Approved Addons */}
               {addons.length > 0 && (
-                <div className="rounded-[22px] border border-black/5 bg-white px-4 py-5 shadow-[0_8px_24px_rgba(15,23,42,0.04)] dark:border-white/10 dark:bg-[#151515] sm:px-5">
-                  <div className="flex items-center gap-2 md:gap-3 mb-3 md:mb-4">
-                    <div className="w-6 h-6 md:w-8 md:h-8 bg-gray-100 dark:bg-gray-800 rounded flex items-center justify-center">
-                      <Sparkles className="h-4 w-4 md:h-5 md:w-5 text-[#FF6A00]" />
+                <div className="rounded-2xl border border-black/5 bg-white px-3.5 py-3 shadow-sm dark:border-white/10 dark:bg-[#151515]">
+                  <div className="mb-2 flex items-center gap-2">
+                    <div className="flex h-6 w-6 items-center justify-center rounded bg-gray-100 dark:bg-gray-800">
+                      <Sparkles className="h-3.5 w-3.5 text-[#FF6A00]" />
                     </div>
-                    <span className="text-sm md:text-base font-semibold text-gray-800 dark:text-gray-200">Complete your meal with</span>
+                    <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">Complete your meal</span>
                   </div>
                   {loadingAddons ? (
                     <div className="flex gap-3 md:gap-4 overflow-x-auto pb-2 -mx-4 md:-mx-6 px-4 md:px-6 scrollbar-hide">
@@ -2627,434 +2601,188 @@ export default function Cart() {
               )}
 
               {/* Coupon Section */}
-              <div className="rounded-[22px] border border-black/5 bg-white shadow-[0_8px_24px_rgba(15,23,42,0.04)] dark:border-white/10 dark:bg-[#151515]">
-                {deliveryFee === 0 && (
-                  <div className="px-4 py-3 md:px-6 md:py-4 border-b border-dashed border-gray-200 dark:border-gray-800 flex items-center gap-3 bg-[#f4fcf7] dark:bg-green-900/10">
-                    <CheckCircle2 className="h-5 w-5 text-green-600 fill-green-600/20 shrink-0" />
-                    <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">
-                      You saved {RUPEE_SYMBOL}{Number((pricing?.totalDeliveryFee ?? deliveryFee ?? feeSettings.baseDeliveryFee) || 0).toFixed(2)} on delivery
-                    </span>
-                  </div>
-                )}
+              <CartCouponSection
+                appliedCoupon={appliedCoupon}
+                discount={discount}
+                deliveryFee={deliveryFee}
+                deliveryFeeSavedLabel={deliveryFee === 0 ? `You saved ${RUPEE_SYMBOL}${Number((pricing?.totalDeliveryFee ?? feeSettings.baseDeliveryFee) || 0).toFixed(2)} on delivery` : null}
+                availableCoupons={availableCoupons}
+                loadingCoupons={loadingCoupons}
+                subtotal={subtotal}
+                userOrderCount={userOrderCount}
+                onRemoveCoupon={handleRemoveCoupon}
+                onOpenAllCoupons={() => setShowCouponSheet(true)}
+                onApplyCoupon={handleApplyCoupon}
+              />
 
-                {/* Applied Coupon View */}
-                {appliedCoupon ? (
-                  <div className="px-4 py-4 md:px-6 md:py-5 flex items-center justify-between gap-3">
-                    <div className="flex min-w-0 items-start gap-3">
-                      <Percent className="h-5 w-5 text-[#FF6A00] mt-0.5 shrink-0" />
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 break-words">
-                          <span className="rounded bg-[#fff3eb] px-2 py-0.5 text-xs font-bold tracking-wide text-[#FF6A00] dark:bg-[#FF6A00]/10">
-                            {appliedCoupon.code}
-                          </span>
-                          <span className="ml-2">applied</span>
-                        </p>
-                        <p className="text-xs text-[#FF6A00] font-medium mt-1">
-                          You saved {RUPEE_SYMBOL}{Number(discount || 0).toFixed(2)}
-                        </p>
-                      </div>
-                    </div>
-                    <button
-                      onClick={handleRemoveCoupon}
-                      className="shrink-0 text-[#FF6A00] text-xs font-semibold px-2 hover:underline"
-                    >
-                      REMOVE
-                    </button>
-                  </div>
-                ) : (
-                  <div className="px-4 py-4 md:px-6 md:py-5 flex flex-col gap-4">
-                    <div className="flex items-center gap-2">
-                      <Percent className="h-5 w-5 text-[#FF6A00] shrink-0" />
-                      <p className="text-sm font-bold text-gray-900 dark:text-gray-100">Apply Coupon</p>
-                    </div>
-
-                    <div className="flex flex-col sm:flex-row gap-2">
-                      <input
-                        type="text"
-                        value={manualCouponCode}
-                        onChange={(e) => setManualCouponCode(e.target.value.toUpperCase())}
-                        placeholder="Enter coupon code"
-                        className="flex-1 h-11 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#0a0a0a] px-3 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:border-[#FF6A00]"
-                      />
+              {/* Delivery Address + Contact */}
+              <CartAddressCard
+                addressTypeLabel={
+                  deliveryAddressMode === "current"
+                    ? "Current location"
+                    : getDisplayAddressLabel(defaultAddress?.label) || "Home"
+                }
+                addressLine={
+                  deliveryAddressMode === "current"
+                    ? (formatFullAddress(currentLocationAddress) || currentLocationAddress?.formattedAddress || currentLocationAddress?.address || "")
+                    : (defaultAddress ? (formatFullAddress(defaultAddress) || defaultAddress?.formattedAddress || defaultAddress?.address || "") : "")
+                }
+                recipientName={recipientName}
+                recipientPhone={recipientPhone || ""}
+                hasAddress={hasSavedAddress}
+                isCurrentLocation={deliveryAddressMode === "current"}
+                isLoadingLocation={deliveryAddressMode === "current" && (currentLocationLoading || !currentLocationAddress)}
+                showPicker={showAddressPicker || isEditingRecipient}
+                onTogglePicker={() => {
+                  setShowAddressPicker((prev) => !prev)
+                  setIsEditingRecipient(false)
+                }}
+                onChangeAddress={() => {
+                  setShowAddressPicker(true)
+                }}
+                pickerContent={(
+                  <div className="space-y-2.5">
+                    <div className="flex flex-wrap gap-1.5">
+                      {["Home", "Work", "Other"].map((label) => {
+                        const normalizedLabel = normalizeAddressLabel(label)
+                        const addressExists = addresses.some((addr) => normalizeAddressLabel(addr.label) === normalizedLabel)
+                        return (
+                          <button
+                            key={label}
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              handleSelectAddressByLabel(label)
+                            }}
+                            disabled={!addressExists}
+                            className={`text-[11px] px-3 py-1 rounded-full font-semibold transition-all ${addressExists
+                              ? "bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-gray-800 dark:text-gray-300"
+                              : "bg-gray-50 text-gray-400 border border-gray-100 cursor-not-allowed dark:bg-gray-900"
+                              }`}
+                          >
+                            {label}
+                          </button>
+                        )
+                      })}
                       <button
-                        className="h-11 rounded-xl border border-[#FF6A00] bg-[#FF6A00] px-5 text-xs font-bold uppercase tracking-wide text-white hover:bg-[#e85d04] active:scale-[0.98] transition-all sm:min-w-[110px]"
-                        onClick={handleApplyCouponCode}
+                        type="button"
+                        onClick={openLocationSelector}
+                        className="text-[11px] px-3 py-1 rounded-full font-semibold bg-[#fff3eb] text-[#FF6A00]"
                       >
-                        Apply
+                        New / Map
                       </button>
                     </div>
-
-                    {loadingCoupons ? (
-                      <p className="text-sm text-gray-500">Loading offers...</p>
-                    ) : availableCoupons.length > 0 ? (
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between gap-3">
-                          <p className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
-                            Available Coupons
-                          </p>
-                          {availableCoupons.length > 2 && (
-                            <button
-                              onClick={() => setShowAllCoupons((prev) => !prev)}
-                              className="text-xs font-semibold text-[#FF6A00] hover:underline shrink-0"
-                            >
-                              {showAllCoupons ? "Show less" : `View all ${availableCoupons.length} offers`}
-                            </button>
-                          )}
-                        </div>
-
-                        <div className="space-y-3">
-                          {(showAllCoupons ? availableCoupons : availableCoupons.slice(0, 2)).map((coupon) => {
-                            const canApply = subtotal >= coupon.minOrder && !(coupon.customerGroup === "new" && userOrderCount > 0)
-                            return (
-                              <div
-                                key={coupon.code}
-                                className="rounded-2xl border border-slate-200 dark:border-gray-800 bg-slate-50/80 dark:bg-slate-900/30 p-3 sm:p-4"
-                              >
-                                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                                  <div className="min-w-0 flex-1">
-                                    <div className="flex flex-wrap items-center gap-2 mb-2">
-                                      <span className="inline-flex rounded-lg bg-white dark:bg-[#111] px-2.5 py-1 text-xs font-bold tracking-wider text-[#FF6A00] border border-[#FF6A00]/20">
-                                        {coupon.code}
-                                      </span>
-                                      <span className="text-sm font-bold text-gray-900 dark:text-gray-100">
-                                        {coupon.discountDisplay || `Save ${RUPEE_SYMBOL}${coupon.discount}`}
-                                      </span>
-                                    </div>
-
-                                    {coupon.customerGroup === "new" ? (
-                                      <p className="text-[11px] text-[#FF6A00] font-medium">First-time users only</p>
-                                    ) : subtotal < coupon.minOrder ? (
-                                      <p className="text-xs text-blue-600 font-semibold">
-                                        Add items worth {RUPEE_SYMBOL}{(coupon.minOrder - subtotal).toFixed(0)} more to unlock
-                                      </p>
-                                    ) : (
-                                      <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed break-words">
-                                        {coupon.description}
-                                      </p>
-                                    )}
-                                  </div>
-
-                                  <button
-                                    className={`h-10 shrink-0 rounded-xl px-4 text-xs font-bold uppercase tracking-wider transition-all duration-200 w-full sm:w-auto ${
-                                      canApply
-                                        ? "border border-[#FF6A00] text-[#FF6A00] hover:bg-[#fff3eb] dark:hover:bg-[#FF6A00]/10"
-                                        : "border border-gray-300 text-gray-400 cursor-not-allowed bg-gray-50/50 dark:bg-white/5"
-                                    }`}
-                                    onClick={() => handleApplyCoupon(coupon)}
-                                    disabled={!canApply}
-                                  >
-                                    Apply
-                                  </button>
-                                </div>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-3 py-1">
-                        <Percent className="h-5 w-5 text-gray-400 shrink-0" />
-                        <p className="text-sm text-gray-500">No offers available for this restaurant currently</p>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Delivery Address */}
-              <div className="rounded-[22px] border border-black/5 bg-white px-4 py-5 shadow-[0_8px_24px_rgba(15,23,42,0.04)] dark:border-white/10 dark:bg-[#151515] sm:px-5">
-                <div className="flex items-start justify-between w-full text-left">
-                  <div className="flex items-start gap-4 flex-1">
-                    <div className="bg-red-50 dark:bg-red-900/20 p-2 rounded-xl mt-0.5">
-                      <MapPin className="h-5 w-5 text-[#FF6A00]" />
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex flex-col">
-                        <p className="text-sm md:text-base text-gray-800 dark:text-gray-200">
-                          Delivery at{" "}
-                          <span className="font-semibold">
-                            {deliveryAddressMode === "current" ? "Current location" : "Location"}
-                          </span>
-                        </p>
-                        {deliveryAddressMode === "current" ? (
-                          <div className="mt-1">
-                            {currentLocationLoading || !currentLocationAddress ? (
-                              <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 animate-pulse">
-                                Finding your current address...
-                              </p>
-                            ) : (
-                              <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 line-clamp-2">
-                                {formatFullAddress(currentLocationAddress) ||
-                                  currentLocationAddress?.formattedAddress ||
-                                  currentLocationAddress?.address ||
-                                  "Add delivery address"}
-                              </p>
-                            )}
-                            <div className="mt-1 flex items-center gap-2">
-                              <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] md:text-[11px] font-semibold bg-[#FFF3EB] text-[#FF6A00] dark:bg-[#FF6A00]/10 dark:text-[#FF6A00] border border-[#FF6A00]/30">
-                                GPS enabled
-                              </span>
-                            </div>
-                          </div>
-                        ) : (
-                          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 line-clamp-2 pr-4">
-                            {defaultAddress ? (formatFullAddress(defaultAddress) || defaultAddress?.formattedAddress || defaultAddress?.address || "Add delivery address") : "Add delivery address"}
-                          </p>
-                        )}
-                      </div>
-                      {!hasSavedAddress && (
-                        <p className="text-sm text-[#FF6A00] mt-2 font-medium">
-                          Select a delivery location to continue
-                        </p>
-                      )}
-                      {/* Address Selection Buttons */}
-                      <div className="flex flex-wrap gap-2 mt-3">
-                        {["Home", "Work", "Other"].map((label) => {
-                          const normalizedLabel = normalizeAddressLabel(label)
-                          const addressExists = addresses.some(addr => normalizeAddressLabel(addr.label) === normalizedLabel)
+                    {addresses.length > 0 ? (
+                      <div className="space-y-2 max-h-48 overflow-y-auto">
+                        {addresses.map((address) => {
+                          const addressId = getAddressId(address)
+                          const isSelected = addressId && addressId === selectedAddressId
                           return (
                             <button
-                              key={label}
+                              key={addressId || `${address.label}-${address.street}-${address.city}`}
+                              type="button"
                               onClick={(e) => {
                                 e.preventDefault()
                                 e.stopPropagation()
-                                handleSelectAddressByLabel(label)
+                                handleSelectSavedAddress(address)
+                                setShowAddressPicker(false)
                               }}
-                              disabled={!addressExists}
-                              className={`text-xs px-4 py-1.5 rounded-full font-semibold transition-all ${addressExists
-                                ? 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-gray-800 dark:text-gray-300'
-                                : 'bg-gray-50 text-gray-400 border border-gray-100 cursor-not-allowed dark:bg-gray-900'
+                              className={`w-full text-left rounded-xl border p-2.5 transition-colors ${isSelected
+                                ? "border-[#FF6A00] bg-[#fff3eb]/60 dark:bg-[#FF6A00]/5"
+                                : "border-slate-100 dark:border-gray-800 hover:border-slate-200"
                                 }`}
                             >
-                              {label}
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="text-xs font-bold text-gray-900 dark:text-gray-100">
+                                    {getDisplayAddressLabel(address.label)}
+                                  </p>
+                                  <p className="text-[11px] text-gray-500 dark:text-gray-400 line-clamp-2 mt-0.5">
+                                    {formatFullAddress(address) || address.address || "Address details"}
+                                  </p>
+                                </div>
+                                {isSelected ? (
+                                  <span className="text-[9px] bg-[#FF6A00] text-white px-1.5 py-0.5 rounded uppercase font-bold tracking-wider whitespace-nowrap">
+                                    Selected
+                                  </span>
+                                ) : null}
+                              </div>
                             </button>
                           )
                         })}
                       </div>
-                      {addresses.length > 0 && (
-                        <div className="mt-4 space-y-3">
-                          {addresses.map((address) => {
-                            const addressId = getAddressId(address)
-                            const isSelected = addressId && addressId === selectedAddressId
-                            return (
-                              <button
-                                key={addressId || `${address.label}-${address.street}-${address.city}`}
-                                type="button"
-                                onClick={(e) => {
-                                  e.preventDefault()
-                                  e.stopPropagation()
-                                  handleSelectSavedAddress(address)
-                                }}
-                                className={`w-full text-left rounded-xl border-2 p-3 transition-colors ${isSelected
-                                  ? "border-[#FF6A00] bg-red-50/50 dark:bg-[#FF6A00]/5"
-                                  : "border-slate-100 dark:border-gray-800 hover:border-slate-200"
-                                  }`}
-                              >
-                                <div className="flex items-start justify-between gap-3">
-                                  <div className="min-w-0">
-                                    <p className="text-sm font-bold text-gray-900 dark:text-gray-100">
-                                      {getDisplayAddressLabel(address.label)}
-                                    </p>
-                                    <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 mt-1">
-                                      {formatFullAddress(address) || address.address || "Address details"}
-                                    </p>
-                                  </div>
-                                  {isSelected && (
-                                    <span className="text-[10px] bg-[#FF6A00] text-white px-2 py-0.5 rounded uppercase font-bold tracking-wider whitespace-nowrap">
-                                      Selected
-                                    </span>
-                                  )}
-                                </div>
-                              </button>
-                            )
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={openLocationSelector}
-                    className="p-2 text-[#FF6A00] bg-red-50 rounded-full hover:bg-red-100 transition-colors dark:bg-red-900/20 dark:hover:bg-red-900/40"
-                    aria-label="Open location selector"
-                  >
-                    <ChevronRight className="h-5 w-5" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Contact */}
-              <div className="rounded-[22px] border border-black/5 bg-white px-4 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.04)] dark:border-white/10 dark:bg-[#151515] sm:px-5">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-start gap-3 md:gap-4 flex-1 min-w-0">
-                    <Phone className="h-4 w-4 md:h-5 md:w-5 text-gray-500 dark:text-gray-400 mt-0.5" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm md:text-base text-gray-800 dark:text-gray-200 font-medium">
-                        {recipientName}, <span className="font-semibold">{recipientPhone || "+91-XXXXXXXXXX"}</span>
-                      </p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                        Order recipient details
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setIsEditingRecipient((prev) => !prev)}
-                    className="text-[#FF6A00] text-xs md:text-sm font-semibold whitespace-nowrap"
-                  >
-                    {isEditingRecipient ? "Done" : "Change"}
-                  </button>
-                </div>
-
-                {isEditingRecipient && (
-                  <div className="mt-4 pt-4 border-t border-dashed border-gray-200 dark:border-gray-800 space-y-3">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
-                        Name
-                      </label>
-                      <input
-                        type="text"
-                        value={recipientDetails.name}
-                        onChange={(e) =>
-                          setRecipientDetails((prev) => ({
-                            ...prev,
-                            name: e.target.value,
-                          }))
-                        }
-                        placeholder="Enter recipient name"
-                        className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#111111] px-3 py-2.5 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:border-[#FF6A00]"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
-                        Phone Number
-                      </label>
-                      <input
-                        type="tel"
-                        value={recipientDetails.phone}
-                        onChange={(e) =>
-                          setRecipientDetails((prev) => ({
-                            ...prev,
-                            phone: sanitizeRecipientPhone(e.target.value),
-                          }))
-                        }
-                        placeholder="Enter recipient phone"
-                        className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#111111] px-3 py-2.5 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:border-[#FF6A00]"
-                      />
-                    </div>
-                    <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                      Agar aap kisi aur ke liye order kar rahe ho, to yahan uska naam aur phone save kar do.
-                    </p>
+                    ) : null}
                   </div>
                 )}
-              </div>
+                contactEditor={(
+                  <div className="mt-3 pt-3 border-t border-dashed border-gray-200 dark:border-gray-800 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Recipient</p>
+                      <button
+                        type="button"
+                        onClick={() => setIsEditingRecipient((prev) => !prev)}
+                        className="text-[11px] font-bold text-[#FF6A00]"
+                      >
+                        {isEditingRecipient ? "Done" : "Edit"}
+                      </button>
+                    </div>
+                    {isEditingRecipient ? (
+                      <>
+                        <input
+                          type="text"
+                          value={recipientDetails.name}
+                          onChange={(e) =>
+                            setRecipientDetails((prev) => ({
+                              ...prev,
+                              name: e.target.value,
+                            }))
+                          }
+                          placeholder="Enter recipient name"
+                          className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#111111] px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:border-[#FF6A00]"
+                        />
+                        <input
+                          type="tel"
+                          value={recipientDetails.phone}
+                          onChange={(e) =>
+                            setRecipientDetails((prev) => ({
+                              ...prev,
+                              phone: sanitizeRecipientPhone(e.target.value),
+                            }))
+                          }
+                          placeholder="Enter recipient phone"
+                          className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#111111] px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:border-[#FF6A00]"
+                        />
+                      </>
+                    ) : (
+                      <p className="text-xs text-gray-600 dark:text-gray-300">
+                        {recipientName || "Recipient"}, {recipientPhone || "+91-XXXXXXXXXX"}
+                      </p>
+                    )}
+                  </div>
+                )}
+              />
+
               {/* Bill Details */}
-              <div className="rounded-[22px] border border-black/5 bg-white px-4 py-5 shadow-[0_8px_24px_rgba(15,23,42,0.04)] dark:border-white/10 dark:bg-[#151515] sm:px-5">
-                <button
-                  onClick={() => setShowBillDetails(!showBillDetails)}
-                  className="flex items-center justify-between w-full"
-                >
-                  <div className="flex items-center gap-3 md:gap-4">
-                    <FileText className="h-5 w-5 text-gray-500 dark:text-gray-400" />
-                    <div className="text-left">
-                      <div className="flex items-center gap-2 flex-wrap mb-0.5">
-                        <span className="text-base text-gray-800 dark:text-gray-200 font-semibold tracking-wide">Total Bill</span>
-                        {savings > 0 ? (
-                          <>
-                            <span className="text-base text-gray-400 dark:text-gray-500 line-through font-medium">{RUPEE_SYMBOL}{totalBeforeDiscount.toFixed(2)}</span>
-                            <span className="text-base font-bold text-gray-900 dark:text-white">{RUPEE_SYMBOL}{total.toFixed(2)}</span>
-                            <span className="text-[11px] bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded text-center ml-1 font-semibold border border-blue-200 dark:border-blue-800">
-                              You saved {RUPEE_SYMBOL}{savings.toFixed(0)}
-                            </span>
-                          </>
-                        ) : (
-                          <span className="text-base font-bold text-gray-900 dark:text-white">{RUPEE_SYMBOL}{total.toFixed(2)}</span>
-                        )}
-                      </div>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Incl. taxes and charges</p>
-                      {otherPlatformSubtotal > subtotal && (
-                        <p className="text-xs font-semibold text-[#FF6A00] dark:text-red-400 mt-1">
-                          Other platform item total {RUPEE_SYMBOL}{otherPlatformSubtotal.toFixed(0)} • Save {RUPEE_SYMBOL}{otherPlatformSavings.toFixed(0)}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  <ChevronRight className={`h-5 w-5 text-gray-400 transition-transform ${showBillDetails ? 'rotate-90' : ''}`} />
-                </button>
+              <CartBillSummary
+                showBillDetails={showBillDetails}
+                onToggle={() => setShowBillDetails(!showBillDetails)}
+                subtotal={subtotal}
+                deliveryFee={deliveryFee}
+                deliveryFeeBreakdownText={deliveryFeeBreakdownText}
+                deliverySpeedFee={deliverySpeedFee}
+                deliverySpeedLabel={selectedDeliverySpeedOption?.label}
+                platformFee={platformFee}
+                packingCharges={packingCharges}
+                gstCharges={gstCharges}
+                discount={discount}
+                savings={savings}
+                total={total}
+                totalBeforeDiscount={totalBeforeDiscount}
+                otherPlatformSubtotal={otherPlatformSubtotal}
+                otherPlatformSavings={otherPlatformSavings}
+              />
 
-                {showBillDetails && (
-                  <div className="mt-4 pt-4 border-t border-dashed border-gray-200 dark:border-gray-800 space-y-3">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-600 dark:text-gray-400">Item Total</span>
-                      <div className="text-right flex items-center gap-2">
-                        {otherPlatformSubtotal > subtotal && (
-                          <span className="text-[10px] font-medium text-gray-500 bg-gray-50 px-1.5 py-0.5 rounded border border-gray-100">
-                            Other: {RUPEE_SYMBOL}{otherPlatformSubtotal.toFixed(0)}
-                          </span>
-                        )}
-                        <span className="text-gray-800 dark:text-gray-200 font-medium">{RUPEE_SYMBOL}{subtotal.toFixed(2)}</span>
-                      </div>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-600 dark:text-gray-400">Delivery Fee</span>
-                      <div className="text-right">
-                        <span className={deliveryFee === 0 ? "text-[#FF6A00] font-semibold" : "text-gray-800 dark:text-gray-200 font-medium"}>
-                          {deliveryFee === 0 ? "FREE" : `${RUPEE_SYMBOL}${deliveryFee.toFixed(2)}`}
-                        </span>
-                      </div>
-                    </div>
-
-                    {deliveryFeeBreakdownText && (
-                      <div className="text-[11px] text-gray-500 dark:text-gray-400 -mt-1.5 ml-1 border-l-2 border-gray-100 pl-2">
-                        {deliveryFeeBreakdownText}
-                      </div>
-                    )}
-                    {deliverySpeedFee > 0 && (
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-600 dark:text-gray-400">
-                          {selectedDeliverySpeedOption?.label || "Delivery Speed"} Fee
-                        </span>
-                        <span className="text-gray-800 dark:text-gray-200 font-medium">{RUPEE_SYMBOL}{deliverySpeedFee.toFixed(2)}</span>
-                      </div>
-                    )}
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-600 dark:text-gray-400">Platform Fee</span>
-                      <div className="text-right">
-                        <span className="text-gray-800 dark:text-gray-200 font-medium">{RUPEE_SYMBOL}{platformFee.toFixed(2)}</span>
-                      </div>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-600 dark:text-gray-400">GST and Restaurant Charges</span>
-                      <span className="text-gray-800 dark:text-gray-200 font-medium">{RUPEE_SYMBOL}{gstCharges.toFixed(2)}</span>
-                    </div>
-                    {discount > 0 && (
-                      <div className="flex justify-between text-sm text-[#FF6A00] font-medium">
-                        <span>Coupon Discount</span>
-                        <span>-{RUPEE_SYMBOL}{discount.toFixed(2)}</span>
-                      </div>
-                    )}
-
-                    <div className="flex justify-between text-base font-bold pt-3 mt-1 border-t border-gray-100 dark:border-gray-800 text-gray-900 dark:text-white">
-                      <span>To Pay</span>
-                      <span>{RUPEE_SYMBOL}{total.toFixed(2)}</span>
-                    </div>
-
-                    {/* Price Comparison Summary - Moved below To Pay */}
-                    {otherPlatformSubtotal > subtotal && (
-                      <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/10 rounded-xl border border-red-100 dark:border-red-800/30">
-                        <div className="flex justify-between items-center">
-                          <span className="text-xs font-bold text-[#FF6A00] dark:text-red-400 uppercase tracking-wider">Other Platform Price</span>
-                          <span className="text-sm font-bold text-gray-500">{RUPEE_SYMBOL}{otherPlatformSubtotal.toFixed(0)}</span>
-                        </div>
-                        <div className="flex justify-between items-center mt-1">
-                          <span className="text-xs font-bold text-[#FF6A00] dark:text-red-400 uppercase tracking-wider">Your Savings</span>
-                          <span className="text-sm font-bold text-[#FF6A00]">{RUPEE_SYMBOL}{otherPlatformSavings.toFixed(0)}</span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
 
             </div>
           </div>
@@ -3066,25 +2794,25 @@ export default function Cart() {
         className="fixed bottom-0 left-0 right-0 z-30 flex-shrink-0 border-t border-black/5 bg-white/95 shadow-[0_-10px_30px_rgba(15,23,42,0.12)] backdrop-blur-xl dark:border-white/10 dark:bg-[#151515]/95 lg:left-1/2 lg:w-full lg:-translate-x-1/2"
         style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
       >
-        <div className="mx-auto max-w-3xl px-3 py-3 sm:px-5">
-          <div className="w-full space-y-2.5">
+        <div className="mx-auto max-w-3xl px-3 py-2.5 sm:px-5">
+          <div className="w-full space-y-2">
             {/* Pay Using - Slim Pro UI */}
             <div
-              className="flex cursor-pointer items-center justify-between rounded-2xl border border-gray-100 bg-gray-50 p-2.5 transition active:scale-[0.99] dark:border-white/10 dark:bg-white/5"
+              className="flex cursor-pointer items-center justify-between rounded-xl border border-gray-100 bg-gray-50 px-2.5 py-2 transition active:scale-[0.99] dark:border-white/10 dark:bg-white/5"
               onClick={() => setShowPaymentSheet(true)}
             >
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#fff3eb] dark:bg-[#FF6A00]/10">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#fff3eb] dark:bg-[#FF6A00]/10">
                   {selectedPaymentMethod === "wallet" ? (
-                    <Wallet className="h-5 w-5 text-[#FF6A00]" />
+                    <Wallet className="h-4 w-4 text-[#FF6A00]" />
                   ) : selectedPaymentMethod === "razorpay" ? (
-                    <Zap className="h-5 w-5 text-[#FF6A00]" />
+                    <Zap className="h-4 w-4 text-[#FF6A00]" />
                   ) : (
-                    <Banknote className="h-5 w-5 text-[#FF6A00]" />
+                    <Banknote className="h-4 w-4 text-[#FF6A00]" />
                   )}
                 </div>
                 <div className="leading-tight">
-                  <p className="text-[10px] font-black uppercase tracking-[0.16em] text-gray-400">
+                  <p className="text-[9px] font-black uppercase tracking-[0.14em] text-gray-400">
                     PAYING WITH
                   </p>
                   <div className="flex items-center gap-1.5">
@@ -3100,7 +2828,7 @@ export default function Cart() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-0.5 rounded-lg bg-[#fff3eb] px-2.5 py-1 text-[11px] font-black uppercase tracking-widest text-[#FF6A00] dark:bg-[#FF6A00]/10">
+              <div className="flex items-center gap-0.5 rounded-lg bg-[#fff3eb] px-2 py-1 text-[10px] font-black uppercase tracking-widest text-[#FF6A00] dark:bg-[#FF6A00]/10">
                 CHANGE <ChevronRight className="h-3.5 w-3.5" />
               </div>
             </div>
@@ -3109,28 +2837,44 @@ export default function Cart() {
             <button
               onClick={handlePlaceOrder}
               disabled={isPlacingOrder || (selectedPaymentMethod === "wallet" && walletBalance < total)}
-              className="flex h-14 w-full items-center justify-between rounded-2xl bg-gradient-to-r from-[#FF6A00] to-[#f97316] px-4 font-black text-white shadow-lg shadow-orange-500/25 transition-transform active:scale-[0.985] disabled:cursor-not-allowed disabled:opacity-50 sm:px-5"
+              className="flex h-12 w-full items-center justify-between rounded-xl bg-gradient-to-r from-[#FF6A00] to-[#f97316] px-3.5 font-black text-white shadow-lg shadow-orange-500/25 transition-transform active:scale-[0.985] disabled:cursor-not-allowed disabled:opacity-50 sm:px-4"
             >
-              {(selectedPaymentMethod === "razorpay" || selectedPaymentMethod === "wallet" || selectedPaymentMethod === "cash") && (
-                <div className="flex flex-col justify-center border-r border-white/25 pr-4 text-left">
-                  <span className="text-sm font-black text-white">{RUPEE_SYMBOL}{total.toFixed(0)}</span>
-                  <span className="mt-[-2px] text-[10px] font-black uppercase tracking-wider text-white/75">To pay</span>
-                </div>
-              )}
-              <div className="mx-auto flex items-center gap-1 text-base tracking-wide">
+              <div className="flex flex-col justify-center border-r border-white/25 pr-3 text-left">
+                <span className="text-sm font-black tabular-nums text-white">{RUPEE_SYMBOL}{total.toFixed(0)}</span>
+                {savings > 0 ? (
+                  <span className="mt-[-1px] text-[9px] font-bold uppercase tracking-wide text-white/80">
+                    Saved {RUPEE_SYMBOL}{savings.toFixed(0)}
+                  </span>
+                ) : (
+                  <span className="mt-[-1px] text-[9px] font-black uppercase tracking-wider text-white/75">To pay</span>
+                )}
+              </div>
+              <div className="mx-auto flex items-center gap-1 text-sm tracking-wide sm:text-base">
                 {isPlacingOrder
                   ? "Processing..."
                   : !hasSavedAddress
                     ? "Select Address"
-                    : "Place Order"}
-                <div className="flex align-center h-full">
-                  <ChevronRight className="h-4 w-4 md:h-5 md:w-5" />
-                </div>
+                    : "Proceed to Checkout"}
+                <ChevronRight className="h-4 w-4" />
               </div>
             </button>
           </div>
         </div>
       </div>
+
+      <CartCouponSheet
+        open={showCouponSheet}
+        onClose={() => setShowCouponSheet(false)}
+        coupons={availableCoupons}
+        subtotal={subtotal}
+        userOrderCount={userOrderCount}
+        appliedCode={appliedCoupon?.code || couponCode || ""}
+        applyingCode={applyingCouponCode}
+        manualCouponCode={manualCouponCode}
+        onManualCodeChange={setManualCouponCode}
+        onApplyManual={handleApplyCouponCode}
+        onApplyCoupon={handleApplyCoupon}
+      />
 
       {/* Placing Order Modal */}
       {showPlacingOrder && (

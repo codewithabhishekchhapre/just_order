@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, CreditCard, MapPin, ShoppingBag, Truck, Zap } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { toast } from "sonner";
 
 import { Button } from "@food/components/ui/button";
@@ -10,6 +10,7 @@ import { orderAPI } from "@food/api";
 import { initRazorpayPayment, pollOrderPaidAfterDismiss } from "@food/utils/razorpay";
 import { useCompanyName } from "@food/hooks/useCompanyName";
 import { sanitizeOrderImage, sanitizeOrderNotes } from "@food/utils/orderPayload";
+import { navigateToLogin } from "@core/utils/postLoginRedirect";
 
 const RUPEE_SYMBOL = "\u20B9";
 
@@ -122,6 +123,7 @@ function DeliveryOptionCard({ option, active, onSelect, description }) {
 
 export default function MixedSharedCart({ initialAddress = null, addressMode = "saved" }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const companyName = useCompanyName();
   const { cart, updateQuantity, clearCart } = useCart();
   const { addresses = [], getDefaultAddress, userProfile } = useProfile();
@@ -226,7 +228,7 @@ export default function MixedSharedCart({ initialAddress = null, addressMode = "
     const isAuthenticated = !!localStorage.getItem('accessToken') || !!localStorage.getItem('user_accessToken');
     if (!isAuthenticated) {
       toast.error("Please login to place an order");
-      navigate('/user/auth/login?redirect=/cart');
+      navigateToLogin(navigate, location || "/cart");
       return;
     }
 

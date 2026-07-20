@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo, useRef } from "react"
+import { useState, useCallback, useEffect, useMemo, useRef, Suspense } from "react"
 import { Link, useNavigate } from "react-router-dom"
 import { motion, AnimatePresence } from "framer-motion"
 import {
@@ -10,10 +10,70 @@ import { Input } from "@food/components/ui/input"
 import AnimatedPage from "@food/components/user/AnimatedPage"
 import { useSearchOverlay, useLocationSelector } from "@food/components/user/UserLayout"
 import { useLocation as useLocationHook } from "@food/hooks/useLocation"
+import { useZone } from "@food/hooks/useZone"
 import { useProfile } from "@food/context/ProfileContext"
 import { diningAPI } from "@food/api"
+import { API_BASE_URL } from "@food/api/config"
 import PageNavbar from "@food/components/user/PageNavbar"
 import OptimizedImage from "@food/components/OptimizedImage"
+import BannerSection from "@food/components/user/home/BannerSection"
+import { HeroBannerSkeleton } from "@food/components/ui/loading-skeletons"
+import * as imgUtils from "@food/utils/imageUtils"
+import {
+  filterRestaurantsBySearch,
+  sanitizeSearchQuery,
+} from "@food/utils/foodSearchUtils"
+import { useFoodUnifiedSearch } from "@food/hooks/useFoodSearch"
+
+const BACKEND_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, "")
+
+const isMeaningfulLocationValue = (value) => {
+  const normalized = String(value || "").trim().toLowerCase()
+  return Boolean(
+    normalized &&
+    normalized !== "select location" &&
+    normalized !== "current location"
+  )
+}
+
+/** Same address title/subtitle rules as HomeHeader on `/food/user`. */
+const buildLocationDisplay = (savedAddressText, location) => {
+  if (isMeaningfulLocationValue(savedAddressText)) {
+    const parts = String(savedAddressText)
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean)
+
+    if (parts.length >= 3) {
+      return {
+        title: parts.slice(0, 2).join(", "),
+        subtitle: parts.slice(2).join(", "),
+      }
+    }
+
+    if (parts.length === 2) {
+      return {
+        title: parts.join(", "),
+        subtitle: "Tap to choose delivery location",
+      }
+    }
+
+    return {
+      title: String(savedAddressText).trim(),
+      subtitle: "Tap to choose delivery location",
+    }
+  }
+
+  const fallbackTitle =
+    location?.area || location?.city || "Select Location"
+  const fallbackSubtitle =
+    location?.address || location?.city || "Tap to choose delivery location"
+
+  return {
+    title: fallbackTitle,
+    subtitle: fallbackSubtitle,
+  }
+}
 
 const slugifyValue = (value) =>
   String(value || "")
@@ -345,22 +405,59 @@ export default function Dining() {
   const [sortBy, setSortBy] = useState(null)
   const [selectedCuisine, setSelectedCuisine] = useState(null)
   const [openDropdown, setOpenDropdown] = useState(null)
-  const { openSearch, closeSearch, setSearchValue } = useSearchOverlay()
+  const { openSearch, setSearchValue } = useSearchOverlay()
   const { openLocationSelector } = useLocationSelector()
   const { location, loading: locationLoading } = useLocationHook()
+  const { zoneId } = useZone(location)
   const { addFavorite, removeFavorite, isFavorite } = useProfile()
+
+  const {
+    setQuery: setRemoteSearchQuery,
+    data: remoteSearchHits,
+  } = useFoodUnifiedSearch({
+    delay: 400,
+    minChars: 2,
+    zoneId,
+    lat: location?.latitude,
+    lng: location?.longitude,
+    limit: 24,
+  })
+
+  // Debounced menu/dish enrichment only — restaurant name/cuisine filter is client-side.
+  useEffect(() => {
+    setRemoteSearchQuery(heroSearch)
+  }, [heroSearch, setRemoteSearchQuery])
+
+  const dishMatchedRestaurantIds = useMemo(() => {
+    const ids = new Set()
+    for (const hit of remoteSearchHits || []) {
+      if (hit?.restaurantId) ids.add(String(hit.restaurantId))
+    }
+    return ids
+  }, [remoteSearchHits])
 
   const [categories, setCategories] = useState([])
   const [restaurantList, setRestaurantList] = useState([])
   const [loading, setLoading] = useState(true)
   const [diningHeroBanners, setDiningHeroBanners] = useState([])
+  const [bannersLoading, setBannersLoading] = useState(true)
   const [currentBannerIndex, setCurrentBannerIndex] = useState(0)
   const autoSlideIntervalRef = useRef(null)
-  const touchStartXRef = useRef(0)
-  const touchStartYRef = useRef(0)
-  const touchEndXRef = useRef(0)
-  const touchEndYRef = useRef(0)
+  const heroShellRef = useRef(null)
   const isBannerSwipingRef = useRef(false)
+
+  const savedAddressText = useMemo(
+    () => imgUtils.formatSavedAddress(location),
+    [location],
+  )
+  const { title: locationTitle, subtitle: locationSubtitle } = useMemo(
+    () => buildLocationDisplay(savedAddressText, location),
+    [savedAddressText, location],
+  )
+  const heroBannerImages = useMemo(
+    () => diningHeroBanners.map((b) => b.imageUrl).filter(Boolean),
+    [diningHeroBanners],
+  )
 
   // City-independent dining data (hero banners + categories): fetch once on mount.
   // Kept separate from the city-filtered restaurant list below so it is not refetched
@@ -369,28 +466,51 @@ export default function Dining() {
     let cancelled = false
     const fetchStaticDiningData = async () => {
       try {
+        setBannersLoading(true)
         const [bannerResponse, cats] = await Promise.all([
           diningAPI.getHeroBanners().catch(() => ({ data: { success: false, data: { banners: [] } } })),
           diningAPI.getCategories(),
         ])
         if (cancelled) return
 
-        const heroBanners = Array.isArray(bannerResponse?.data?.data?.banners)
-          ? bannerResponse.data.data.banners
-              .map((banner, index) => {
-                const imageUrl = String(banner?.imageUrl || "").trim()
-                if (!imageUrl) return null
-                return {
-                  id: String(banner?._id || banner?.id || `dining-banner-${index}`),
-                  imageUrl,
-                  tagline: String(banner?.title || banner?.subtitle || banner?.tagline || "").trim(),
-                  promoCode: String(banner?.ctaText || banner?.promoCode || "").trim(),
-                  description: String(banner?.description || "").trim(),
-                  ctaLink: String(banner?.ctaLink || "").trim(),
-                }
-              })
-              .filter(Boolean)
-          : []
+        // Same response-shape handling + field mapping as Home (`useFoodHomeData`).
+        const raw = bannerResponse
+        const payload =
+          raw?.data?.data ??
+          raw?.data ??
+          raw
+        const list = Array.isArray(payload?.banners)
+          ? payload.banners
+          : Array.isArray(payload)
+            ? payload
+            : []
+
+        const heroBanners = list
+          .filter((b) => b && (b.isActive === undefined || b.isActive !== false))
+          .map((b, index) => {
+            const imageUrl = imgUtils.normalizeImageUrl(
+              b?.imageUrl || b?.image || b?.url || "",
+              BACKEND_ORIGIN,
+            )
+            if (!imageUrl) return null
+            return {
+              ...b,
+              _id: b?._id || b?.id || `dining-banner-${index}`,
+              imageUrl,
+              title: b?.title || "",
+              subtitle: b?.subtitle || "",
+              description: b?.description || "",
+              ctaText: b?.ctaText || b?.action || "",
+              ctaLink: b?.ctaLink || "",
+              action: b?.action || b?.ctaText || "",
+              linkedRestaurants: Array.isArray(b?.linkedRestaurants)
+                ? b.linkedRestaurants
+                : [],
+              sortOrder: Number(b?.sortOrder ?? b?.order ?? index),
+            }
+          })
+          .filter(Boolean)
+          .sort((a, b) => a.sortOrder - b.sortOrder)
 
         setDiningHeroBanners(heroBanners)
         setCategories(cats?.data?.success ? (cats.data.data || []) : [])
@@ -399,6 +519,8 @@ export default function Dining() {
           setDiningHeroBanners([])
           setCategories([])
         }
+      } finally {
+        if (!cancelled) setBannersLoading(false)
       }
     }
     fetchStaticDiningData()
@@ -509,6 +631,24 @@ export default function Dining() {
 
   const filteredRestaurants = useMemo(() => {
     let filtered = [...nearbyPopularRestaurants]
+    const searchTerm = sanitizeSearchQuery(heroSearch)
+
+    if (searchTerm) {
+      // Instant client-side match on name / cuisine / category / featured dish / tags.
+      const clientMatched = filterRestaurantsBySearch(filtered, searchTerm)
+      const clientIds = new Set(
+        clientMatched.map((r) => String(r.id || r._id || "")),
+      )
+
+      // Merge restaurants that matched via menu-item search (debounced API).
+      const dishMatched = filtered.filter((r) => {
+        const id = String(r.id || r._id || "")
+        return id && dishMatchedRestaurantIds.has(id) && !clientIds.has(id)
+      })
+
+      filtered = [...clientMatched, ...dishMatched]
+    }
+
     if (activeFilters.has("delivery-under-30")) filtered = filtered.filter((r) => { const m = r.deliveryTime.match(/(\d+)/); return m && parseInt(m[1]) <= 30 })
     if (activeFilters.has("delivery-under-45")) filtered = filtered.filter((r) => { const m = r.deliveryTime.match(/(\d+)/); return m && parseInt(m[1]) <= 45 })
     if (activeFilters.has("distance-under-1km")) filtered = filtered.filter((r) => { const m = r.distance.match(/(\d+\.?\d*)/); return m && parseFloat(m[1]) <= 1.0 })
@@ -522,9 +662,9 @@ export default function Dining() {
     if (sortBy === "rating-high") filtered.sort((a, b) => b.rating - a.rating)
     else if (sortBy === "rating-low") filtered.sort((a, b) => a.rating - b.rating)
     return filtered
-  }, [nearbyPopularRestaurants, activeFilters, selectedCuisine, sortBy])
+  }, [nearbyPopularRestaurants, activeFilters, selectedCuisine, sortBy, heroSearch, dishMatchedRestaurantIds])
 
-  /* Banner auto-slide */
+  /* Banner auto-slide (same cadence as Home) */
   useEffect(() => {
     setCurrentBannerIndex((p) => (diningHeroBanners.length === 0 ? 0 : Math.min(p, diningHeroBanners.length - 1)))
   }, [diningHeroBanners.length])
@@ -547,36 +687,17 @@ export default function Dining() {
     return () => { if (autoSlideIntervalRef.current) clearInterval(autoSlideIntervalRef.current) }
   }, [startBannerAutoSlide])
 
-  const handleBannerTouchStart = useCallback((e) => {
-    if (diningHeroBanners.length <= 1) return
-    touchStartXRef.current = e.touches[0].clientX
-    touchStartYRef.current = e.touches[0].clientY
-    touchEndXRef.current = e.touches[0].clientX
-    touchEndYRef.current = e.touches[0].clientY
-    isBannerSwipingRef.current = true
-  }, [diningHeroBanners.length])
-
-  const handleBannerTouchMove = useCallback((e) => {
-    if (!isBannerSwipingRef.current) return
-    touchEndXRef.current = e.touches[0].clientX
-    touchEndYRef.current = e.touches[0].clientY
-  }, [])
-
-  const handleBannerTouchEnd = useCallback(() => {
-    if (!isBannerSwipingRef.current || diningHeroBanners.length <= 1) { isBannerSwipingRef.current = false; return }
-    const deltaX = touchEndXRef.current - touchStartXRef.current
-    const deltaY = Math.abs(touchEndYRef.current - touchStartYRef.current)
-    if (Math.abs(deltaX) > 40 && Math.abs(deltaX) > deltaY) {
-      setCurrentBannerIndex((p) => deltaX > 0 ? (p - 1 + diningHeroBanners.length) % diningHeroBanners.length : (p + 1) % diningHeroBanners.length)
-      startBannerAutoSlide()
-    }
-    isBannerSwipingRef.current = false
-  }, [diningHeroBanners.length, startBannerAutoSlide])
-
   const handleSearchFocus = useCallback(() => {
     if (heroSearch) setSearchValue(heroSearch)
     openSearch()
   }, [heroSearch, openSearch, setSearchValue])
+
+  const handleDiningSearchSubmit = useCallback(() => {
+    const term = sanitizeSearchQuery(heroSearch)
+    if (!term) return
+    // Full catalog search (restaurants + menu items) via results page.
+    navigate(`/food/user/search?q=${encodeURIComponent(term)}`)
+  }, [heroSearch, navigate])
 
   const handleToggleFavorite = useCallback((slug, restaurant, isFav) => {
     if (isFav) {
@@ -662,28 +783,28 @@ export default function Dining() {
       <div className="absolute top-[-10%] left-[-10%] w-[50%] aspect-square rounded-full bg-gradient-to-br from-orange-500/5 to-amber-500/0 blur-[120px] pointer-events-none" />
       <div className="absolute bottom-[20%] right-[-10%] w-[50%] aspect-square rounded-full bg-gradient-to-tr from-[#FF6A00]/5 to-transparent blur-[120px] pointer-events-none" />
 
-      {/* ── Sticky Header (Mobile Only) ── */}
+      {/* ── Sticky Header (Mobile Only) — single address like Home ── */}
       <div className="sticky top-0 z-40 w-full bg-white/90 dark:bg-[#08080a]/90 backdrop-blur-md border-b border-gray-100 dark:border-gray-900 md:hidden">
         {/* Location row */}
         <div className="flex items-center justify-between px-4 pt-3.5 pb-1.5">
           <button
             type="button"
             onClick={openLocationSelector}
-            className="flex items-center gap-1.5 group"
+            className="flex items-center gap-2 cursor-pointer bg-transparent border-0 p-0 text-left outline-none shrink min-w-0"
           >
-            <MapPin className="h-4.5 w-4.5 text-[#FF6A00] flex-shrink-0" strokeWidth={2.5} />
-            <div className="text-left">
-              <div className="flex items-center gap-1">
-                <span className="text-[13px] font-bold text-gray-900 dark:text-white leading-none">
-                  {location?.city || "Select location"}
+            <div className="flex items-center justify-center w-8 h-8 rounded-xl shrink-0 bg-[#FF6A00]/15">
+              <MapPin className="h-4 w-4 shrink-0 text-[#FF6A00]" strokeWidth={2.5} />
+            </div>
+            <div className="flex flex-col min-w-0">
+              <div className="flex items-center gap-0.5">
+                <span className="font-extrabold text-sm truncate max-w-[150px] text-gray-900 dark:text-white">
+                  {locationTitle}
                 </span>
-                <ChevronDown className="h-3.5 w-3.5 text-gray-500 dark:text-gray-400" strokeWidth={2.5} />
+                <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70 text-gray-900 dark:text-white" strokeWidth={2.5} />
               </div>
-              {location?.area && (
-                <span className="text-[11px] text-gray-400 dark:text-gray-500 leading-none">
-                  {location.area}
-                </span>
-              )}
+              <span className="text-[10px] truncate max-w-[170px] mt-0.5 text-gray-500 dark:text-gray-400">
+                {locationSubtitle}
+              </span>
             </div>
           </button>
 
@@ -691,38 +812,51 @@ export default function Dining() {
             textColor="dark"
             zIndex={20}
             showLogo={false}
+            showLocation={false}
             compact
             onNavClick={(e) => e.stopPropagation()}
           />
         </div>
 
-        {/* Search bar */}
+        {/* Search bar — types filter this page client-side; Enter opens full menu search */}
         <div className="px-4 pb-3">
-          <div
-            className="flex items-center gap-2 bg-gray-100 dark:bg-gray-900 rounded-xl px-3 py-2 cursor-pointer border border-transparent focus-within:border-[#FF6A00]/40 transition-colors"
-            onClick={handleSearchFocus}
-          >
-            <Search className="h-4.5 w-4.5 text-[#FF6A00] flex-shrink-0" strokeWidth={2.5} />
+          <div className="flex items-center gap-2 bg-gray-100 dark:bg-gray-900 rounded-xl px-3 py-2 border border-transparent focus-within:border-[#FF6A00]/40 transition-colors">
+            <button
+              type="button"
+              onClick={handleSearchFocus}
+              className="flex-shrink-0 p-0.5"
+              aria-label="Open full search"
+              title="Search restaurants and dishes"
+            >
+              <Search className="h-4.5 w-4.5 text-[#FF6A00]" strokeWidth={2.5} />
+            </button>
             <Input
               value={heroSearch}
               onChange={(e) => setHeroSearch(e.target.value)}
-              onFocus={handleSearchFocus}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && heroSearch.trim()) {
-                  navigate(`/user/search?q=${encodeURIComponent(heroSearch.trim())}`)
-                  closeSearch()
-                  setHeroSearch("")
+                if (e.key === "Enter") {
+                  e.preventDefault()
+                  handleDiningSearchSubmit()
                 }
               }}
               className="flex-1 bg-transparent border-0 h-auto p-0 text-[13px] font-bold text-gray-700 dark:text-white focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-gray-400 dark:placeholder:text-gray-500 placeholder:font-medium"
-              placeholder='Search restaurants, cuisines…'
-              onClick={(e) => e.stopPropagation()}
+              placeholder="Search restaurants, cuisines…"
             />
+            {heroSearch ? (
+              <button
+                type="button"
+                onClick={() => setHeroSearch("")}
+                className="flex-shrink-0 p-0.5"
+                aria-label="Clear search"
+              >
+                <X className="h-4 w-4 text-gray-400" strokeWidth={2.5} />
+              </button>
+            ) : null}
             <button
               type="button"
-              onClick={(e) => { e.stopPropagation(); handleSearchFocus() }}
+              onClick={handleSearchFocus}
               className="flex-shrink-0 p-0.5"
-              aria-label="Voice search"
+              aria-label="Voice / full search"
             >
               <Mic className="h-4.5 w-4.5 text-gray-400 dark:text-gray-500" strokeWidth={2.5} />
             </button>
@@ -730,74 +864,28 @@ export default function Dining() {
         </div>
       </div>
 
-      {/* ── Hero Banner Slider ── */}
+      {/* ── Hero Banner Slider (Hero Banner Management → dining) ── */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 pb-4">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, ease: "easeOut" }}
-          className="relative w-full h-[220px] sm:h-[260px] md:h-[320px] rounded-3xl overflow-hidden shadow-lg border border-gray-150/10 dark:border-gray-800/20"
-          onTouchStart={handleBannerTouchStart}
-          onTouchMove={handleBannerTouchMove}
-          onTouchEnd={handleBannerTouchEnd}
+          className="relative w-full h-[220px] sm:h-[260px] md:h-[320px] rounded-3xl overflow-hidden shadow-lg border border-gray-150/10 dark:border-gray-800/20 bg-neutral-900"
         >
-          {diningHeroBanners.length > 0 ? (
-            <>
-              <div
-                className="flex h-full w-full transition-transform duration-500 ease-out"
-                style={{ transform: `translateX(-${currentBannerIndex * 100}%)` }}
-              >
-                {diningHeroBanners.map((banner, index) => (
-                  <div key={banner.id} className="relative h-full w-full shrink-0">
-                    <OptimizedImage
-                      src={banner.imageUrl}
-                      alt={`Dining Banner ${index + 1}`}
-                      className="w-full h-full object-cover"
-                      objectFit="cover"
-                      priority={index === 0}
-                      sizes="100vw"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/35 to-transparent" />
-
-                    {/* Glassmorphic banner badge */}
-                    <div className="absolute top-4 left-4 bg-white/10 backdrop-blur-md border border-white/20 rounded-xl px-3 py-1">
-                      <span className="text-[10px] font-bold uppercase tracking-widest text-white">Dining out</span>
-                    </div>
-
-                    <div className="absolute bottom-6 left-6 right-6">
-                      {banner.promoCode && (
-                        <span className="inline-block bg-[#FF6A00] text-white text-[9px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-md mb-2">
-                          {banner.promoCode}
-                        </span>
-                      )}
-                      {banner.tagline && (
-                        <h2 className="text-2xl sm:text-3xl md:text-4xl font-black text-white leading-tight mb-2 tracking-tight">
-                          {banner.tagline}
-                        </h2>
-                      )}
-                      {banner.description && (
-                        <p className="text-white/75 text-xs sm:text-sm font-medium mb-4 line-clamp-2">
-                          {banner.description}
-                        </p>
-                      )}
-                      {diningHeroBanners.length > 1 && (
-                        <div className="flex items-center gap-1.5">
-                          {diningHeroBanners.map((b, i) => (
-                            <button
-                              key={`${b.id}-dot`}
-                              type="button"
-                              aria-label={`Banner ${i + 1}`}
-                              onClick={(e) => { e.stopPropagation(); setCurrentBannerIndex(i); startBannerAutoSlide() }}
-                              className={`h-1.5 rounded-full transition-all duration-300 ${i === currentBannerIndex ? "w-6 bg-white" : "w-2 bg-white/40"}`}
-                            />
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
+          {bannersLoading || diningHeroBanners.length > 0 ? (
+            <Suspense fallback={<HeroBannerSkeleton className="h-full w-full" />}>
+              <BannerSection
+                showBannerSkeleton={bannersLoading}
+                heroBannerImages={heroBannerImages}
+                heroBannersData={diningHeroBanners}
+                currentBannerIndex={currentBannerIndex}
+                setCurrentBannerIndex={setCurrentBannerIndex}
+                heroShellRef={heroShellRef}
+                navigate={navigate}
+                backendOrigin={BACKEND_ORIGIN}
+                hideOverlay={false}
+              />
+            </Suspense>
           ) : (
             <div className="relative h-full w-full bg-gradient-to-br from-[#2b1000] via-[#541f00] to-[#2b1000] flex items-center px-8 sm:px-12">
               <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(255,106,0,0.15),rgba(0,0,0,0))]" />
@@ -1129,9 +1217,13 @@ export default function Dining() {
               <div className="w-16 h-16 rounded-full bg-orange-50 dark:bg-orange-950/20 flex items-center justify-center mx-auto mb-4 border border-orange-100 dark:border-orange-900/30">
                 <UtensilsCrossed className="h-7 w-7 text-[#FF6A00]" strokeWidth={1.5} />
               </div>
-              <h3 className="text-[16px] font-bold text-gray-850 dark:text-gray-200 mb-2">No dining places found</h3>
+              <h3 className="text-[16px] font-bold text-gray-850 dark:text-gray-200 mb-2">
+                {sanitizeSearchQuery(heroSearch) ? "No restaurants found" : "No dining places found"}
+              </h3>
               <p className="text-[13px] text-gray-400 dark:text-gray-500 mb-6 max-w-xs mx-auto leading-relaxed">
-                We couldn't find any restaurants matching your active filters or location settings.
+                {sanitizeSearchQuery(heroSearch)
+                  ? `No matches for "${sanitizeSearchQuery(heroSearch)}". Try another name, cuisine, or dish.`
+                  : "We couldn't find any restaurants matching your active filters or location settings."}
               </p>
               <button
                 type="button"
@@ -1140,10 +1232,11 @@ export default function Dining() {
                   setSortBy(null)
                   setSelectedCuisine(null)
                   setOpenDropdown(null)
+                  setHeroSearch("")
                 }}
                 className="px-6 py-2.5 bg-[#FF6A00] hover:bg-[#e05e00] text-white text-[13px] font-bold rounded-xl transition-all duration-200 shadow-md hover:shadow-lg"
               >
-                Clear all filters
+                {sanitizeSearchQuery(heroSearch) ? "Clear search" : "Clear all filters"}
               </button>
             </div>
           ) : (

@@ -771,7 +771,12 @@ export default function Profile() {
       // Dispatch auth change event to notify other components
       window.dispatchEvent(new Event("userAuthChanged"));
 
-      // Return to the shared login screen after logout.
+      // Return to the shared login screen after logout (no return path).
+      try {
+        sessionStorage.removeItem("user_post_login_redirect_v1");
+      } catch {
+        // ignore
+      }
       navigate("/user/auth/login", { replace: true });
     } catch (err) {
       // Even if there's an error, we should still clear local data and logout

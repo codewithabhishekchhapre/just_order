@@ -3,6 +3,8 @@
  * surface a message to the user and land them on the correct module's login page.
  */
 
+import { redirectToLoginWithReturn } from '@core/utils/postLoginRedirect';
+
 const FLASH_KEY = 'auth_flash_message';
 
 export const MODULE_LOGIN_PATHS = {
@@ -49,5 +51,12 @@ export function redirectToModuleLogin(module, message = 'Your session has expire
   if (hasRedirected) return;
   hasRedirected = true;
   setAuthFlashMessage(message);
-  window.location.href = MODULE_LOGIN_PATHS[module] || MODULE_LOGIN_PATHS.user;
+
+  const loginPath = MODULE_LOGIN_PATHS[module] || MODULE_LOGIN_PATHS.user;
+  if (module === 'user' || module === 'customer') {
+    redirectToLoginWithReturn(loginPath);
+    return;
+  }
+
+  window.location.href = loginPath;
 }

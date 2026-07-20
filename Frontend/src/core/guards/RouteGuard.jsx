@@ -1,5 +1,10 @@
 import { Navigate, useLocation } from 'react-router-dom'
 import { isModuleAuthenticated } from '@food/utils/auth'
+import {
+  buildLoginRedirectState,
+  resolvePostLoginRedirect,
+  clearPostLoginRedirect,
+} from '@core/utils/postLoginRedirect'
 
 /**
  * MODULE ROUTE MAP
@@ -80,7 +85,7 @@ export default function RouteGuard({ children, module: forcedModule, loginPath: 
   if (forcedModule) {
     if (!isModuleAuthenticated(forcedModule)) {
       const lp = forcedLoginPath || MODULE_ROUTES.find(r => r.module === forcedModule)?.loginPath || '/user/auth/login'
-      return <Navigate to={lp} state={{ from: location }} replace />
+      return <Navigate to={lp} state={buildLoginRedirectState(location)} replace />
     }
 
     // Logged in, but do other logged-in modules also have wrong role?
@@ -106,7 +111,7 @@ export default function RouteGuard({ children, module: forcedModule, loginPath: 
 
   if (!isModuleAuthenticated(module)) {
     // Not authenticated for this module — go to login
-    return <Navigate to={loginPath} state={{ from: location }} replace />
+    return <Navigate to={loginPath} state={buildLoginRedirectState(location)} replace />
   }
 
   // Cross-portal: authenticated but for a different module?
@@ -157,6 +162,8 @@ function detectWrongPortal(pathname, allowedModule) {
  *   <Route path="login" element={<AuthPageGuard module="admin" home="/admin/food"><AdminLogin /></AuthPageGuard>} />
  */
 export function AuthPageGuard({ children, module, home }) {
+  const location = useLocation()
+
   if (isModuleAuthenticated(module)) {
     if (module === "restaurant") {
       try {
@@ -169,7 +176,14 @@ export function AuthPageGuard({ children, module, home }) {
         // fall through to home
       }
     }
-    return <Navigate to={home} replace />
+
+    const target = resolvePostLoginRedirect({
+      location,
+      searchParams: new URLSearchParams(location.search || ""),
+      defaultPath: home,
+    })
+    clearPostLoginRedirect()
+    return <Navigate to={target} replace />
   }
   return <>{children}</>
 }
