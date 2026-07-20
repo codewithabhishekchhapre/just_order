@@ -11,13 +11,24 @@ const foodDiningBannerSchema = new mongoose.Schema(
             required: true
         },
         title: {
-            type: String
+            type: String,
+            default: ''
+        },
+        subtitle: {
+            type: String,
+            default: ''
+        },
+        description: {
+            type: String,
+            default: ''
         },
         ctaText: {
-            type: String
+            type: String,
+            default: ''
         },
         ctaLink: {
-            type: String
+            type: String,
+            default: ''
         },
         diningType: {
             type: String

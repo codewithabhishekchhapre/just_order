@@ -1,14 +1,13 @@
-import { useMemo, useState, useEffect, useRef, useCallback } from "react"
-import { useNavigate } from "react-router-dom"
-import { ChevronLeft, ChevronRight, Plus, MapPin, MoreHorizontal, Navigation, Home, Building2, Briefcase, Phone, X, Crosshair, Search } from "lucide-react"
+import { useState, useEffect, useRef, useCallback } from "react"
+import { useNavigate, useLocation as useRouterLocation } from "react-router-dom"
+import { ChevronLeft, ChevronRight, Plus, MapPin, Navigation, Home, Building2, Briefcase, Search } from "lucide-react"
 import { Button } from "@food/components/ui/button"
 import { Input } from "@food/components/ui/input"
 import { Label } from "@food/components/ui/label"
-import { Textarea } from "@food/components/ui/textarea"
 import { useLocation as useGeoLocation } from "@food/hooks/useLocation"
 import { useProfile } from "@food/context/ProfileContext"
 import { toast } from "sonner"
-import { locationAPI, userAPI } from "@food/api"
+import { locationAPI } from "@food/api"
 import AnimatedPage from "@food/components/user/AnimatedPage"
 import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 import { loadGoogleMaps } from "@/core/services/googleMapsLoader"
@@ -19,6 +18,11 @@ const debugError = (...args) => {}
 
 // Enable Maps if API Key is available, otherwise fallback to coordinates-only mode
 const MAPS_ENABLED = !!import.meta.env.VITE_GOOGLE_MAPS_API_KEY
+
+/** Ignore tiny center drift from map resize/projection (~25m). */
+const GEOCODE_MIN_MOVE_METERS = 25
+/** Debounce reverse-geocode after user finishes dragging/zooming. */
+const GEOCODE_DEBOUNCE_MS = 700
 
 // Calculate distance between two coordinates using Haversine formula
 function calculateDistance(lat1, lon1, lat2, lon2) {
@@ -99,9 +103,10 @@ const persistSelectedLocation = (locationData) => {
 
 export default function AddressSelectorPage() {
   const navigate = useNavigate()
+  const routerLocation = useRouterLocation()
   const goBack = useAppBackNavigation()
-  const { location, loading, requestLocation, reverseGeocode } = useGeoLocation()
-  const { addresses = [], addAddress, updateAddress, setDefaultAddress, userProfile } = useProfile()
+  const { location, requestLocation, reverseGeocode } = useGeoLocation()
+  const { addresses = [], addAddress, setDefaultAddress } = useProfile()
   const [showAddressForm, setShowAddressForm] = useState(false)
   const [mapPosition, setMapPosition] = useState([22.7196, 75.8577]) // Default Indore coordinates [lat, lng]
   const [addressFormData, setAddressFormData] = useState({
@@ -117,23 +122,28 @@ export default function AddressSelectorPage() {
   const [mapLoading, setMapLoading] = useState(false)
   const mapContainerRef = useRef(null)
   const googleMapRef = useRef(null) // Google Maps instance
-  const greenMarkerRef = useRef(null) // Green marker for address selection
-  const userLocationMarkerRef = useRef(null) // Blue dot marker for user location
-  const blueDotCircleRef = useRef(null) // Accuracy circle for Google Maps
+  const mapListenersRef = useRef([])
+  const mapIdleTimeoutRef = useRef(null)
+  const userGestureRef = useRef(false) // true only while user pans/zooms
+  const skipNextGeocodeRef = useRef(false) // skip after programmatic panTo / resize
+  const lastGeocodedCoordsRef = useRef({ lat: null, lng: null })
+  const mapPositionRef = useRef(mapPosition)
+  const handleMapMoveEndRef = useRef(null)
   const [currentAddress, setCurrentAddress] = useState("")
   const [addressAutocompleteValue, setAddressAutocompleteValue] = useState("")
   const [keywordAddressSuggestions, setKeywordAddressSuggestions] = useState([])
   const [isKeywordSearching, setIsKeywordSearching] = useState(false)
-  const [lockMapToAutocomplete, setLockMapToAutocomplete] = useState(true)
   const [GOOGLE_MAPS_API_KEY, setGOOGLE_MAPS_API_KEY] = useState(null)
   const [mapUnavailable, setMapUnavailable] = useState(false)
-  const [formScrollTop, setFormScrollTop] = useState(0)
   const [keyboardInset, setKeyboardInset] = useState(0)
-  const [baseMapHeight, setBaseMapHeight] = useState(320)
   const formBodyRef = useRef(null)
   const hasInitializedRef = useRef(false)
   const manualFieldRefs = useRef({})
-  
+
+  useEffect(() => {
+    mapPositionRef.current = mapPosition
+  }, [mapPosition])
+
   // Sync currentAddress and mapPosition with the useLocation hook's location address on load/update
   useEffect(() => {
     if (location && (location.formattedAddress || location.address)) {
@@ -143,6 +153,7 @@ export default function AddressSelectorPage() {
       if (!hasInitializedRef.current && location.latitude && location.longitude) {
         hasInitializedRef.current = true
         setMapPosition([location.latitude, location.longitude])
+        lastGeocodedCoordsRef.current = { lat: location.latitude, lng: location.longitude }
         
         // Sync addressFormData on initial load/first set if form values are empty
         setAddressFormData(prev => {
@@ -167,30 +178,6 @@ export default function AddressSelectorPage() {
     goBack()
   }
 
-  const addressAutocompleteSuggestions = useMemo(() => {
-    const q = String(addressAutocompleteValue || "").trim().toLowerCase()
-    if (!q) return []
-    const list = Array.isArray(addresses) ? addresses : []
-    return list
-      .map((addr) => {
-        const text = [
-          addr?.label,
-          addr?.additionalDetails,
-          addr?.street,
-          addr?.city,
-          addr?.state,
-          addr?.zipCode,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase()
-        return { addr, text }
-      })
-      .filter((x) => x.text.includes(q))
-      .slice(0, 6)
-      .map((x) => x.addr)
-  }, [addresses, addressAutocompleteValue])
-
   // Load Google Maps API key
   useEffect(() => {
     if (!MAPS_ENABLED) return
@@ -212,17 +199,18 @@ export default function AddressSelectorPage() {
       return
     }
 
+    const refLat = Number(location?.latitude)
+    const refLng = Number(location?.longitude)
+    const hasRef = Number.isFinite(refLat) && Number.isFinite(refLng)
+
     const t = setTimeout(async () => {
       try {
         setIsKeywordSearching(true)
-        const hasRef =
-          Number.isFinite(Number(location?.latitude)) &&
-          Number.isFinite(Number(location?.longitude))
 
         // 1) Backend Places autocomplete (coordinates resolved on selection)
         try {
           const res = await locationAPI.autocomplete(q, hasRef
-            ? { latitude: location.latitude, longitude: location.longitude }
+            ? { latitude: refLat, longitude: refLng }
             : {})
           const suggestions = res?.data?.data?.suggestions || []
           if (suggestions.length > 0) {
@@ -253,10 +241,9 @@ export default function AddressSelectorPage() {
           lng: Number(r.lon),
           address: r.address || {},
         })).filter(x => Number.isFinite(x.lat) && Number.isFinite(x.lng))
-        // Sort by distance only when we have a real reference point — never a hardcoded one.
         const sorted = hasRef
           ? mapped
-            .map(x => ({ ...x, distanceMeters: calculateDistance(location.latitude, location.longitude, x.lat, x.lng) }))
+            .map(x => ({ ...x, distanceMeters: calculateDistance(refLat, refLng, x.lat, x.lng) }))
             .sort((a, b) => (a.distanceMeters ?? Infinity) - (b.distanceMeters ?? Infinity))
           : mapped
         setKeywordAddressSuggestions(sorted.slice(0, 4))
@@ -267,14 +254,32 @@ export default function AddressSelectorPage() {
       }
     }, 350)
     return () => clearTimeout(t)
-  }, [addressAutocompleteValue, showAddressForm, location, ENABLE_NOMINATIM_SEARCH])
+  }, [addressAutocompleteValue, showAddressForm, location?.latitude, location?.longitude, ENABLE_NOMINATIM_SEARCH])
 
-  // Map Initialization logic
+  // Map Initialization — reverse-geocode ONLY after intentional user pan/zoom, never on resize.
   useEffect(() => {
     if (!MAPS_ENABLED || mapUnavailable || !showAddressForm || !mapContainerRef.current || !GOOGLE_MAPS_API_KEY) return
 
     let isMounted = true
     setMapLoading(true)
+
+    const clearMapListeners = () => {
+      mapListenersRef.current.forEach((listener) => {
+        try {
+          if (listener?.remove) listener.remove()
+          else if (window.google?.maps?.event?.removeListener) {
+            window.google.maps.event.removeListener(listener)
+          }
+        } catch {
+          // ignore
+        }
+      })
+      mapListenersRef.current = []
+      if (mapIdleTimeoutRef.current) {
+        clearTimeout(mapIdleTimeoutRef.current)
+        mapIdleTimeoutRef.current = null
+      }
+    }
 
     const initializeGoogleMap = async () => {
       try {
@@ -285,8 +290,13 @@ export default function AddressSelectorPage() {
         }
         if (!isMounted || !mapContainerRef.current) return
 
-        const initialPos = { lat: mapPosition[0], lng: mapPosition[1] }
-        
+        // Destroy previous map instance if re-opening form
+        clearMapListeners()
+        googleMapRef.current = null
+
+        const [lat0, lng0] = mapPositionRef.current
+        const initialPos = { lat: lat0, lng: lng0 }
+
         const map = new google.maps.Map(mapContainerRef.current, {
           center: initialPos,
           zoom: 16,
@@ -299,28 +309,84 @@ export default function AddressSelectorPage() {
           ]
         })
         googleMapRef.current = map
+        lastGeocodedCoordsRef.current = { lat: initialPos.lat, lng: initialPos.lng }
+        skipNextGeocodeRef.current = true // initial idle after create — do not geocode
 
-        // Debounce handleMapMoveEnd to avoid excessive API calls
-        let idleTimeout = null
-        let lastLat = initialPos.lat
-        let lastLng = initialPos.lng
+        const markUserGesture = () => {
+          userGestureRef.current = true
+        }
 
-        map.addListener("idle", () => {
-          clearTimeout(idleTimeout)
-          idleTimeout = setTimeout(() => {
-            const center = map.getCenter()
-            const lat = center.lat()
-            const lng = center.lng()
-            
-            // Only update if moved more than ~5 meters (roughly 0.00005 degrees)
-            const dist = Math.sqrt(Math.pow(lat - lastLat, 2) + Math.pow(lng - lastLng, 2))
-            if (dist > 0.00005) {
-              lastLat = lat
-              lastLng = lng
-              setMapPosition([lat, lng])
-              handleMapMoveEnd(lat, lng)
+        mapListenersRef.current.push(
+          map.addListener("dragstart", markUserGesture),
+          map.addListener("mousedown", markUserGesture),
+          map.addListener("touchstart", markUserGesture),
+          map.addListener("zoom_changed", () => {
+            // Programmatic zoom sets skipNextGeocodeRef first; ignore those.
+            if (!skipNextGeocodeRef.current) {
+              userGestureRef.current = true
             }
-          }, 500) // 500ms debounce for better stability
+          }),
+        )
+
+        mapListenersRef.current.push(
+          map.addListener("idle", () => {
+            // Resize / projection settle without user gesture → ignore reverse-geocode
+            if (skipNextGeocodeRef.current) {
+              skipNextGeocodeRef.current = false
+              userGestureRef.current = false
+              return
+            }
+            if (!userGestureRef.current) return
+
+            clearTimeout(mapIdleTimeoutRef.current)
+            mapIdleTimeoutRef.current = setTimeout(() => {
+              userGestureRef.current = false
+              const center = map.getCenter()
+              if (!center) return
+              const lat = center.lat()
+              const lng = center.lng()
+              const prev = lastGeocodedCoordsRef.current
+              const moved =
+                prev.lat == null || prev.lng == null
+                  ? Infinity
+                  : calculateDistance(prev.lat, prev.lng, lat, lng)
+
+              if (moved < GEOCODE_MIN_MOVE_METERS) return
+
+              lastGeocodedCoordsRef.current = { lat, lng }
+              setMapPosition([lat, lng])
+              handleMapMoveEndRef.current?.(lat, lng)
+            }, GEOCODE_DEBOUNCE_MS)
+          })
+        )
+
+        // Keep map center stable when container size changes (no reverse-geocode)
+        let resizeDebounce = null
+        const resizeObserver = typeof ResizeObserver !== "undefined"
+          ? new ResizeObserver(() => {
+              if (!googleMapRef.current || !window.google?.maps?.event) return
+              clearTimeout(resizeDebounce)
+              resizeDebounce = setTimeout(() => {
+                const center = googleMapRef.current?.getCenter?.()
+                skipNextGeocodeRef.current = true
+                window.google.maps.event.trigger(googleMapRef.current, "resize")
+                if (center) {
+                  googleMapRef.current.setCenter(center)
+                }
+              }, 120)
+            })
+          : null
+
+        if (resizeObserver && mapContainerRef.current) {
+          resizeObserver.observe(mapContainerRef.current)
+        }
+
+        // Stash observer on map ref for cleanup via listeners array pattern
+        mapListenersRef.current.push({
+          remove: () => {
+            clearTimeout(resizeDebounce)
+            try { resizeObserver?.disconnect() } catch { /* ignore */ }
+          }
         })
 
         setMapLoading(false)
@@ -331,8 +397,21 @@ export default function AddressSelectorPage() {
       }
     }
     initializeGoogleMap()
-    return () => { isMounted = false }
+    return () => {
+      isMounted = false
+      clearMapListeners()
+    }
+  // handleMapMoveEnd is stable via useCallback below; intentionally omit mapPosition to avoid remount
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showAddressForm, GOOGLE_MAPS_API_KEY, mapUnavailable])
+
+  const panMapProgrammatically = useCallback((lat, lng, zoom = 17) => {
+    if (!googleMapRef.current) return
+    skipNextGeocodeRef.current = true
+    userGestureRef.current = false
+    googleMapRef.current.panTo({ lat, lng })
+    if (zoom != null) googleMapRef.current.setZoom(zoom)
+  }, [])
 
   const handleUseCurrentLocation = async () => {
     try {
@@ -343,17 +422,15 @@ export default function AddressSelectorPage() {
         // Update state
         const newPos = [loc.latitude, loc.longitude]
         setMapPosition(newPos)
+        lastGeocodedCoordsRef.current = { lat: loc.latitude, lng: loc.longitude }
         setCurrentAddress(loc.formattedAddress || loc.address || "")
         
         // Persist
         persistSelectedLocation(loc)
         try { localStorage.setItem("deliveryAddressMode", "current") } catch {}
         
-        // Update map
-        if (googleMapRef.current) {
-          googleMapRef.current.panTo({ lat: loc.latitude, lng: loc.longitude })
-          googleMapRef.current.setZoom(17)
-        }
+        // Update map without triggering reverse-geocode (already have address)
+        panMapProgrammatically(loc.latitude, loc.longitude, 17)
         
         // Update form data if form is open
         if (showAddressForm) {
@@ -389,8 +466,7 @@ export default function AddressSelectorPage() {
       try { localStorage.setItem("deliveryAddressMode", "saved") } catch {}
       toast.success("Address selected")
       
-      // Use "from" state if available, otherwise default to home page
-      const from = location?.state?.from || "/food/user"
+      const from = routerLocation?.state?.from || "/food/user"
       setTimeout(() => {
         navigate(from, { replace: true })
       }, 500)
@@ -445,38 +521,45 @@ export default function AddressSelectorPage() {
     }, 120)
   }, [keyboardInset])
 
-  const clamp = (value, min, max) => Math.min(max, Math.max(min, value))
-
-  const handleMapMoveEnd = async (lat, lng) => {
+  const handleMapMoveEnd = useCallback(async (lat, lng) => {
     if (!ENABLE_LOCATION_REVERSE_GEOCODE) return
-    
-    // Prevent redundant calls for the same coordinates
-    const coordKey = `${lat.toFixed(5)},${lng.toFixed(5)}`
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
+
+    // Dedupe identical pin (≈11m at 4 decimal places)
+    const coordKey = `${lat.toFixed(4)},${lng.toFixed(4)}`
     if (manualFieldRefs.current._lastCoords === coordKey) return
     manualFieldRefs.current._lastCoords = coordKey
 
     try {
-      const parsed = await reverseGeocode(lat, lng, { forceFresh: true })
+      // Do NOT forceFresh — reuse nearby cache / in-flight request from useLocation
+      const parsed = await reverseGeocode(lat, lng, { forceFresh: false })
       if (parsed) {
         const formatted = parsed.formattedAddress || parsed.address || ""
-        setCurrentAddress(prev => prev === formatted ? prev : formatted)
-        setAddressFormData(prev => {
-          if (prev.street === parsed.street && prev.city === parsed.city && prev.state === parsed.state && prev.zipCode === parsed.postalCode) {
+        setCurrentAddress((prev) => (prev === formatted ? prev : formatted))
+        setAddressFormData((prev) => {
+          const street = parsed.street || parsed.area || prev.street
+          const city = parsed.city || prev.city
+          const state = parsed.state || prev.state
+          const zipCode = parsed.postalCode || prev.zipCode
+          if (
+            prev.street === street &&
+            prev.city === city &&
+            prev.state === state &&
+            prev.zipCode === zipCode
+          ) {
             return prev
           }
-          return {
-            ...prev,
-            street: parsed.street || parsed.area || prev.street,
-            city: parsed.city || prev.city,
-            state: parsed.state || prev.state,
-            zipCode: parsed.postalCode || prev.zipCode,
-          }
+          return { ...prev, street, city, state, zipCode }
         })
       }
     } catch (e) {
       debugError("Reverse geocode error:", e)
     }
-  }
+  }, [ENABLE_LOCATION_REVERSE_GEOCODE, reverseGeocode])
+
+  useEffect(() => {
+    handleMapMoveEndRef.current = handleMapMoveEnd
+  }, [handleMapMoveEnd])
 
   const handleAddressFormSubmit = async (e) => {
     e.preventDefault()
@@ -504,8 +587,7 @@ export default function AddressSelectorPage() {
         setAddressAutocompleteValue("")
         setKeywordAddressSuggestions([])
         
-        // Use "from" state if available, otherwise default to home page
-        const from = location?.state?.from || "/food/user"
+        const from = routerLocation?.state?.from || "/food/user"
         setTimeout(() => {
           navigate(from, { replace: true })
         }, 500)
@@ -518,40 +600,30 @@ export default function AddressSelectorPage() {
   }
 
   useEffect(() => {
-    if (!showAddressForm) return
-    const updateBaseMapHeight = () => {
-      const vh = typeof window !== "undefined" ? window.innerHeight : 800
-      const target = Math.round(vh * 0.45)
-      setBaseMapHeight(Math.max(260, Math.min(420, target)))
-    }
-    updateBaseMapHeight()
-    window.addEventListener("resize", updateBaseMapHeight)
-    return () => window.removeEventListener("resize", updateBaseMapHeight)
-  }, [showAddressForm])
-
-  useEffect(() => {
-    if (!showAddressForm) return
-    setFormScrollTop(0)
-  }, [showAddressForm])
-
-  useEffect(() => {
     if (!showAddressForm || typeof window === "undefined" || !window.visualViewport) return
     const viewport = window.visualViewport
+    let raf = 0
     const updateKeyboardInset = () => {
-      const inset = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop)
-      setKeyboardInset(inset > 0 ? inset : 0)
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(() => {
+        const inset = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop)
+        setKeyboardInset((prev) => {
+          const next = inset > 0 ? inset : 0
+          return prev === next ? prev : next
+        })
+      })
     }
     updateKeyboardInset()
     viewport.addEventListener("resize", updateKeyboardInset)
     viewport.addEventListener("scroll", updateKeyboardInset)
     return () => {
+      cancelAnimationFrame(raf)
       viewport.removeEventListener("resize", updateKeyboardInset)
       viewport.removeEventListener("scroll", updateKeyboardInset)
     }
   }, [showAddressForm])
 
   if (showAddressForm) {
-    const mapHeight = baseMapHeight 
     return (
       <AnimatedPage
         className="fixed inset-0 z-50 bg-white dark:bg-[#0a0a0a] flex flex-col h-screen overflow-hidden"
@@ -565,21 +637,11 @@ export default function AddressSelectorPage() {
 
         <div
           ref={formBodyRef}
-          onScroll={(e) => {
-            setFormScrollTop(e.currentTarget.scrollTop)
-          }}
           className="flex-1 overflow-y-auto"
           style={{ paddingBottom: `${96 + keyboardInset}px` }}
         >
-          {/* Map Section - Parallax enabled */}
-          <div
-            className="flex-shrink-0 relative z-0"
-            style={{ 
-              height: `${mapHeight}px`,
-              transform: `translateY(${formScrollTop * 0.4}px)`,
-              opacity: clamp(1 - (formScrollTop / 500), 0.4, 1)
-            }}
-          >
+          {/* Fixed map height via CSS — avoids React resize→idle→reverse-geocode loops */}
+          <div className="flex-shrink-0 relative z-0 h-[42vh] min-h-[260px] max-h-[420px]">
             <div className="absolute top-4 left-4 right-4 z-20">
               <div className="relative group shadow-2xl">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -630,15 +692,15 @@ export default function AddressSelectorPage() {
 
                           if (Number.isFinite(lat) && Number.isFinite(lng)) {
                             setMapPosition([lat, lng])
-                            if (googleMapRef.current) {
-                              googleMapRef.current.panTo({ lat, lng })
-                              googleMapRef.current.setZoom(17)
-                            }
+                            lastGeocodedCoordsRef.current = { lat, lng }
+                            manualFieldRefs.current._lastCoords = `${lat.toFixed(4)},${lng.toFixed(4)}`
+                            panMapProgrammatically(lat, lng, 17)
                           }
                           setAddressAutocompleteValue(display)
                           const city = a.city || a.town || a.village || a.county || ""
                           const state = a.state || ""
                           const zipCode = a.postcode || ""
+                          setCurrentAddress(display || "")
                           setAddressFormData((prev) => ({
                             ...prev,
                             street: display || prev.street,
@@ -702,7 +764,7 @@ export default function AddressSelectorPage() {
             <div className="bg-red-50/50 dark:bg-red-900/10 border border-red-100 dark:border-red-900/20 rounded-xl p-4 flex gap-3">
                <MapPin className="h-5 w-5 text-[#FF6A00] mt-0.5" />
                <div className="min-w-0">
-                  <p className="text-xs font-bold text-red-800 dark:text-red-200 uppercase mb-1">Pinnned Location</p>
+                  <p className="text-xs font-bold text-red-800 dark:text-red-200 uppercase mb-1">Pinned Location</p>
                   <p className="text-sm text-gray-700 dark:text-gray-300 line-clamp-2">{currentAddress || "Select a location on map"}</p>
                </div>
             </div>
@@ -773,6 +835,7 @@ export default function AddressSelectorPage() {
                  {["Home", "Work", "Other"].map(l => (
                    <Button 
                      key={l}
+                     type="button"
                      variant={addressFormData.label === l ? "default" : "outline"}
                      onClick={() => setAddressFormData({...addressFormData, label: l})}
                      className="flex-1"

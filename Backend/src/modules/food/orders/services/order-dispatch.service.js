@@ -28,6 +28,7 @@ import {
   notifyOwnersSafely,
 } from "./order.helpers.js";
 import { SellerReturn } from "../../../quick-commerce/seller/models/sellerReturn.model.js";
+import { newEventId, recordOrderEventForTarget } from "../../../../core/notifications/orderEvents.service.js";
 import { DISPATCH_DOCUMENT_TYPES } from "../../../quick-commerce/utils/dispatchDocument.constants.js";
 import {
   buildReturnDeliverySocketPayload,
@@ -72,10 +73,16 @@ async function getBusyPartnerIds(partnerIds = []) {
       .lean(),
   ]);
 
-  return new Set([
+  const dbBusy = [
     ...busyOnOrders.map((o) => String(o.dispatch?.deliveryPartnerId || "")),
     ...busyOnReturns.map((r) => String(r.dispatch?.deliveryPartnerId || "")),
-  ].filter(Boolean));
+  ].filter(Boolean);
+
+  // Also exclude drivers holding a Redis busy lock (fast, race-free — Phase 4).
+  const { getRedisBusyDriverIds } = await import("./driverBusyLock.service.js");
+  const redisBusy = await getRedisBusyDriverIds(partnerIds);
+
+  return new Set([...dbBusy, ...redisBusy]);
 }
 
 export async function filterEligiblePartners(partners) {
@@ -699,6 +706,18 @@ async function runDispatchHunt({
   // (enforced atomically in acceptDeliveryOrder); everyone else gets `order_claimed` /
   // `order_reassigned_elsewhere` once that happens.
   const ringTimeoutSeconds = Math.round(RING_RETRY_DELAY_MS / 1000);
+
+  // Ring envelope shared by the socket payload + FCM data so the driver app rings on a new
+  // offer (native full-screen when backgrounded). Individual driver offers are NOT
+  // ackRequired — re-dispatch is owned by the DISPATCH_TIMEOUT_CHECK retry below, and the
+  // acceptance race is resolved atomically in acceptOrderDelivery (others get order_claimed).
+  const offerEventId = newEventId();
+  const offerExpiresAt = new Date(Date.now() + ringTimeoutSeconds * 1000).toISOString();
+  payload.event_id = offerEventId;
+  payload.type = "NEW_ORDER";
+  payload.ring = true;
+  payload.expires_at = offerExpiresAt;
+
   for (const p of eligible) {
     emitDispatchOffer(io, rooms.delivery(p.partnerId), {
       ...payload,
@@ -714,6 +733,10 @@ async function runDispatchHunt({
         body: `Tap to accept ${alertLabel} ${payload.orderId || documentMongoId} — first to accept gets it (~${ringTimeoutSeconds}s).`,
         data: {
           type: "new_order",
+          event_id: offerEventId,
+          event_type: "NEW_ORDER",
+          ring: "true",
+          expires_at: offerExpiresAt,
           documentType,
           orderId: documentMongoId,
           tripType: payload.tripType || "forward",
@@ -722,6 +745,26 @@ async function runDispatchHunt({
     );
   } catch (err) {
     logger.warn(`Push notification broadcast failed for ${documentType} ${documentMongoId}: ${err.message}`);
+  }
+
+  // Durably record the offer per driver for /sync replay + client dedup (ring, no ack).
+  try {
+    await Promise.all(
+      eligible.map((p) =>
+        recordOrderEventForTarget({
+          type: "NEW_ORDER",
+          orderId: payload.orderId || documentMongoId,
+          orderMongoId: documentType === "food_order" ? documentMongoId : null,
+          target: { ownerType: "DELIVERY_PARTNER", ownerId: p.partnerId },
+          ring: true,
+          expiresInSec: ringTimeoutSeconds,
+          eventId: offerEventId,
+          payload: { tripType: payload.tripType || "forward", documentType },
+        }),
+      ),
+    );
+  } catch (err) {
+    logger.warn(`recordOrderEvent (driver offer) failed: ${err.message}`);
   }
 
   const offeredToEntries = eligible.map((p) => ({

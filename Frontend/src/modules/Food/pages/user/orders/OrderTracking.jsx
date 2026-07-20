@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
+import { onOrderEvent } from "@core/sync/orderSync"
 import { useParams, Link, useSearchParams, useLocation } from "react-router-dom"
 import { motion, AnimatePresence } from "framer-motion"
 import { toast } from "sonner"
@@ -1242,16 +1243,23 @@ export default function OrderTracking() {
     return () => { isSubscribed = false; };
   }, [getOrderById, isQuickOrder, orderId, fetchOrderDetailsWithFallback, resolveOrderFromList]);
 
-  // Poll interval (separate so socket reconnect doesn't restart fetching logic)
+  // Event-driven refresh (replaces the 12s/5s timer poll): refetch on an order event or when
+  // the tab becomes visible again. The live socket updates ETA/location directly in between,
+  // and the user notification hook's syncNow('user') on reconnect drives an order:event too.
   useEffect(() => {
     if (!orderId) return;
-    const pollInterval = (isSocketConnected || window.orderSocketConnected) ? 12000 : 5000;
-    const interval = setInterval(() => {
+    const refresh = () => {
       if (terminalPollStopRef.current || document.hidden) return;
       pollRef.current?.(false);
-    }, pollInterval);
-    return () => clearInterval(interval);
-  }, [orderId, isSocketConnected]);
+    };
+    const offEvent = onOrderEvent(refresh);
+    const onVisible = () => { if (document.visibilityState === 'visible') refresh(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      offEvent();
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [orderId]);
 
   // ── Stable callbacks ─────────────────────────────────────────────────────────
   // ETA arrives as a number of minutes (socket road-distance ETA), a numeric

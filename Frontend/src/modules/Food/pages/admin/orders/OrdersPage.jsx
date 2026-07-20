@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { useSearchParams } from "react-router-dom"
 import io from "socket.io-client"
+import { onOrderEvent } from "@core/sync/orderSync"
 import { FileText, Calendar, Package } from "lucide-react"
 import { adminAPI } from "@food/api"
 import { API_BASE_URL } from "@food/api/config"
@@ -599,11 +600,17 @@ export default function OrdersPage({ statusKey = "all" }) {
   useEffect(() => {
     if (statusKey !== "all") return undefined
 
-    const pollId = setInterval(() => {
-      fetchOrders({ silent: true, withRingCheck: true })
-    }, 5000)
+    // Event-driven fallback (replaces the 5s poll): this page's own socket keeps the list
+    // live; also refetch on any order event and when the tab becomes visible again.
+    const refresh = () => fetchOrders({ silent: true, withRingCheck: true })
+    const offEvent = onOrderEvent(refresh)
+    const onVisible = () => { if (document.visibilityState === 'visible') refresh() }
+    document.addEventListener('visibilitychange', onVisible)
 
-    return () => clearInterval(pollId)
+    return () => {
+      offEvent()
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [statusKey, fetchOrders])
 
   useEffect(() => {
@@ -662,11 +669,9 @@ export default function OrdersPage({ statusKey = "all" }) {
     socket.on("connect", () => {
       socket.emit("join-admin-orders")
     })
-    socket.on("admin_new_order", handleIncomingRealtimeOrder)
     socket.on("play_notification_sound", handleIncomingRealtimeOrder)
 
     return () => {
-      socket.off("admin_new_order", handleIncomingRealtimeOrder)
       socket.off("play_notification_sound", handleIncomingRealtimeOrder)
       socket.disconnect()
       socketRef.current = null

@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { Toaster } from 'sonner'
 import App from './app/App.jsx'
 import { isModuleAuthenticated } from './modules/Food/utils/auth.js'
+import { installNativeEventIntake } from './core/native/nativeBridge.js'
 import './shared/styles/global.css'
 
 // app console
@@ -79,6 +80,11 @@ function bootstrapNativeHashRoute() {
 }
 
 bootstrapNativeHashRoute()
+
+// Define window.onNativeEvent so the native shell can inject FCM data events (incl. when the
+// app was killed) into the running web app. Dedups by event_id and re-broadcasts as a
+// `native:order-event` for the notification hooks. Safe no-op in a plain browser.
+installNativeEventIntake()
 
 // ─── Suppress known non-critical errors ──────────────────────────────────────
 

@@ -2524,6 +2524,13 @@ export const listApprovedRestaurants = async (query = {}) => {
     const radiusKm = toFiniteNumber(query.radiusKm) ?? toFiniteNumber(query.maxDistance);
     const sortBy = parseSortBy(query.sortBy);
 
+    // Card/list projection: only what the user app actually renders. Deliberately excludes
+    // internal-only flags (isVisibleToUsers / showRestaurantToUsersWithoutItems /
+    // hasHadActiveItems / status — used for server-side filtering, not shown to users) and the
+    // full location address block. The card only needs coordinates for distance/map, so we
+    // project just those sub-fields instead of the whole `location` object (which also carries
+    // formattedAddress / address / addressLine1-2 / landmark / pincode / state). Full details
+    // remain available from the by-id detail endpoint.
     const projection = {
         restaurantId: 1,
         restaurantName: 1,
@@ -2541,13 +2548,12 @@ export const listApprovedRestaurants = async (query = {}) => {
         rating: 1,
         totalRatings: 1,
         isAcceptingOrders: 1,
-        isVisibleToUsers: 1,
-        showRestaurantToUsersWithoutItems: 1,
-        hasHadActiveItems: 1,
-        status: 1,
         pureVegRestaurant: 1,
         createdAt: 1,
-        location: 1,
+        'location.type': 1,
+        'location.coordinates': 1,
+        'location.latitude': 1,
+        'location.longitude': 1,
         openingTime: 1,
         closingTime: 1,
         openDays: 1

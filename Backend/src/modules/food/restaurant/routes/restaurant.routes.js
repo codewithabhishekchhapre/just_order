@@ -1,5 +1,6 @@
 import express from 'express';
 import { upload } from '../../../../middleware/upload.js';
+import { idempotency } from '../../../../middleware/idempotency.js';
 import {
     registerRestaurantController,
     saveOnboardingStepController,
@@ -218,7 +219,7 @@ router.delete('/addons/:id', authMiddleware, requireRestaurant, deleteAddonContr
 // Orders (restaurant dashboard)
 router.get('/orders', authMiddleware, requireRestaurant, orderController.listOrdersRestaurantController);
 router.get('/orders/:orderId', authMiddleware, requireRestaurant, orderController.getOrderByIdRestaurantController);
-router.patch('/orders/:orderId/status', authMiddleware, requireRestaurant, orderController.updateOrderStatusRestaurantController);
+router.patch('/orders/:orderId/status', authMiddleware, requireRestaurant, idempotency(), orderController.updateOrderStatusRestaurantController);
 router.patch('/orders/:orderId/preparation-time', authMiddleware, requireRestaurant, orderController.updateOrderPreparationTimeRestaurantController);
 router.post('/orders/:orderId/resend-notification', authMiddleware, requireRestaurant, orderController.resendDeliveryNotificationRestaurantController);
 

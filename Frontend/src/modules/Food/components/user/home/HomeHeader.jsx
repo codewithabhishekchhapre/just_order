@@ -517,17 +517,10 @@ export default function HomeHeader({
         </div>
       )}
 
-      {/* 4. Banner Carousel Card */}
+      {/* 4. Banner Carousel Card — API banners are full-bleed; keep a dark fallback under images */}
       {isFood && bannerComponent && (
         <div className="relative z-10 w-full px-4 pb-3 pt-1">
-          <div
-            className="rounded-2xl overflow-hidden shadow-md relative"
-            style={{
-              background: vegMode
-                ? "linear-gradient(135deg, #1b5e20 0%, #2e7d32 60%, #388e3c 100%)"
-                : "linear-gradient(135deg, #bf360c 0%, #FF6A00 60%, #ff8c42 100%)"
-            }}
-          >
+          <div className="rounded-2xl overflow-hidden shadow-md relative bg-neutral-900">
             {bannerComponent}
           </div>
         </div>

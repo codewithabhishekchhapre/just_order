@@ -347,7 +347,7 @@ export default function Dining() {
   const [openDropdown, setOpenDropdown] = useState(null)
   const { openSearch, closeSearch, setSearchValue } = useSearchOverlay()
   const { openLocationSelector } = useLocationSelector()
-  const { location } = useLocationHook()
+  const { location, loading: locationLoading } = useLocationHook()
   const { addFavorite, removeFavorite, isFavorite } = useProfile()
 
   const [categories, setCategories] = useState([])
@@ -362,15 +362,18 @@ export default function Dining() {
   const touchEndYRef = useRef(0)
   const isBannerSwipingRef = useRef(false)
 
+  // City-independent dining data (hero banners + categories): fetch once on mount.
+  // Kept separate from the city-filtered restaurant list below so it is not refetched
+  // every time the resolved location changes.
   useEffect(() => {
-    const fetchDiningData = async () => {
+    let cancelled = false
+    const fetchStaticDiningData = async () => {
       try {
-        setLoading(true)
-        const [bannerResponse, cats, rests] = await Promise.all([
+        const [bannerResponse, cats] = await Promise.all([
           diningAPI.getHeroBanners().catch(() => ({ data: { success: false, data: { banners: [] } } })),
           diningAPI.getCategories(),
-          diningAPI.getRestaurants(location?.city ? { city: location.city } : {}),
         ])
+        if (cancelled) return
 
         const heroBanners = Array.isArray(bannerResponse?.data?.data?.banners)
           ? bannerResponse.data.data.banners
@@ -380,8 +383,10 @@ export default function Dining() {
                 return {
                   id: String(banner?._id || banner?.id || `dining-banner-${index}`),
                   imageUrl,
-                  tagline: String(banner?.title || banner?.tagline || "").trim(),
+                  tagline: String(banner?.title || banner?.subtitle || banner?.tagline || "").trim(),
                   promoCode: String(banner?.ctaText || banner?.promoCode || "").trim(),
+                  description: String(banner?.description || "").trim(),
+                  ctaLink: String(banner?.ctaLink || "").trim(),
                 }
               })
               .filter(Boolean)
@@ -389,17 +394,41 @@ export default function Dining() {
 
         setDiningHeroBanners(heroBanners)
         setCategories(cats?.data?.success ? (cats.data.data || []) : [])
-        setRestaurantList(rests?.data?.success ? (rests.data.data || []) : [])
       } catch {
-        setDiningHeroBanners([])
-        setCategories([])
-        setRestaurantList([])
-      } finally {
-        setLoading(false)
+        if (!cancelled) {
+          setDiningHeroBanners([])
+          setCategories([])
+        }
       }
     }
-    fetchDiningData()
-  }, [location?.city])
+    fetchStaticDiningData()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // City-filtered restaurant list: wait until the location has finished resolving so we
+  // fetch once with the final city, instead of once with no city and again once it loads.
+  useEffect(() => {
+    if (locationLoading) return
+    let cancelled = false
+    const fetchDiningRestaurants = async () => {
+      try {
+        setLoading(true)
+        const rests = await diningAPI.getRestaurants(location?.city ? { city: location.city } : {})
+        if (cancelled) return
+        setRestaurantList(rests?.data?.success ? (rests.data.data || []) : [])
+      } catch {
+        if (!cancelled) setRestaurantList([])
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    fetchDiningRestaurants()
+    return () => {
+      cancelled = true
+    }
+  }, [location?.city, locationLoading])
 
   const safeCategories = useMemo(() => {
     return (Array.isArray(categories) ? categories : [])
@@ -742,9 +771,14 @@ export default function Dining() {
                         </span>
                       )}
                       {banner.tagline && (
-                        <h2 className="text-2xl sm:text-3xl md:text-4xl font-black text-white leading-tight mb-4 tracking-tight">
+                        <h2 className="text-2xl sm:text-3xl md:text-4xl font-black text-white leading-tight mb-2 tracking-tight">
                           {banner.tagline}
                         </h2>
+                      )}
+                      {banner.description && (
+                        <p className="text-white/75 text-xs sm:text-sm font-medium mb-4 line-clamp-2">
+                          {banner.description}
+                        </p>
                       )}
                       {diningHeroBanners.length > 1 && (
                         <div className="flex items-center gap-1.5">

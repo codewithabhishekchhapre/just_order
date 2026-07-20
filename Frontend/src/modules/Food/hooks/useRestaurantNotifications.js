@@ -4,6 +4,7 @@ import { API_BASE_URL } from '@food/api/config';
 import { restaurantAPI } from '@food/api';
 import alertSound from '@food/assets/audio/alert.mp3';
 import { dispatchNotificationInboxRefresh } from '@food/hooks/useNotificationInbox';
+import { syncNow, ingestLiveEvent } from '@core/sync/orderSync';
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -535,6 +536,9 @@ export const useRestaurantNotifications = (options = {}) => {
       debugLog('? Socket ID:', socketRef.current.id);
       debugLog('? Socket URL:', socketUrl);
       setIsConnected(true);
+
+      // Reconcile anything missed while disconnected via GET /food/sync (replaces polling).
+      syncNow('restaurant');
       
       // Join restaurant room immediately after connection with retry
       if (restaurantId) {
@@ -614,11 +618,15 @@ export const useRestaurantNotifications = (options = {}) => {
       }
       // One REST catch-up after reconnect (no continuous polling).
       runCatchUp();
+      // Seq-based reconciliation of missed order events via GET /food/sync.
+      syncNow('restaurant');
     });
 
     // Listen for new order notifications
     socketRef.current.on('new_order', (orderData) => {
       debugLog('?? New order received:', orderData);
+      // Feed the unified order:event stream (dedup + gap detection → /sync).
+      if (ingestLiveEvent('restaurant', orderData) === false) return; // duplicate, already handled
       setNewOrder(orderData);
 
       handleIncomingOrderAlert(orderData);
@@ -655,6 +663,7 @@ export const useRestaurantNotifications = (options = {}) => {
     // Listen for order status updates
     socketRef.current.on('order_status_update', (data) => {
       debugLog('?? Order status update:', data);
+      if (ingestLiveEvent('restaurant', data) === false) return; // duplicate, already handled
       const status = String(data?.orderStatus || data?.status || '').toLowerCase();
       const updateKeys = [
         String(data?.orderId || '').trim(),

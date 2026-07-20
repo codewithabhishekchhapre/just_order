@@ -155,6 +155,18 @@ const defaultBannersData = [
   { isFallback: true, title: "CRAVINGS SATISFIED", subtitle: "Flat ₹150 Off", action: "Claim Offer" }
 ];
 
+const normalizeHeroBanner = (banner = {}) => ({
+  ...banner,
+  title: banner.title || "",
+  subtitle: banner.subtitle || "",
+  description: banner.description || "",
+  ctaText: banner.ctaText || "",
+  ctaLink: banner.ctaLink || "",
+  action: banner.action || banner.ctaText || "",
+  imageUrl: banner.imageUrl || "",
+  linkedRestaurants: Array.isArray(banner.linkedRestaurants) ? banner.linkedRestaurants : [],
+});
+
 export default function Home() {
   const HERO_BANNER_AUTO_SLIDE_MS = 3500;
   const BACKEND_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, "");
@@ -249,24 +261,64 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [activeTab]);
 
+  const hasApiBanners = Array.isArray(banners?.data) && banners.data.length > 0;
+
+  const activeBannerData = useMemo(() => {
+    if (hasApiBanners) {
+      return banners.data.map(normalizeHeroBanner);
+    }
+    return defaultBannersData;
+  }, [banners?.data, hasApiBanners]);
+
   const activeBannerImages = useMemo(() => {
-    // Override API images with the custom transparent PNGs requested by the user
-    if (banners?.data?.length > 0) {
-      return banners.data.map((_, i) => defaultBannersImages[i % defaultBannersImages.length]);
+    if (hasApiBanners) {
+      const fromImages = Array.isArray(banners?.images) ? banners.images.filter(Boolean) : [];
+      if (fromImages.length > 0) return fromImages;
+      return activeBannerData.map((b) => b.imageUrl).filter(Boolean);
     }
     return defaultBannersImages;
-  }, [banners?.data]);
+  }, [hasApiBanners, banners?.images, activeBannerData]);
 
-  const activeBannerData = useMemo(() => banners?.data?.length > 0 ? banners.data : defaultBannersData, [banners?.data]);
+  // Homepage video from landing settings becomes first carousel slide
+  const heroSlides = useMemo(() => {
+    const slides = activeBannerData.map((banner, index) => ({
+      ...banner,
+      imageUrl: activeBannerImages[index] || banner.imageUrl || "",
+    }));
+
+    if (landing?.videoUrl) {
+      return [
+        {
+          type: "video",
+          imageUrl: landing.videoUrl,
+          title: "",
+          subtitle: "",
+          description: "",
+          action: "",
+          ctaText: "",
+          ctaLink: "",
+        },
+        ...slides,
+      ];
+    }
+
+    return slides;
+  }, [activeBannerData, activeBannerImages, landing?.videoUrl]);
+
+  const heroBannerImages = useMemo(
+    () => heroSlides.map((slide) => slide.imageUrl).filter(Boolean),
+    [heroSlides],
+  );
 
   // Auto-slide banners
   useEffect(() => {
-    if (!activeBannerImages.length) return;
+    if (!heroBannerImages.length) return;
+    setCurrentBannerIndex((prev) => Math.min(prev, heroBannerImages.length - 1));
     const interval = setInterval(() => {
-      setCurrentBannerIndex((prev) => (prev + 1) % activeBannerImages.length);
+      setCurrentBannerIndex((prev) => (prev + 1) % heroBannerImages.length);
     }, HERO_BANNER_AUTO_SLIDE_MS);
     return () => clearInterval(interval);
-  }, [activeBannerImages.length]);
+  }, [heroBannerImages.length]);
 
   // Prevent body scroll when popups are open
   useEffect(() => {
@@ -383,15 +435,17 @@ export default function Home() {
             headerVideoUrl={landing.videoUrl}
             bannerComponent={
               <Suspense fallback={<HeroBannerSkeleton className="h-[130px] w-full" />}>
-                <div className="h-[130px] sm:h-36 md:h-44 mt-3 relative z-10 w-full">
+                <div className="h-[150px] sm:h-40 md:h-44 relative z-10 w-full">
                   <BannerSection
                     showBannerSkeleton={banners.loading}
-                    heroBannerImages={activeBannerImages}
-                    heroBannersData={activeBannerData}
+                    heroBannerImages={heroBannerImages}
+                    heroBannersData={heroSlides}
                     currentBannerIndex={currentBannerIndex}
                     setCurrentBannerIndex={setCurrentBannerIndex}
                     heroShellRef={heroShellRef}
                     navigate={navigate}
+                    backendOrigin={BACKEND_ORIGIN}
+                    hideOverlay={false}
                   />
                 </div>
               </Suspense>
@@ -430,14 +484,14 @@ export default function Home() {
                   <div className="overflow-hidden rounded-2xl h-48 sm:h-64 md:h-72 lg:h-[320px] shadow-md border border-gray-100 dark:border-gray-900/60">
                     <BannerSection
                       showBannerSkeleton={banners.loading}
-                      heroBannerImages={banners.images}
-                      heroBannersData={banners.data}
+                      heroBannerImages={heroBannerImages}
+                      heroBannersData={heroSlides}
                       currentBannerIndex={currentBannerIndex}
                       setCurrentBannerIndex={setCurrentBannerIndex}
                       heroShellRef={heroShellRef}
                       navigate={navigate}
                       backendOrigin={BACKEND_ORIGIN}
-                      hideOverlay={true}
+                      hideOverlay={false}
                     />
                   </div>
                 </section>

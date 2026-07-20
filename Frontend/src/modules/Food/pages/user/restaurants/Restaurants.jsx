@@ -55,11 +55,13 @@ export default function Restaurants() {
     const fetchRestaurants = async () => {
       try {
         setLoading(true)
-        const params = { limit: 300, _ts: Date.now() }
+        // Let the shared API layer apply its default limit + short cache so returning to
+        // this page doesn't refetch the whole list on every visit.
+        const params = {}
         if (zoneId) {
           params.zoneId = zoneId
         }
-        const response = await restaurantAPI.getRestaurants(params, { noCache: true })
+        const response = await restaurantAPI.getRestaurants(params)
         const list =
           response?.data?.data?.restaurants ||
           response?.data?.restaurants ||

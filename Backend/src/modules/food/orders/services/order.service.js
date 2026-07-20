@@ -28,6 +28,8 @@ import {
   sendNotificationToOwner,
   sendNotificationToOwners,
 } from "../../../../core/notifications/firebase.service.js";
+import { assertTransition } from "../state/orderStateMachine.js";
+import { newEventId, deriveEventType, recordOrderEventForTarget, ackOrderRingEvents } from "../../../../core/notifications/orderEvents.service.js";
 import { FoodTransaction } from '../models/foodTransaction.model.js';
 import { FoodSupportTicket } from '../../user/models/supportTicket.model.js';
 import { Seller } from '../../../quick-commerce/seller/models/seller.model.js';
@@ -1256,6 +1258,12 @@ async function notifyRestaurantNewOrder(orderDoc) {
     if (!orderDoc || !canExposeOrderToRestaurant(orderDoc)) return;
     if (orderDoc.orderStatus === "scheduled") return;
 
+    // Ring envelope shared by the socket payload + FCM data so the native app rings on a new
+    // order. Watchdog escalates if the restaurant doesn't ack within the window.
+    const newOrderEventId = newEventId();
+    const RING_EXPIRES_SEC = 30;
+    const newOrderExpiresAt = new Date(Date.now() + RING_EXPIRES_SEC * 1000).toISOString();
+
     const io = getIO();
     if (io) {
       const payload = {
@@ -1375,6 +1383,11 @@ async function notifyRestaurantNewOrder(orderDoc) {
         payload.acceptedAt = acceptedEntry.at;
       }
 
+      payload.event_id = newOrderEventId;
+      payload.type = "NEW_ORDER";
+      payload.ring = true;
+      payload.expires_at = newOrderExpiresAt;
+
       io.to(rooms.restaurant(orderDoc.restaurantId)).emit("new_order", payload);
       io.to(rooms.restaurant(orderDoc.restaurantId)).emit(
         "play_notification_sound",
@@ -1392,12 +1405,29 @@ async function notifyRestaurantNewOrder(orderDoc) {
         body: `Order ${orderDoc.orderId} is waiting for review.`,
         data: {
           type: "new_order",
+          event_id: newOrderEventId,
+          event_type: "NEW_ORDER",
+          ring: "true",
+          expires_at: newOrderExpiresAt,
           orderId: orderDoc.orderId,
           orderMongoId: orderDoc._id?.toString?.() || "",
           link: `/restaurant/orders/${orderDoc._id?.toString?.() || ""}`,
         },
       },
     );
+
+    // Durably record the ring event for /sync replay + watchdog escalation (ackRequired).
+    await recordOrderEventForTarget({
+      type: "NEW_ORDER",
+      orderId: orderDoc.orderId,
+      orderMongoId: orderDoc._id,
+      target: { ownerType: "RESTAURANT", ownerId: orderDoc.restaurantId },
+      ring: true,
+      expiresInSec: RING_EXPIRES_SEC,
+      eventId: newOrderEventId,
+      ackRequired: true,
+      payload: { orderStatus: orderDoc.orderStatus },
+    });
   } catch {
     // Do not block order/payment flow if notification fails.
   }
@@ -3916,6 +3946,10 @@ export async function updateOrderStatusRestaurant(
   if (!order) throw new NotFoundError("Order not found");
   const from = order.orderStatus;
 
+  // Guard the transition: reject backwards / post-terminal moves. A same-status re-send is
+  // allowed (noop) so preparation-time-only updates below still work.
+  const { noop: sameStatus } = assertTransition(from, orderStatus);
+
   // Optional prep-time overwrite on accept / status change (same field, no duplicates)
   if (options.preparationTime != null && options.preparationTime !== "") {
     const previousPrep = order.preparationTime;
@@ -3935,6 +3969,21 @@ export async function updateOrderStatusRestaurant(
     }
   }
 
+  // Atomic guard: only apply a real status change if the order is still at the expected
+  // previous status, so two concurrent transitions can't both win (e.g. double-accept).
+  if (!sameStatus) {
+    const gate = await FoodOrder.updateOne(
+      { _id: order._id, restaurantId: order.restaurantId, orderStatus: from },
+      { $set: { orderStatus } },
+    );
+    if (gate.matchedCount === 0) {
+      throw new ValidationError(
+        "Order status changed concurrently. Please refresh and retry.",
+        "STATUS_CONFLICT",
+      );
+    }
+  }
+
   order.orderStatus = orderStatus;
   pushStatusHistory(order, {
     byRole: "RESTAURANT",
@@ -3943,6 +3992,14 @@ export async function updateOrderStatusRestaurant(
     to: orderStatus,
   });
   await order.save();
+
+  // The restaurant has acted on the order — stop the incoming-order ring/watchdog.
+  ackOrderRingEvents(order.orderId).catch(() => {});
+
+  // Standard event envelope shared by the socket payload and the FCM data below, so
+  // clients can dedup by event_id and (Phase 3) order by seq. See orderEvents.service.js.
+  const statusEventId = newEventId();
+  const statusEventType = deriveEventType(order.orderStatus);
 
   // Real-time: status update to restaurant room.
   try {
@@ -3960,6 +4017,11 @@ export async function updateOrderStatusRestaurant(
             return to === "preparing" || to === "confirmed";
           })?.at || order.updatedAt || order.createdAt;
       const payload = {
+        event_id: statusEventId,
+        type: statusEventType,
+        order_id: order.orderId,
+        ring: false,
+        expires_at: null,
         orderMongoId: order._id?.toString?.(),
         orderId: order.orderId,
         orderStatus: order.orderStatus,
@@ -4071,6 +4133,10 @@ export async function updateOrderStatusRestaurant(
         image: "https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png",
         data: {
           type: "order_status_update",
+          event_id: statusEventId,
+          event_type: statusEventType,
+          order_id: order.orderId,
+          ring: "false",
           orderId: order.orderId,
           orderMongoId: order._id?.toString?.() || "",
           orderStatus: String(orderStatus || ""),
@@ -4080,6 +4146,35 @@ export async function updateOrderStatusRestaurant(
     );
   } catch (err) {
     console.error("[DEBUG] Error emitting status update to restaurant:", err);
+  }
+
+  // Durably record this status event per target so an offline client can replay it via
+  // GET /food/sync?since_seq=N. Shares the same event_id stamped on the socket/FCM payloads
+  // above, so a client that already received it de-dups. Additive — does not change delivery.
+  try {
+    const eventTargets = [
+      { ownerType: "USER", ownerId: order.userId },
+      { ownerType: "RESTAURANT", ownerId: restaurantId },
+    ];
+    const riderId = order.dispatch?.deliveryPartnerId;
+    if (riderId) eventTargets.push({ ownerType: "DELIVERY_PARTNER", ownerId: riderId });
+    await Promise.all(
+      eventTargets.map((target) =>
+        recordOrderEventForTarget({
+          type: statusEventType,
+          orderId: order.orderId,
+          orderMongoId: order._id,
+          target,
+          eventId: statusEventId,
+          payload: {
+            orderStatus: order.orderStatus,
+            orderMongoId: order._id?.toString?.() || "",
+          },
+        }),
+      ),
+    );
+  } catch (err) {
+    logger.warn(`recordOrderEvent (restaurant status) failed: ${err?.message || err}`);
   }
 
   // Real-time: delivery request / ready notifications.

@@ -10,6 +10,7 @@ import restaurantAdminRoutes from '../modules/food/admin/routes/admin.routes.js'
 import userRoutes from '../modules/food/user/routes/user.routes.js';
 import foodCartRoutes from '../modules/food/user/routes/foodCart.routes.js';
 import orderUserRoutes from '../modules/food/orders/routes/order.routes.user.js';
+import syncRoutes from '../modules/food/orders/routes/sync.routes.js';
 import paymentRoutes from '../core/payments/payment.routes.js';
 import fcmRoutes from '../core/notifications/fcm.routes.js';
 import notificationRoutes from '../core/notifications/notification.routes.js';
@@ -77,6 +78,8 @@ router.use('/v1/food/user', authMiddleware, requireRoles('USER'), userRoutes);
 router.use('/v1/food/cart', authMiddleware, requireRoles('USER'), foodCartRoutes);
 router.use('/v1/food/notifications', authMiddleware, requireRoles('USER', 'RESTAURANT', 'DELIVERY_PARTNER'), notificationRoutes);
 router.use('/v1/food/orders', authMiddleware, requireRoles('USER'), orderUserRoutes);
+// State reconciliation (replaces order-status polling). Any authenticated role.
+router.use('/v1/food/sync', authMiddleware, requireRoles('USER', 'RESTAURANT', 'DELIVERY_PARTNER', 'ADMIN', 'SELLER'), syncRoutes);
 router.use('/v1/food/payments', authMiddleware, paymentRoutes);
 router.use('/v1/payments/webhook', webhookRoutes);
 router.use('/v1/fcm-tokens', fcmRoutes);

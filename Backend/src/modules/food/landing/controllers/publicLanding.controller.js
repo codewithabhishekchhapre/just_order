@@ -36,7 +36,14 @@ export const getPublicHeroBannersController = async (req, res, next) => {
             return {
                 ...rest,
                 linkedRestaurants: Array.isArray(linkedRestaurantIds) ? linkedRestaurantIds : [],
-                imageUrl: b.imageUrl
+                imageUrl: b.imageUrl,
+                title: b.title || '',
+                subtitle: b.subtitle || '',
+                description: b.description || '',
+                ctaText: b.ctaText || '',
+                ctaLink: b.ctaLink || '',
+                action: b.ctaText || '',
+                order: b.sortOrder ?? 0,
             };
         });
         return sendResponse(res, 200, 'Hero banners fetched', { banners });
@@ -48,7 +55,17 @@ export const getPublicHeroBannersController = async (req, res, next) => {
 export const getPublicUnder250BannersController = async (req, res, next) => {
     try {
         const docs = await FoodUnder250Banner.find({ isActive: true }).sort({ sortOrder: 1, createdAt: -1 }).lean();
-        return sendResponse(res, 200, 'Under 250 banners fetched', { banners: docs });
+        const banners = (docs || []).map((b) => ({
+            ...b,
+            title: b.title || '',
+            subtitle: b.subtitle || '',
+            description: b.description || '',
+            ctaText: b.ctaText || '',
+            ctaLink: b.ctaLink || '',
+            action: b.ctaText || '',
+            order: b.sortOrder ?? 0,
+        }));
+        return sendResponse(res, 200, 'Under 250 banners fetched', { banners });
     } catch (error) {
         next(error);
     }
@@ -57,7 +74,17 @@ export const getPublicUnder250BannersController = async (req, res, next) => {
 export const getPublicDiningBannersController = async (req, res, next) => {
     try {
         const docs = await FoodDiningBanner.find({ isActive: true }).sort({ sortOrder: 1, createdAt: -1 }).lean();
-        return sendResponse(res, 200, 'Dining banners fetched', { banners: docs });
+        const banners = (docs || []).map((b) => ({
+            ...b,
+            title: b.title || '',
+            subtitle: b.subtitle || '',
+            description: b.description || '',
+            ctaText: b.ctaText || '',
+            ctaLink: b.ctaLink || '',
+            action: b.ctaText || '',
+            order: b.sortOrder ?? 0,
+        }));
+        return sendResponse(res, 200, 'Dining banners fetched', { banners });
     } catch (error) {
         next(error);
     }

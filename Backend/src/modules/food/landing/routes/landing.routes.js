@@ -6,21 +6,24 @@ import {
     deleteHeroBannerController,
     updateHeroBannerOrderController,
     toggleHeroBannerStatusController,
-    updateHeroBannerController
+    updateHeroBannerController,
+    linkHeroBannerRestaurantsController
 } from '../controllers/heroBanner.controller.js';
 import {
     listUnder250BannersController,
     uploadUnder250BannersController,
     deleteUnder250BannerController,
     updateUnder250BannerOrderController,
-    toggleUnder250BannerStatusController
+    toggleUnder250BannerStatusController,
+    updateUnder250BannerController
 } from '../controllers/under250Banner.controller.js';
 import {
     listDiningBannersController,
     uploadDiningBannersController,
     deleteDiningBannerController,
     updateDiningBannerOrderController,
-    toggleDiningBannerStatusController
+    toggleDiningBannerStatusController,
+    updateDiningBannerController
 } from '../controllers/diningBanner.controller.js';
 import {
     getAdminLandingSettingsController,
@@ -75,7 +78,8 @@ router.post(
 router.delete('/hero-banners/:id', deleteHeroBannerController);
 router.patch('/hero-banners/:id/order', updateHeroBannerOrderController);
 router.patch('/hero-banners/:id/status', toggleHeroBannerStatusController);
-router.patch('/hero-banners/:id', updateHeroBannerController);
+router.patch('/hero-banners/:id/link-restaurants', linkHeroBannerRestaurantsController);
+router.patch('/hero-banners/:id', upload.single('image'), updateHeroBannerController);
 
 // Admin under 250 banners
 router.get('/hero-banners/under-250', listUnder250BannersController);
@@ -87,6 +91,7 @@ router.post(
 router.delete('/hero-banners/under-250/:id', deleteUnder250BannerController);
 router.patch('/hero-banners/under-250/:id/order', updateUnder250BannerOrderController);
 router.patch('/hero-banners/under-250/:id/status', toggleUnder250BannerStatusController);
+router.patch('/hero-banners/under-250/:id', upload.single('image'), updateUnder250BannerController);
 
 // Admin dining banners
 router.get('/hero-banners/dining', listDiningBannersController);
@@ -98,6 +103,7 @@ router.post(
 router.delete('/hero-banners/dining/:id', deleteDiningBannerController);
 router.patch('/hero-banners/dining/:id/order', updateDiningBannerOrderController);
 router.patch('/hero-banners/dining/:id/status', toggleDiningBannerStatusController);
+router.patch('/hero-banners/dining/:id', upload.single('image'), updateDiningBannerController);
 
 // Admin Explore More (icons)
 router.get('/hero-banners/landing/explore-more', listExploreMoreController);

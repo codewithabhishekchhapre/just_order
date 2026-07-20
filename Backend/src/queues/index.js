@@ -4,7 +4,6 @@ import { logger } from '../utils/logger.js';
 import { getBullMQConnection } from './connection.js';
 import {
     OTP_QUEUE,
-    NOTIFICATION_QUEUE,
     ORDER_QUEUE,
     PAYMENT_QUEUE,
     TRACKING_QUEUE,
@@ -111,7 +110,6 @@ export const initializeQueues = () => {
  * Named queue getters for convenience.
  */
 export const getOtpQueue = () => getQueue(OTP_QUEUE);
-export const getNotificationQueue = () => getQueue(NOTIFICATION_QUEUE);
 export const getOrderQueue = () => getQueue(ORDER_QUEUE);
 export const getPaymentQueue = () => getQueue(PAYMENT_QUEUE);
 export const getTrackingQueue = () => getQueue(TRACKING_QUEUE);
@@ -164,5 +162,5 @@ export const getQueueStats = async () => {
     return stats;
 };
 
-export { OTP_QUEUE, NOTIFICATION_QUEUE, ORDER_QUEUE, PAYMENT_QUEUE, TRACKING_QUEUE, SUBSCRIPTION_QUEUE, QUEUE_NAMES } from './queue.constants.js';
+export { OTP_QUEUE, ORDER_QUEUE, PAYMENT_QUEUE, TRACKING_QUEUE, SUBSCRIPTION_QUEUE, QUEUE_NAMES } from './queue.constants.js';
 export { getBullMQConnection, closeBullMQConnection } from './connection.js';

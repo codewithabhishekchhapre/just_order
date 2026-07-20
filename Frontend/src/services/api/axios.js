@@ -8,6 +8,7 @@
 
 import axios from "axios";
 import { redirectToModuleLogin, getModuleFromPathname } from "@core/utils/sessionExpiry";
+import { installHttpCache } from "./httpCache.js";
 
 // Only force a redirect if the module whose session just died is the one actually being
 // viewed — a background 401 for an unrelated module shouldn't hijack the active session.
@@ -45,6 +46,13 @@ const apiClient = axios.create({
   timeout: 30000,
   headers: { "Content-Type": "application/json" },
 });
+
+// Transparently de-duplicate concurrent identical GETs and short-cache their responses,
+// then clear that cache after any successful write. This eliminates the repeated,
+// identical API calls fired on every page mount / re-navigation (and React StrictMode's
+// double effect invocation in dev). Opt out per request with `noCache: true`, or tune the
+// window with `cacheTTL: <ms>`. See ./httpCache.js.
+installHttpCache(apiClient);
 
 function getModuleFromUrl(url = "") {
   const normalized = (typeof url === "string" ? url : (url?.url || "")).toLowerCase();

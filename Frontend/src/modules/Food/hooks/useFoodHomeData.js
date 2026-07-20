@@ -124,10 +124,19 @@ export const useFoodHomeData = ({
       if (results[0].status === "fulfilled") {
         const data = results[0].value?.data?.data;
         const list = Array.isArray(data?.banners) ? data.banners : (Array.isArray(data) ? data : []);
-        setHeroBannersData(list);
-        const imgs = list.map(b => b?.imageUrl).filter(Boolean);
+        const normalized = list.map((b) => ({
+          ...b,
+          title: b?.title || "",
+          subtitle: b?.subtitle || "",
+          description: b?.description || "",
+          ctaText: b?.ctaText || "",
+          ctaLink: b?.ctaLink || "",
+          action: b?.action || b?.ctaText || "",
+        }));
+        setHeroBannersData(normalized);
+        const imgs = normalized.map(b => b?.imageUrl).filter(Boolean);
         setHeroBannerImages(imgs);
-        newBootstrapCache.banners = { data: list, images: imgs };
+        newBootstrapCache.banners = { data: normalized, images: imgs };
       }
 
       // Process Categories

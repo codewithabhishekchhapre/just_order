@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react"
+import { onOrderEvent } from "@core/sync/orderSync"
 import { motion, AnimatePresence } from "framer-motion"
 import Lenis from "lenis"
 import BottomNavbar from "@food/components/restaurant/BottomNavbar"
@@ -193,13 +194,15 @@ export default function OrdersPage() {
 
     fetchOrders()
 
-    // Set up interval to refresh orders every 10 seconds (fallback if Socket.IO fails)
-    const refreshInterval = setInterval(() => {
-      fetchOrders()
-    }, 10000)
+    // Event-driven refresh (replaces the 10s poll): refetch on an order event or when the
+    // tab becomes visible again. Socket.IO delivers live updates in between.
+    const offEvent = onOrderEvent(() => fetchOrders())
+    const onVisible = () => { if (document.visibilityState === 'visible') fetchOrders() }
+    document.addEventListener('visibilitychange', onVisible)
 
     return () => {
-      clearInterval(refreshInterval)
+      offEvent()
+      document.removeEventListener('visibilitychange', onVisible)
     }
   }, [])
 

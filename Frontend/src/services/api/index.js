@@ -1629,7 +1629,10 @@ export const restaurantAPI = {
     getPublicRestaurantsOnce(params, config),
   /** Public: get single approved restaurant by id or slug */
   getRestaurantById: (id, config = {}) =>
-    apiClient.get(`/food/restaurant/restaurants/${String(id)}`, { ...config }),
+    apiClient.get(`/food/restaurant/restaurants/${String(id)}`, {
+      cacheTTL: PUBLIC_CATALOG_TTL_MS,
+      ...config,
+    }),
   /** Public: get approved menu by restaurant id or slug */
   getMenuByRestaurantId: (id, config = {}) =>
     getPublicRestaurantMenuOnce(id, config),
@@ -1735,6 +1738,15 @@ function createInFlightCache({ ttlMs }) {
 
 // Public user-app endpoints can be called by multiple components/effects on refresh (and React StrictMode in dev).
 // A small in-flight + short TTL cache collapses duplicate requests without changing functionality.
+
+// Zone-scoped restaurant lists are small (tens, not thousands). 200 is a generous safety
+// ceiling that still caps the worst-case payload ~5x below the old `limit: 1000`. Callers
+// can page beyond it by passing an explicit `page`/`limit`.
+const PUBLIC_RESTAURANTS_LIMIT = 200;
+// Catalog data (restaurant list/detail/menu/timings) changes slowly. A longer client cache
+// window makes back-and-forth navigation instant instead of refetching on every mount.
+const PUBLIC_CATALOG_TTL_MS = 30000;
+
 const publicRestaurantsCache = createInFlightCache({ ttlMs: 3000 });
 const publicRestaurantMenuCache = createInFlightCache({ ttlMs: 3000 });
 const publicRestaurantOutletTimingsCache = createInFlightCache({ ttlMs: 3000 });
@@ -1746,7 +1758,7 @@ export const publicGetOnce = (url, config = {}) => {
   if (!safeUrl) return Promise.reject(new Error("url is required"));
 
   if (noCache) {
-    return apiClient.get(safeUrl, { params, ...axiosConfig });
+    return apiClient.get(safeUrl, { params, ...axiosConfig, noCache: true });
   }
 
   const keyParams =
@@ -1773,11 +1785,12 @@ const getPublicRestaurantsOnce = (params = {}, config = {}) => {
   }
   if (noCache) {
     return apiClient.get("/food/restaurant/restaurants", {
-      params: { limit: 1000, ...normalizedParams },
+      params: { limit: PUBLIC_RESTAURANTS_LIMIT, ...normalizedParams },
       ...axiosConfig,
+      noCache: true,
     });
   }
-  const keyParams = { limit: 1000, ...normalizedParams };
+  const keyParams = { limit: PUBLIC_RESTAURANTS_LIMIT, ...normalizedParams };
   // `_ts` is an explicit cache-buster in many call sites; ignore it for dedupe purposes.
   if (keyParams && typeof keyParams === "object") {
     delete keyParams._ts;
@@ -1785,7 +1798,8 @@ const getPublicRestaurantsOnce = (params = {}, config = {}) => {
   const key = `restaurants:${stableStringify(keyParams)}`;
   return publicRestaurantsCache.getOrCreate(key, () =>
     apiClient.get("/food/restaurant/restaurants", {
-      params: { limit: 1000, ...normalizedParams },
+      params: { limit: PUBLIC_RESTAURANTS_LIMIT, ...normalizedParams },
+      cacheTTL: PUBLIC_CATALOG_TTL_MS,
       ...axiosConfig,
     }),
   );
@@ -1806,6 +1820,7 @@ const getPublicRestaurantMenuOnce = (id, config = {}) => {
   if (noCache) {
     return apiClient.get(`/food/restaurant/restaurants/${safeId}/menu`, {
       ...axiosConfig,
+      noCache: true,
       headers: { ...axiosConfig.headers, 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0' },
       params: { ...axiosConfig.params, _ts: Date.now() }
     });
@@ -1813,6 +1828,7 @@ const getPublicRestaurantMenuOnce = (id, config = {}) => {
   const key = `menu:${safeId}`;
   return publicRestaurantMenuCache.getOrCreate(key, () =>
     apiClient.get(`/food/restaurant/restaurants/${safeId}/menu`, {
+      cacheTTL: PUBLIC_CATALOG_TTL_MS,
       ...axiosConfig,
     }),
   );
@@ -1833,12 +1849,13 @@ const getPublicRestaurantOutletTimingsOnce = (id, config = {}) => {
   if (noCache) {
     return apiClient.get(
       `/food/restaurant/restaurants/${safeId}/outlet-timings`,
-      { ...axiosConfig },
+      { ...axiosConfig, noCache: true },
     );
   }
   const key = `outletTimings:${safeId}`;
   return publicRestaurantOutletTimingsCache.getOrCreate(key, () =>
     apiClient.get(`/food/restaurant/restaurants/${safeId}/outlet-timings`, {
+      cacheTTL: PUBLIC_CATALOG_TTL_MS,
       ...axiosConfig,
     }),
   );

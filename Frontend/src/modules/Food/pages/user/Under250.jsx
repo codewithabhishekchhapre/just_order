@@ -94,6 +94,7 @@ export default function Under250() {
   const [categories, setCategories] = useState([])
   const [loadingCategories, setLoadingCategories] = useState(true)
   const [bannerImages, setBannerImages] = useState([])
+  const [banners, setBanners] = useState([])
   const [loadingBanner, setLoadingBanner] = useState(true)
   const [currentBannerIndex, setCurrentBannerIndex] = useState(0)
   const [under250Restaurants, setUnder250Restaurants] = useState([])
@@ -191,14 +192,25 @@ export default function Under250() {
         if (cancelled) return
         const data = res?.data?.data
         const list = Array.isArray(data?.banners) ? data.banners : Array.isArray(data) ? data : []
-        setBannerImages(
-          list
-            .map((banner) => (typeof banner?.imageUrl === "string" ? banner.imageUrl.trim() : ""))
-            .filter(Boolean)
-        )
+        const normalized = list
+          .map((banner) => ({
+            ...banner,
+            imageUrl: typeof banner?.imageUrl === "string" ? banner.imageUrl.trim() : "",
+            title: banner?.title || "",
+            subtitle: banner?.subtitle || "",
+            description: banner?.description || "",
+            ctaText: banner?.ctaText || banner?.action || "",
+            ctaLink: banner?.ctaLink || "",
+          }))
+          .filter((banner) => Boolean(banner.imageUrl))
+        setBanners(normalized)
+        setBannerImages(normalized.map((banner) => banner.imageUrl))
       })
       .catch(() => {
-        if (!cancelled) setBannerImages([])
+        if (!cancelled) {
+          setBanners([])
+          setBannerImages([])
+        }
       })
       .finally(() => {
         if (!cancelled) setLoadingBanner(false)
@@ -725,6 +737,7 @@ export default function Under250() {
       </div>
 
       <Under250Banner
+        banners={banners}
         bannerImages={bannerImages}
         loadingBanner={loadingBanner}
         currentBannerIndex={currentBannerIndex}

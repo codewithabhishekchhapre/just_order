@@ -6,6 +6,7 @@ import alertSound from '@food/assets/audio/alert.mp3';
 import originalSound from '@food/assets/audio/original.mp3';
 import { dispatchNotificationInboxRefresh } from '@food/hooks/useNotificationInbox';
 import { useDeliveryStore } from '@/modules/DeliveryV2/store/useDeliveryStore';
+import { syncNow, ingestLiveEvent } from '@core/sync/orderSync';
 
 const shouldLogDeliverySocket = () => {
   if (typeof window === 'undefined') return import.meta.env.DEV;
@@ -835,6 +836,9 @@ export const useDeliveryNotifications = () => {
       });
       setIsConnected(true);
 
+      // Reconcile offers/status missed while disconnected via GET /food/sync (replaces polling).
+      syncNow('delivery');
+
       joinedDeliveryRoomRef.current = null;
       if (!joinDeliveryRoomIfPossible()) {
         debugLog('Socket connected before deliveryPartnerId was ready; waiting to join room.');
@@ -914,6 +918,8 @@ export const useDeliveryNotifications = () => {
         debugLog('Ignoring non-actionable new_order event', orderData);
         return;
       }
+      // Dedup across socket + native FCM offers (same event_id) so the driver rings once.
+      if (ingestLiveEvent('delivery', orderData) === false) return;
       debugLog('New order received via socket', {
         orderId: orderData?.orderId || orderData?.orderMongoId || orderData?._id,
         dispatchStatus: orderData?.dispatch?.status,
@@ -980,6 +986,7 @@ export const useDeliveryNotifications = () => {
 
     socketRef.current.on('order_status_update', (statusData) => {
       debugLog('?? Delivery order status update received via socket:', statusData);
+      if (ingestLiveEvent('delivery', statusData) === false) return; // duplicate, already handled
       const statusOrderId = String(
         statusData?.orderId || statusData?.orderMongoId || ''
       ).trim();

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react"
+import { onOrderEvent } from "@core/sync/orderSync"
 import { Link, useNavigate } from "react-router-dom"
 import { ArrowLeft, Search, MoreVertical, ChevronRight, Star, RotateCcw, AlertCircle, Loader2, Clock, X, Share2, MessageCircle, Send, Copy, Mail, MessagesSquare, Link2, Calendar } from "lucide-react"
 import { orderAPI } from "@food/api"
@@ -380,13 +381,16 @@ export default function Orders() {
 
     fetchOrders()
 
-    // Poll for order updates every 20 seconds to detect delivered orders
-    // This ensures rating popup shows quickly when order is delivered
-    const pollInterval = setInterval(() => {
-      fetchOrders()
-    }, 20000) // Poll every 20 seconds
+    // Event-driven refresh (replaces the 20s poll): refetch on an order event (e.g. delivered
+    // → rating popup) or when the tab becomes visible again. Socket delivers live updates too.
+    const offEvent = onOrderEvent(() => fetchOrders())
+    const onVisible = () => { if (document.visibilityState === 'visible') fetchOrders() }
+    document.addEventListener('visibilitychange', onVisible)
 
-    return () => clearInterval(pollInterval)
+    return () => {
+      offEvent()
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [])
 
   // Format date helper

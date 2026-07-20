@@ -35,6 +35,7 @@ import {
   sanitizeOrderForExternal,
   isStatusAdvance,
 } from './order.helpers.js';
+import { newEventId, deriveEventType, recordOrderEventForTarget } from '../../../../core/notifications/orderEvents.service.js';
 
 function emitOrderUpdate(order, deliveryPartnerId) {
   try {
@@ -87,6 +88,30 @@ function emitOrderUpdate(order, deliveryPartnerId) {
           ...(sellerStatusFromDelivery ? { sellerStatus: sellerStatusFromDelivery } : {}),
         });
       }
+    }
+
+    // Durably record this status change per target so an offline client replays it via
+    // GET /food/sync (fire-and-forget; shares one event_id across targets for de-dup).
+    try {
+      const evtId = newEventId();
+      const evtTargets = [
+        { ownerType: 'USER', ownerId: order.userId },
+        { ownerType: 'RESTAURANT', ownerId: order.restaurantId },
+      ];
+      if (deliveryPartnerId) evtTargets.push({ ownerType: 'DELIVERY_PARTNER', ownerId: deliveryPartnerId });
+      for (const target of evtTargets) {
+        if (!target.ownerId) continue;
+        recordOrderEventForTarget({
+          type: deriveEventType(order.orderStatus),
+          orderId: order.orderId || order._id?.toString?.(),
+          orderMongoId: order._id,
+          target,
+          eventId: evtId,
+          payload: { orderStatus: order.orderStatus },
+        }).catch(() => {});
+      }
+    } catch {
+      /* recording is best-effort */
     }
 
     // Only send push notifications for key delivery milestones
@@ -392,6 +417,11 @@ export async function acceptOrderDelivery(orderId, deliveryPartnerId) {
   }
 
   const responseOrder = sanitizeOrderForExternal(order);
+
+  // Phase 4: mark the driver busy (Redis) so the dispatcher won't offer overlapping orders.
+  import('./driverBusyLock.service.js')
+    .then(({ setDriverBusy }) => setDriverBusy(deliveryPartnerId))
+    .catch(() => {});
 
   void (async () => {
     try {
@@ -912,6 +942,11 @@ export async function completeDelivery(orderId, deliveryPartnerId, body = {}) {
     status: 'delivered',
     deliveredAt: new Date(),
   };
+
+  // Phase 4: delivery finished — release the driver's busy lock so they can be offered again.
+  import('./driverBusyLock.service.js')
+    .then(({ clearDriverBusy }) => clearDriverBusy(deliveryPartnerId))
+    .catch(() => {});
 
   if (ratings) {
     order.ratings = {

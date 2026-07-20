@@ -242,6 +242,15 @@ export const initSocket = async (server) => {
         } catch (err) {
             logger.warn(`Socket.IO Redis adapter skipped (using in-memory): ${err.message}`);
         }
+    } else if (String(process.env.NODE_ENV).toLowerCase() === 'production') {
+        // Real-time order events emitted from one instance will not reach clients connected
+        // to another without a shared adapter. Warn loudly rather than fail (single-instance
+        // deployments still work correctly on the in-memory adapter).
+        logger.warn(
+            'Socket.IO is running on the in-memory adapter in PRODUCTION — order events will ' +
+            'not fan out across multiple instances. Set REDIS_ENABLED=true and REDIS_URL to enable ' +
+            'cross-instance delivery.'
+        );
     }
 
     io.on('connection', (socket) => {
@@ -315,7 +324,6 @@ export const initSocket = async (server) => {
             const room = roomNames.tracking(orderId);
             socket.join(room);
             logger.info(`Socket ${socket.id} (${role}:${userId}) joined tracking room ${room}`);
-            socket.emit('tracking-room-joined', { room, orderId: String(orderId) });
         });
 
         // Backward-compatible alias used by some quick-commerce screens.
@@ -325,7 +333,6 @@ export const initSocket = async (server) => {
             if (role !== 'USER' && role !== 'RESTAURANT' && role !== 'DELIVERY_PARTNER' && role !== 'SELLER' && role !== 'ADMIN') return;
             const room = roomNames.tracking(orderId);
             socket.join(room);
-            socket.emit('tracking-room-joined', { room, orderId: String(orderId) });
         });
 
         socket.on('leave_order', (orderId) => {
@@ -492,6 +499,18 @@ export const initSocket = async (server) => {
                     socketId: socket.id,
                     deliveryPartnerId: String(userId || ''),
                 });
+            }
+        });
+
+        // Acknowledge a ring event so the watchdog stops escalating it.
+        socket.on('ack_event', async (data) => {
+            const eventId = typeof data === 'string' ? data : (data?.eventId || data?.event_id);
+            if (!eventId) return;
+            try {
+                const { ackOrderEvent } = await import('../core/notifications/orderEvents.service.js');
+                await ackOrderEvent(eventId);
+            } catch (err) {
+                logger.warn(`ack_event failed: ${err.message}`);
             }
         });
 

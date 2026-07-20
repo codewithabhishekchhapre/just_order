@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { API_BASE_URL } from '@food/api/config';
 import { userAPI } from '@food/api';
 import { dispatchNotificationInboxRefresh } from '@food/hooks/useNotificationInbox';
+import { syncNow, ingestLiveEvent } from '@core/sync/orderSync';
 
 const debugLog = (...args) => {
   if (import.meta.env.DEV) {
@@ -77,10 +78,14 @@ export const useUserNotifications = () => {
       setIsConnected(true);
       if (typeof window !== 'undefined') window.orderSocketConnected = true;
       // Backend auto-joins 'user:userId' room based on role/token in config/socket.js
+      // Reconcile anything missed while disconnected (replaces polling).
+      syncNow('user');
     });
 
     socketRef.current.on('order_status_update', (data) => {
       debugLog('🔔 Order status update received:', data);
+      // Feed the unified order:event stream (dedup + gap detection → /sync).
+      if (ingestLiveEvent('user', data) === false) return; // duplicate, already handled
       
       const title = data.title || `Order #${data.orderId || 'Update'}`;
       const message = data.message || `Your order status is now ${String(data.orderStatus || '').replace(/_/g, ' ')}`;

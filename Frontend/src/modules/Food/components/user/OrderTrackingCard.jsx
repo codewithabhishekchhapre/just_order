@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback, memo } from "react";
+import { onOrderEvent } from "@core/sync/orderSync";
 import { useNavigate, useLocation } from "react-router-dom";
 import { UtensilsCrossed, ChevronRight, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -204,8 +205,15 @@ function OrderTrackingCardInner({ hasBottomNav = true }) {
   useEffect(() => {
     if (!hasCustomerAuth) return;
     fetchOrders();
-    const interval = setInterval(fetchOrders, 30000);
-    return () => clearInterval(interval);
+    // Event-driven refresh (replaces the 30s poll): refetch on an order event or when the
+    // tab becomes visible again.
+    const offEvent = onOrderEvent(() => fetchOrders());
+    const onVisible = () => { if (document.visibilityState === 'visible') fetchOrders(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      offEvent();
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [fetchOrders, hasCustomerAuth]);
 
   const uniqueOrders = useMemo(() => {

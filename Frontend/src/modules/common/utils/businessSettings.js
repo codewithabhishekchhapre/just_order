@@ -86,8 +86,11 @@ export const loadBusinessSettings = async () => {
     }
 
     inFlightSettingsPromise = (async () => {
-      // Use the generic searchAPI or a dedicated public getter if available
-      const response = await apiClient.get(endpoint, { noCache: true });
+      // Business settings change rarely. Cache them for a few minutes so navigating
+      // between pages/tabs (and the several callers: app boot, Login, Portal) doesn't
+      // refetch on every mount. Admin edits go through apiClient mutations, which clear
+      // this cache, so updates still propagate promptly.
+      const response = await apiClient.get(endpoint, { cacheTTL: 5 * 60 * 1000 });
       const settings = response?.data?.data || response?.data;
 
       if (settings) {

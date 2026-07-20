@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react"
-import { Upload, Trash2, Image as ImageIcon, Loader2, AlertCircle, CheckCircle2, ArrowUp, ArrowDown, Layout, Tag, UtensilsCrossed, ChefHat, Megaphone, Search } from "lucide-react"
+import { Upload, Trash2, Image as ImageIcon, Loader2, AlertCircle, CheckCircle2, ArrowUp, ArrowDown, Layout, Tag, UtensilsCrossed, ChefHat, Megaphone, Search, Pencil } from "lucide-react"
 import api from "@food/api"
 import { adminAPI } from "@food/api"
 import { getModuleToken } from "@food/utils/auth"
@@ -8,6 +8,7 @@ import { Label } from "@food/components/ui/label"
 import { Button } from "@food/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@food/components/ui/dialog"
 import { Checkbox } from "@food/components/ui/checkbox"
+import BannerContentFields, { emptyBannerContent, appendBannerContentToFormData } from "@food/components/admin/BannerContentFields"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -140,6 +141,83 @@ export default function LandingPageManagement() {
   const [selectedRestaurantIds, setSelectedRestaurantIds] = useState([])
   const [restaurantSearchQuery, setRestaurantSearchQuery] = useState("")
   const [linkingRestaurants, setLinkingRestaurants] = useState(false)
+
+  // Banner content create/edit
+  const [heroContent, setHeroContent] = useState(emptyBannerContent())
+  const [under250Content, setUnder250Content] = useState(emptyBannerContent())
+  const [diningContent, setDiningContent] = useState(emptyBannerContent())
+  const [editBannerModal, setEditBannerModal] = useState({ open: false, type: null, banner: null })
+  const [editBannerContent, setEditBannerContent] = useState(emptyBannerContent())
+  const [editBannerSaving, setEditBannerSaving] = useState(false)
+  const [editBannerImageFile, setEditBannerImageFile] = useState(null)
+  const editBannerImageRef = useRef(null)
+
+  const getBannerOrder = (banner, index = 0) => {
+    if (typeof banner?.order === "number") return banner.order
+    if (typeof banner?.sortOrder === "number") return banner.sortOrder
+    return index
+  }
+
+  const openEditBannerModal = (type, banner) => {
+    setEditBannerModal({ open: true, type, banner })
+    setEditBannerContent({
+      title: banner?.title || "",
+      subtitle: banner?.subtitle || "",
+      description: banner?.description || "",
+      ctaText: banner?.ctaText || banner?.action || "",
+      ctaLink: banner?.ctaLink || "",
+    })
+    setEditBannerImageFile(null)
+    if (editBannerImageRef.current) editBannerImageRef.current.value = ""
+  }
+
+  const closeEditBannerModal = () => {
+    setEditBannerModal({ open: false, type: null, banner: null })
+    setEditBannerContent(emptyBannerContent())
+    setEditBannerImageFile(null)
+  }
+
+  const saveEditBanner = async () => {
+    const { type, banner } = editBannerModal
+    if (!type || !banner?._id) return
+
+    const endpoints = {
+      hero: `/food/hero-banners/${banner._id}`,
+      "under-250": `/food/hero-banners/under-250/${banner._id}`,
+      dining: `/food/hero-banners/dining/${banner._id}`,
+    }
+    const endpoint = endpoints[type]
+    if (!endpoint) return
+
+    try {
+      setEditBannerSaving(true)
+      setError(null)
+      setSuccess(null)
+
+      let response
+      if (editBannerImageFile) {
+        const formData = new FormData()
+        appendBannerContentToFormData(formData, editBannerContent)
+        formData.append("image", editBannerImageFile)
+        response = await api.patch(endpoint, formData, getAuthConfig())
+      } else {
+        response = await api.patch(endpoint, editBannerContent, getAuthConfig())
+      }
+
+      if (response.data.success) {
+        setSuccess("Banner content updated successfully!")
+        closeEditBannerModal()
+        if (type === "hero") await fetchBanners()
+        if (type === "under-250") await fetchUnder250Banners()
+        if (type === "dining") await fetchDiningBanners()
+        setTimeout(() => setSuccess(null), 3000)
+      }
+    } catch (err) {
+      setErrorSafely(err.response?.data?.message || "Failed to update banner content.")
+    } finally {
+      setEditBannerSaving(false)
+    }
+  }
 
   // Helper function to filter out token-related errors
   const setErrorSafely = (errorMessage) => {
@@ -282,6 +360,7 @@ export default function LandingPageManagement() {
         // Backend expects field name "files" (upload.array('files'))
         formData.append('files', file)
       })
+      appendBannerContentToFormData(formData, heroContent)
 
       // Use getAuthConfig to ensure proper Authorization header
       // Don't set Content-Type - axios will set it automatically with boundary for FormData
@@ -306,6 +385,7 @@ export default function LandingPageManagement() {
 
         await fetchBanners()
         if (bannersFileInputRef.current) bannersFileInputRef.current.value = ''
+        setHeroContent(emptyBannerContent())
 
         if (failCount === 0) {
           setSuccess(`${successCount} hero banner${successCount > 1 ? 's' : ''} uploaded successfully!`)
@@ -376,17 +456,18 @@ export default function LandingPageManagement() {
   }
 
   const handleBannerOrderChange = async (id, direction) => {
-    const banner = banners.find(b => b._id === id)
-    if (!banner) return
-    const newOrder = direction === 'up' ? banner.order - 1 : banner.order + 1
-    const otherBanner = banners.find(b => b.order === newOrder && b._id !== id)
-    if (!otherBanner && newOrder < 0) return
+    const index = banners.findIndex(b => b._id === id)
+    if (index < 0) return
+    const swapIndex = direction === 'up' ? index - 1 : index + 1
+    if (swapIndex < 0 || swapIndex >= banners.length) return
+    const banner = banners[index]
+    const otherBanner = banners[swapIndex]
+    const currentOrder = getBannerOrder(banner, index)
+    const otherOrder = getBannerOrder(otherBanner, swapIndex)
     try {
       setError(null)
-      await api.patch(`/food/hero-banners/${id}/order`, { order: newOrder }, getAuthConfig())
-      if (otherBanner) {
-        await api.patch(`/food/hero-banners/${otherBanner._id}/order`, { order: banner.order }, getAuthConfig())
-      }
+      await api.patch(`/food/hero-banners/${id}/order`, { order: otherOrder, sortOrder: otherOrder }, getAuthConfig())
+      await api.patch(`/food/hero-banners/${otherBanner._id}/order`, { order: currentOrder, sortOrder: currentOrder }, getAuthConfig())
       await fetchBanners()
     } catch (err) {
       setErrorSafely('Failed to update banner order.')
@@ -923,13 +1004,14 @@ export default function LandingPageManagement() {
         // Backend expects field name "files" (upload.array('files'))
         formData.append('files', file)
       })
+      appendBannerContentToFormData(formData, under250Content)
 
-      const response = await api.post('/food/hero-banners/under-250/multiple', formData, getAuthConfig({
-        headers: { 'Content-Type': 'multipart/form-data' },
-      }))
+      const response = await api.post('/food/hero-banners/under-250/multiple', formData, getAuthConfig())
 
       if (response.data.success) {
         setSuccess(`${response.data.data.banners?.length || files.length} under 250 banner(s) uploaded successfully!`)
+        setUnder250Content(emptyBannerContent())
+        if (under250BannersFileInputRef.current) under250BannersFileInputRef.current.value = ''
         await fetchUnder250Banners()
         setTimeout(() => setSuccess(null), 3000)
       }
@@ -978,17 +1060,18 @@ export default function LandingPageManagement() {
   }
 
   const handleUnder250BannerOrderChange = async (id, direction) => {
-    const banner = under250Banners.find(b => b._id === id)
-    if (!banner) return
-    const newOrder = direction === 'up' ? banner.order - 1 : banner.order + 1
-    const otherBanner = under250Banners.find(b => b.order === newOrder && b._id !== id)
-    if (!otherBanner && newOrder < 0) return
+    const index = under250Banners.findIndex(b => b._id === id)
+    if (index < 0) return
+    const swapIndex = direction === 'up' ? index - 1 : index + 1
+    if (swapIndex < 0 || swapIndex >= under250Banners.length) return
+    const banner = under250Banners[index]
+    const otherBanner = under250Banners[swapIndex]
+    const currentOrder = getBannerOrder(banner, index)
+    const otherOrder = getBannerOrder(otherBanner, swapIndex)
     try {
       setError(null)
-      await api.patch(`/food/hero-banners/under-250/${id}/order`, { order: newOrder }, getAuthConfig())
-      if (otherBanner) {
-        await api.patch(`/food/hero-banners/under-250/${otherBanner._id}/order`, { order: banner.order }, getAuthConfig())
-      }
+      await api.patch(`/food/hero-banners/under-250/${id}/order`, { order: otherOrder }, getAuthConfig())
+      await api.patch(`/food/hero-banners/under-250/${otherBanner._id}/order`, { order: currentOrder }, getAuthConfig())
       await fetchUnder250Banners()
     } catch (err) {
       setErrorSafely('Failed to update banner order.')
@@ -1045,15 +1128,16 @@ export default function LandingPageManagement() {
 
       const formData = new FormData()
       files.forEach((file) => {
-        formData.append('images', file)
+        formData.append('files', file)
       })
+      appendBannerContentToFormData(formData, diningContent)
 
-      const response = await api.post('/food/hero-banners/dining/multiple', formData, getAuthConfig({
-        headers: { 'Content-Type': 'multipart/form-data' },
-      }))
+      const response = await api.post('/food/hero-banners/dining/multiple', formData, getAuthConfig())
 
       if (response.data.success) {
         setSuccess(`${response.data.data.banners?.length || files.length} dining banner(s) uploaded successfully!`)
+        setDiningContent(emptyBannerContent())
+        if (diningBannersFileInputRef.current) diningBannersFileInputRef.current.value = ''
         await fetchDiningBanners()
         setTimeout(() => setSuccess(null), 3000)
       }
@@ -1101,17 +1185,18 @@ export default function LandingPageManagement() {
   }
 
   const handleDiningBannerOrderChange = async (id, direction) => {
-    const banner = diningBanners.find(b => b._id === id)
-    if (!banner) return
-    const newOrder = direction === 'up' ? banner.order - 1 : banner.order + 1
-    const otherBanner = diningBanners.find(b => b.order === newOrder && b._id !== id)
-    if (!otherBanner && newOrder < 0) return
+    const index = diningBanners.findIndex(b => b._id === id)
+    if (index < 0) return
+    const swapIndex = direction === 'up' ? index - 1 : index + 1
+    if (swapIndex < 0 || swapIndex >= diningBanners.length) return
+    const banner = diningBanners[index]
+    const otherBanner = diningBanners[swapIndex]
+    const currentOrder = getBannerOrder(banner, index)
+    const otherOrder = getBannerOrder(otherBanner, swapIndex)
     try {
       setError(null)
-      await api.patch(`/food/hero-banners/dining/${id}/order`, { order: newOrder }, getAuthConfig())
-      if (otherBanner) {
-        await api.patch(`/food/hero-banners/dining/${otherBanner._id}/order`, { order: banner.order }, getAuthConfig())
-      }
+      await api.patch(`/food/hero-banners/dining/${id}/order`, { order: otherOrder }, getAuthConfig())
+      await api.patch(`/food/hero-banners/dining/${otherBanner._id}/order`, { order: currentOrder }, getAuthConfig())
       await fetchDiningBanners()
     } catch (err) {
       setErrorSafely('Failed to update banner order.')
@@ -1445,7 +1530,15 @@ export default function LandingPageManagement() {
           <>
             {/* Upload Section */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
-              <h2 className="text-lg font-bold text-slate-900 mb-4">Upload New Banner(s)</h2>
+              <h2 className="text-lg font-bold text-slate-900 mb-1">Create Hero Banner(s)</h2>
+              <p className="text-sm text-slate-500 mb-4">
+                Upload one or more images and set overlay content shown on the user home hero.
+              </p>
+              <BannerContentFields
+                values={heroContent}
+                onChange={setHeroContent}
+                className="mb-5"
+              />
               <div
                 className="border-2 border-dashed border-blue-300 rounded-lg p-8 text-center bg-blue-50/30 cursor-pointer transition-colors hover:border-blue-400 hover:bg-blue-50/50"
                 onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
@@ -1497,7 +1590,7 @@ export default function LandingPageManagement() {
                       </button>
                       <span className="text-slate-600"> or drag and drop</span>
                     </div>
-                    <p className="text-xs text-slate-500">PNG, JPG, WEBP up to 5MB each (Max 5 images at once)</p>
+                    <p className="text-xs text-slate-500">PNG, JPG, WEBP up to 5MB each (Max 5 images at once). Content fields apply to all selected images.</p>
                   </div>
                 )}
               </div>
@@ -1527,10 +1620,17 @@ export default function LandingPageManagement() {
                           </span>
                         </div>
                         <div className="absolute top-2 left-2">
-                          <span className="px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-800">Order: {banner.order}</span>
+                          <span className="px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-800">Order: {getBannerOrder(banner, index)}</span>
                         </div>
                       </div>
                       <div className="p-4 bg-white">
+                        {(banner.title || banner.subtitle || banner.ctaText) && (
+                          <div className="mb-3 space-y-1">
+                            {banner.title ? <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{banner.title}</p> : null}
+                            {banner.subtitle ? <p className="text-sm font-bold text-slate-900 line-clamp-2">{banner.subtitle}</p> : null}
+                            {banner.ctaText ? <p className="text-xs text-blue-700 font-medium">{banner.ctaText}</p> : null}
+                          </div>
+                        )}
                         <div className="flex items-center justify-between gap-2 flex-wrap">
                           <div className="flex items-center gap-1">
                             <button onClick={() => handleBannerOrderChange(banner._id, 'up')} disabled={index === 0} className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-50">
@@ -1542,9 +1642,16 @@ export default function LandingPageManagement() {
                           </div>
                           <div className="flex items-center gap-2 flex-wrap">
                             <button
+                              onClick={() => openEditBannerModal('hero', banner)}
+                              className="px-3 py-1.5 rounded text-sm font-medium bg-slate-100 text-slate-800 hover:bg-slate-200 flex items-center gap-1"
+                            >
+                              <Pencil className="w-4 h-4" />
+                              Edit
+                            </button>
+                            <button
                               onClick={() => {
                                 setSelectedBannerId(banner._id)
-                                setSelectedRestaurantIds(banner.linkedRestaurants?.map(r => r._id || r) || [])
+                                setSelectedRestaurantIds(banner.linkedRestaurants?.map(r => r._id || r) || banner.linkedRestaurantIds || [])
                                 setShowRestaurantModal(true)
                               }}
                               className="px-3 py-1.5 rounded text-sm font-medium bg-blue-100 text-blue-800 hover:bg-blue-200 flex items-center gap-1"
@@ -1640,7 +1747,25 @@ export default function LandingPageManagement() {
           <>
             {/* Upload Section */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
-              <h2 className="text-lg font-bold text-slate-900 mb-4">Upload New Banner(s)</h2>
+              <h2 className="text-lg font-bold text-slate-900 mb-1">Create Under ₹250 Banner(s)</h2>
+              <p className="text-sm text-slate-500 mb-4">
+                Upload images and set badge, headline, and supporting copy for the Under ₹250 page.
+              </p>
+              <BannerContentFields
+                values={under250Content}
+                onChange={setUnder250Content}
+                labels={{
+                  titleLabel: "Badge",
+                  titleHint: "Top badge (e.g. Budget bites)",
+                  subtitleLabel: "Headline",
+                  subtitleHint: "Main title (e.g. Under ₹250)",
+                  descriptionLabel: "Supporting text",
+                  descriptionHint: "Line under headline",
+                  ctaTextLabel: "Promo pill",
+                  ctaTextHint: "Small orange pill (e.g. Best deals)",
+                }}
+                className="mb-5"
+              />
               <div
                 className="border-2 border-dashed border-blue-300 rounded-lg p-8 text-center bg-blue-50/30 cursor-pointer transition-colors hover:border-blue-400 hover:bg-blue-50/50"
                 onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
@@ -1692,7 +1817,7 @@ export default function LandingPageManagement() {
                       </button>
                       <span className="text-slate-600"> or drag and drop</span>
                     </div>
-                    <p className="text-xs text-slate-500">PNG, JPG, WEBP up to 5MB each (Max 5 images at once)</p>
+                    <p className="text-xs text-slate-500">PNG, JPG, WEBP up to 5MB each (Max 5 images at once). Content fields apply to all selected images.</p>
                   </div>
                 )}
               </div>
@@ -1722,10 +1847,17 @@ export default function LandingPageManagement() {
                           </span>
                         </div>
                         <div className="absolute top-2 left-2">
-                          <span className="px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-800">Order: {banner.order}</span>
+                          <span className="px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-800">Order: {getBannerOrder(banner, index)}</span>
                         </div>
                       </div>
                       <div className="p-4 bg-white">
+                        {(banner.title || banner.subtitle || banner.ctaText) && (
+                          <div className="mb-3 space-y-1">
+                            {banner.title ? <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{banner.title}</p> : null}
+                            {banner.subtitle ? <p className="text-sm font-bold text-slate-900 line-clamp-2">{banner.subtitle}</p> : null}
+                            {banner.ctaText ? <p className="text-xs text-blue-700 font-medium">{banner.ctaText}</p> : null}
+                          </div>
+                        )}
                         <div className="flex items-center justify-between gap-2">
                           <div className="flex items-center gap-1">
                             <button onClick={() => handleUnder250BannerOrderChange(banner._id, 'up')} disabled={index === 0} className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-50">
@@ -1735,6 +1867,13 @@ export default function LandingPageManagement() {
                               <ArrowDown className="w-4 h-4 text-slate-600" />
                             </button>
                           </div>
+                          <button
+                            onClick={() => openEditBannerModal('under-250', banner)}
+                            className="px-3 py-1.5 rounded text-sm font-medium bg-slate-100 text-slate-800 hover:bg-slate-200 flex items-center gap-1"
+                          >
+                            <Pencil className="w-4 h-4" />
+                            Edit
+                          </button>
                           <button onClick={() => handleToggleUnder250BannerStatus(banner._id, banner.isActive)} className={`px-3 py-1.5 rounded text-sm font-medium ${banner.isActive ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'}`}>
                             {banner.isActive ? 'Deactivate' : 'Activate'}
                           </button>
@@ -1756,7 +1895,25 @@ export default function LandingPageManagement() {
           <>
             {/* Upload Section */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
-              <h2 className="text-lg font-bold text-slate-900 mb-4">Upload New Dining Banner(s)</h2>
+              <h2 className="text-lg font-bold text-slate-900 mb-1">Create Dining Banner(s)</h2>
+              <p className="text-sm text-slate-500 mb-4">
+                Upload images and set tagline / promo text shown on the dining page carousel.
+              </p>
+              <BannerContentFields
+                values={diningContent}
+                onChange={setDiningContent}
+                labels={{
+                  titleLabel: "Tagline / Headline",
+                  titleHint: "Main dining promo headline",
+                  subtitleLabel: "Secondary line",
+                  subtitleHint: "Optional supporting headline",
+                  descriptionLabel: "Description",
+                  descriptionHint: "Optional extra copy",
+                  ctaTextLabel: "Promo code / pill",
+                  ctaTextHint: "Orange pill text (e.g. FLAT50)",
+                }}
+                className="mb-5"
+              />
               <div
                 className="border-2 border-dashed border-blue-300 rounded-lg p-8 text-center bg-blue-50/30 cursor-pointer transition-colors hover:border-blue-400 hover:bg-blue-50/50"
                 onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
@@ -1808,7 +1965,7 @@ export default function LandingPageManagement() {
                       </button>
                       <span className="text-slate-600"> or drag and drop</span>
                     </div>
-                    <p className="text-xs text-slate-500">PNG, JPG, WEBP up to 5MB each (Max 5 images at once)</p>
+                    <p className="text-xs text-slate-500">PNG, JPG, WEBP up to 5MB each (Max 5 images at once). Content fields apply to all selected images.</p>
                   </div>
                 )}
               </div>
@@ -1838,10 +1995,16 @@ export default function LandingPageManagement() {
                           </span>
                         </div>
                         <div className="absolute top-2 left-2">
-                          <span className="px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-800">Order: {banner.order}</span>
+                          <span className="px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-800">Order: {getBannerOrder(banner, index)}</span>
                         </div>
                       </div>
                       <div className="p-4 bg-white">
+                        {(banner.title || banner.subtitle || banner.ctaText) && (
+                          <div className="mb-3 space-y-1">
+                            {banner.title ? <p className="text-sm font-bold text-slate-900 line-clamp-2">{banner.title}</p> : null}
+                            {banner.ctaText ? <p className="text-xs text-blue-700 font-medium">{banner.ctaText}</p> : null}
+                          </div>
+                        )}
                         <div className="flex items-center justify-between gap-2">
                           <div className="flex items-center gap-1">
                             <button onClick={() => handleDiningBannerOrderChange(banner._id, 'up')} disabled={index === 0} className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-50">
@@ -1851,6 +2014,13 @@ export default function LandingPageManagement() {
                               <ArrowDown className="w-4 h-4 text-slate-600" />
                             </button>
                           </div>
+                          <button
+                            onClick={() => openEditBannerModal('dining', banner)}
+                            className="px-3 py-1.5 rounded text-sm font-medium bg-slate-100 text-slate-800 hover:bg-slate-200 flex items-center gap-1"
+                          >
+                            <Pencil className="w-4 h-4" />
+                            Edit
+                          </button>
                           <button onClick={() => handleToggleDiningBannerStatus(banner._id, banner.isActive)} className={`px-3 py-1.5 rounded text-sm font-medium ${banner.isActive ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'}`}>
                             {banner.isActive ? 'Deactivate' : 'Activate'}
                           </button>
@@ -2407,6 +2577,66 @@ export default function LandingPageManagement() {
                     )}
                   </Button>
                 </div>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={editBannerModal.open} onOpenChange={(open) => { if (!open) closeEditBannerModal() }}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Edit banner content</DialogTitle>
+              <DialogDescription>
+                Update overlay text and optionally replace the image. Changes appear on the user side after save.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-5 py-2">
+              {editBannerModal.banner?.imageUrl && (
+                <div className="rounded-lg overflow-hidden border border-slate-200 bg-slate-50">
+                  <img
+                    src={editBannerImageFile ? URL.createObjectURL(editBannerImageFile) : editBannerModal.banner.imageUrl}
+                    alt="Banner preview"
+                    className="w-full h-40 object-cover"
+                  />
+                </div>
+              )}
+              <BannerContentFields
+                values={editBannerContent}
+                onChange={setEditBannerContent}
+                labels={
+                  editBannerModal.type === "under-250"
+                    ? {
+                        titleLabel: "Badge",
+                        subtitleLabel: "Headline",
+                        ctaTextLabel: "Promo pill",
+                      }
+                    : editBannerModal.type === "dining"
+                      ? {
+                          titleLabel: "Tagline / Headline",
+                          ctaTextLabel: "Promo code / pill",
+                        }
+                      : undefined
+                }
+              />
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-banner-image">Replace image (optional)</Label>
+                <input
+                  id="edit-banner-image"
+                  ref={editBannerImageRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => setEditBannerImageFile(e.target.files?.[0] || null)}
+                  className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button type="button" variant="outline" onClick={closeEditBannerModal} disabled={editBannerSaving}>
+                  Cancel
+                </Button>
+                <Button type="button" onClick={saveEditBanner} disabled={editBannerSaving} className="bg-blue-600 hover:bg-blue-700 text-white">
+                  {editBannerSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                  Save changes
+                </Button>
               </div>
             </div>
           </DialogContent>

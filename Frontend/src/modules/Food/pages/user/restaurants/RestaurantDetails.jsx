@@ -196,6 +196,7 @@ function RestaurantDetailsContent() {
     isDishFavorite(getDishFavoriteKey(item), restaurantFavoriteId)
   const fetchedRestaurantRef = useRef(false) // Track if restaurant has been fetched for current slug
   const fetchedSlugRef = useRef(null)
+  const fetchInFlightSlugRef = useRef(null) // Track the slug currently being fetched (prevents parallel refetch)
 
   useEffect(() => {
     const intervalId = setInterval(() => {
@@ -219,6 +220,14 @@ function RestaurantDetailsContent() {
       if (fetchedRestaurantRef.current && fetchedSlugRef.current === slug && restaurant) {
         return
       }
+
+      // Location/zone resolving can re-trigger this effect while the first fetch is still
+      // in flight (the "fetched" ref only latches after it completes). Guard against a
+      // second, parallel restaurant + menu fetch for the same slug.
+      if (fetchInFlightSlugRef.current === slug) {
+        return
+      }
+      fetchInFlightSlugRef.current = slug
 
       try {
         // Keep the existing page visible on background retries.
@@ -595,7 +604,7 @@ function RestaurantDetailsContent() {
           try {
             const outletRestaurantId = transformedRestaurant.mongoId || actualRestaurant?._id || apiRestaurant?._id
             if (outletRestaurantId) {
-              const outletResponse = await restaurantAPI.getOutletTimingsByRestaurantId(outletRestaurantId, { noCache: true })
+              const outletResponse = await restaurantAPI.getOutletTimingsByRestaurantId(outletRestaurantId)
               const outletTimingsData = outletResponse?.data?.data?.outletTimings || outletResponse?.data?.outletTimings
               if (outletTimingsData) {
                 setRestaurant((prev) => ({ ...prev, outletTimings: outletTimingsData }))
@@ -748,7 +757,9 @@ function RestaurantDetailsContent() {
               for (const lookupId of normalizedLookupIds) {
                 try {
                   debugLog('? Fetching menu for restaurant lookup ID:', lookupId)
-                  const response = await restaurantAPI.getMenuByRestaurantId(lookupId, { noCache: true })
+                  // Menu is slow-moving catalog data (also Redis-cached server-side);
+                  // use the shared short cache so re-opening a restaurant is instant.
+                  const response = await restaurantAPI.getMenuByRestaurantId(lookupId)
                   if (response?.data?.success) {
                     menuResponse = response
                     resolvedMenuLookupId = lookupId
@@ -1013,6 +1024,9 @@ function RestaurantDetailsContent() {
           }
         }
       } finally {
+        if (fetchInFlightSlugRef.current === slug) {
+          fetchInFlightSlugRef.current = null
+        }
         setLoadingRestaurant(false)
         setLoadingMenuItems(false)
       }

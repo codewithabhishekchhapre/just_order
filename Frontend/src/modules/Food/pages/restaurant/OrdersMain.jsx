@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, memo } from "react";
 import { useNavigate } from "react-router-dom";
+import { useOrderEventRefresh } from "@core/sync/useOrderEventRefresh";
 import {
   checkOnboardingStatus,
   isRestaurantOnboardingComplete,
@@ -912,6 +913,10 @@ export default function OrdersMain() {
   const { refreshOrdersToken, bumpRefresh } = useRestaurantRealtime();
   const ordersRefreshToken = refreshOrdersToken;
   const requestOrdersRefresh = bumpRefresh;
+
+  // Event-driven refresh (replaces the 30s order poll): refetch on a new order/status event
+  // or when the tab becomes visible again, via the shared refresh token.
+  useOrderEventRefresh(requestOrdersRefresh);
 
   const rejectReasons = [
     "Restaurant is too busy",
@@ -2578,10 +2583,10 @@ function ScheduledOrders({ onSelectOrder, refreshToken = 0 }) {
     };
 
     fetchOrders();
-    const interval = setInterval(fetchOrders, 30000);
+    // Timer poll removed — this component refetches when `refreshToken` bumps, which the
+    // parent drives from order events + tab visibility via useOrderEventRefresh.
     return () => {
       isMounted = false;
-      clearInterval(interval);
     };
   }, [refreshToken]);
 
