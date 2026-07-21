@@ -40,9 +40,7 @@ function SavingsRow({ item }) {
             SAVE {RUPEE_SYMBOL}
             {Math.round(savingsAmount)}
           </span>
-          <span className="text-[9px] font-medium text-green-600 opacity-80">
-            ({discountPercent}%)
-          </span>
+          
         </div>
       </div>
     )
