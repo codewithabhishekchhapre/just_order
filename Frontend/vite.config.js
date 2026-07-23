@@ -26,6 +26,7 @@ export default defineConfig({
       '@core': coreSrc,
       '@quickCommerce': path.resolve(__dirname, './src/modules/quickCommerce'),
       '@porter': path.resolve(__dirname, './src/modules/porter'),
+      '@taxi': path.resolve(__dirname, './src/modules/taxi'),
       '@delivery': path.resolve(__dirname, './src/modules/DeliveryV2'),
 
       '@common': path.resolve(__dirname, './src/modules/common'),

@@ -3,6 +3,7 @@ import { FoodOrder, FoodSettings } from "../models/order.model.js";
 import { FoodRestaurant } from "../../restaurant/models/restaurant.model.js";
 import { Seller } from "../../../quick-commerce/seller/models/seller.model.js";
 import { Driver } from '../../../../core/models/driver.model.js';
+import { canonicalizeDriverModuleKey } from '../../../common/utils/moduleKeys.js';
 import { getDeliveryPartnerWalletEnhanced } from "../../delivery/services/deliveryFinance.service.js";
 import { FoodDailyPass } from "../../subscriptions/models/foodDailyPass.model.js";
 import { UserSubscription } from "../../user/models/userSubscription.model.js";
@@ -52,6 +53,26 @@ const ACTIVE_ORDER_STATUSES_FOR_BUSY_CHECK = [
   "reached_drop",
 ];
 const ACTIVE_RETURN_STATUSES_FOR_BUSY_CHECK = ["return_pickup_assigned", "return_in_transit"];
+
+/** Map food/quick sourceType → driver activeWorkModule / authorizedServices key */
+const workModuleForSourceType = (sourceType) =>
+  sourceType === "quick" ? "quick-commerce" : "food";
+
+/**
+ * Online drivers for a vertical: authorized + currently working that module.
+ */
+const onlineDriversForModuleQuery = (moduleKey) => {
+  const canonical = canonicalizeDriverModuleKey(moduleKey) || moduleKey;
+  const authorized =
+    canonical === "porter"
+      ? { $in: ["porter", "parcel"] }
+      : canonical;
+  return {
+    availabilityStatus: "online",
+    authorizedServices: authorized,
+    activeWorkModule: canonical === "porter" ? { $in: ["porter", "parcel"] } : canonical,
+  };
+};
 
 async function getBusyPartnerIds(partnerIds = []) {
   if (!partnerIds.length) return new Set();
@@ -219,7 +240,7 @@ export async function listNearbyOnlineDeliveryPartners(
   { maxKm = 15, limit = 25, sourceType = "food", auditLabel = "" } = {},
 ) {
   if (!sourceId) {
-    const fallback = await listAllOnlinePartnersFallback({ limit });
+    const fallback = await listAllOnlinePartnersFallback({ limit, sourceType });
     if (auditLabel) {
       await auditPartnerElimination(fallback.partners, { label: auditLabel, maxKm });
     }
@@ -249,7 +270,7 @@ export async function listNearbyOnlineDeliveryPartners(
   }
 
   if (!source?.location?.coordinates?.length) {
-    const fallback = await listAllOnlinePartnersFallback({ limit });
+    const fallback = await listAllOnlinePartnersFallback({ limit, sourceType });
     if (auditLabel) {
       await auditPartnerElimination(fallback.partners, { label: auditLabel, maxKm });
     }
@@ -257,11 +278,9 @@ export async function listNearbyOnlineDeliveryPartners(
   }
 
   const [rLng, rLat] = source.location.coordinates;
-  const allOnline = await Driver.find({
-    availabilityStatus: "online",
-    authorizedServices: sourceType === "quick" ? "quick-commerce" : "food",
-  })
-    .select("_id status lastLat lastLng lastLocationAt name")
+  const workModule = workModuleForSourceType(sourceType);
+  const allOnline = await Driver.find(onlineDriversForModuleQuery(workModule))
+    .select("_id status lastLat lastLng lastLocationAt name activeWorkModule")
     .lean();
 
   const scored = [];
@@ -294,8 +313,7 @@ export async function listNearbyOnlineDeliveryPartners(
   if (picked.length === 0) {
     const anyOnline = await Driver.find({
       status: { $in: allowedStatuses },
-      availabilityStatus: "online",
-      authorizedServices: sourceType === "quick" ? "quick-commerce" : "food",
+      ...onlineDriversForModuleQuery(workModule),
     })
       .select("_id status name")
       .limit(Math.max(1, limit))
@@ -344,8 +362,8 @@ export async function listNearbyOnlineDeliveryPartnersByCoords(
     location: { coordinates: [lng, lat], latitude: lat, longitude: lng },
   };
 
-  const allOnline = await Driver.find({ availabilityStatus: "online", authorizedServices: "quick-commerce" })
-    .select("_id status lastLat lastLng lastLocationAt name")
+  const allOnline = await Driver.find(onlineDriversForModuleQuery("quick-commerce"))
+    .select("_id status lastLat lastLng lastLocationAt name activeWorkModule")
     .lean();
 
   const scored = [];
@@ -413,13 +431,13 @@ const dispatchRetryableStatusClause = {
   ],
 };
 
-const listAllOnlinePartnersFallback = async ({ limit = 25 } = {}) => {
+const listAllOnlinePartnersFallback = async ({ limit = 25, sourceType = "food" } = {}) => {
   const allowedStatuses =
     process.env.NODE_ENV === "production" ? ["approved"] : ["approved", "pending"];
+  const workModule = workModuleForSourceType(sourceType);
   const partners = await Driver.find({
     status: { $in: allowedStatuses },
-    availabilityStatus: "online",
-    authorizedServices: { $in: ["food", "quick-commerce"] } // Fallback allows any compatible online
+    ...onlineDriversForModuleQuery(workModule),
   })
     .select("_id status name lastLat lastLng lastLocationAt")
     .limit(Math.max(1, limit))
@@ -444,8 +462,12 @@ const auditPartnerElimination = async (partners, { label = "dispatch", maxKm = 1
   const STALE_GPS_MS = 10 * 60 * 1000;
   const eligibleIds = new Set((partners || []).map((p) => String(p.partnerId)));
 
-  const allOnline = await Driver.find({ availabilityStatus: "online", authorizedServices: { $in: ["food", "quick-commerce"] } })
-    .select("_id status name lastLat lastLng lastLocationAt availabilityStatus")
+  const allOnline = await Driver.find({
+    availabilityStatus: "online",
+    authorizedServices: { $in: ["food", "quick-commerce"] },
+    activeWorkModule: { $in: ["food", "quick-commerce"] },
+  })
+    .select("_id status name lastLat lastLng lastLocationAt availabilityStatus activeWorkModule")
     .lean();
 
   logger.info(

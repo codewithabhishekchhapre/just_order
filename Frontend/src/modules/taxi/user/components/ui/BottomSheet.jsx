@@ -8,6 +8,9 @@ export default function BottomSheet({
   title,
   children,
   className,
+  showClose = true,
+  dismissOnBackdrop = true,
+  headerRight = null,
 }) {
   return (
     <AnimatePresence>
@@ -20,7 +23,9 @@ export default function BottomSheet({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={onClose}
+            onClick={() => {
+              if (dismissOnBackdrop) onClose?.();
+            }}
           />
           <motion.div
             role="dialog"
@@ -40,13 +45,19 @@ export default function BottomSheet({
                 <h2 className="text-base font-extrabold text-gray-900">
                   {title}
                 </h2>
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="flex h-8 w-8 items-center justify-center rounded-lg bg-gray-100 text-gray-600"
-                >
-                  <X className="h-4 w-4" />
-                </button>
+                {headerRight ? (
+                  headerRight
+                ) : showClose ? (
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="flex h-8 w-8 items-center justify-center rounded-lg bg-gray-100 text-gray-600"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                ) : (
+                  <span className="h-8 w-8" />
+                )}
               </div>
             ) : null}
             {children}

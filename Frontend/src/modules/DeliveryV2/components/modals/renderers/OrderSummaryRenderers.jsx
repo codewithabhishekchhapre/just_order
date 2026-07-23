@@ -3,8 +3,8 @@ import { motion } from 'framer-motion';
 import { CheckCircle, ArrowRight, Wallet, Star } from 'lucide-react';
 
 export const RenderOrderSummary = ({ order, onDone }) => {
-  const earnings = order.earnings || order.riderEarning || order.tripEarning || order.walletEarning || order.returnPickupFee || 0;
-  const moduleType = String(order?.module || order?.orderType || order?.serviceType || order?.type || '').toLowerCase();
+  const earnings = order.earnings || order.riderEarning || order.tripEarning || order.walletEarning || order.returnPickupFee || order.fareEstimateTotal || order.fare?.total || order.total || 0;
+  const moduleType = String(order?.module || order?.orderType || order?.serviceType || order?.type || order?.jobType || '').toLowerCase();
   
   // Default to green (Food)
   let bgColor = "bg-green-500";
@@ -12,7 +12,12 @@ export const RenderOrderSummary = ({ order, onDone }) => {
   let btnTextColor = "text-green-600";
   let referencePrefix = "FOD";
 
-  if (moduleType === 'parcel') {
+  if (moduleType === 'taxi' || moduleType === 'ride') {
+    bgColor = "bg-[#FF6A00]";
+    textColor = "text-[#FF6A00]";
+    btnTextColor = "text-[#FF6A00]";
+    referencePrefix = "TXI";
+  } else if (moduleType === 'parcel' || moduleType === 'porter') {
     bgColor = "bg-[#10B981]"; // Emerald
     textColor = "text-[#10B981]";
     btnTextColor = "text-[#10B981]";
@@ -62,7 +67,7 @@ export const RenderOrderSummary = ({ order, onDone }) => {
           </button>
 
           <p className="text-white/50 text-[10px] font-bold uppercase tracking-widest mt-12 opacity-80">
-            Order Reference: {order?.orderId || order?.displayOrderId || `${referencePrefix}-1234`}
+            Order Reference: {order?.rideNumber || order?.orderId || order?.displayOrderId || `${referencePrefix}-1234`}
           </p>
         </motion.div>
       </div>

@@ -1,7 +1,13 @@
 import express from 'express';
-import { authMiddleware, checkPermission } from '../../../core/auth/auth.middleware.js';
+import {
+    authMiddleware,
+    checkPermission,
+    getCachedRolePermissions,
+} from '../../../core/auth/auth.middleware.js';
 import { requireRoles } from '../../../core/roles/role.middleware.js';
 import { upload } from '../../../middleware/upload.js';
+import { sendError } from '../../../utils/response.js';
+import { FoodAdmin } from '../../../core/admin/admin.model.js';
 
 import {
     listZones,
@@ -63,10 +69,74 @@ import {
     deletePorterUser,
 } from '../controllers/user.controller.js';
 
+import {
+    listPublicVehicles,
+    quoteTrip,
+    createTrip,
+    listMyTrips,
+    getMyTripById,
+    cancelMyTrip,
+    listAdminTrips,
+    getAdminTripById,
+    acceptTrip,
+    markArrived,
+    startTrip,
+    completeTrip,
+} from '../controllers/trip.controller.js';
+
 const router = express.Router();
 const adminOrEmployee = [authMiddleware, requireRoles('ADMIN', 'EMPLOYEE')];
+const userOnly = [authMiddleware, requireRoles('USER')];
+const partnerOnly = [authMiddleware, requireRoles('DELIVERY_PARTNER')];
+
+/** Accept either porter::trips or porter::orders view permission. */
+const checkPorterTripView = async (req, res, next) => {
+    try {
+        const user = req.user;
+        if (!user) return sendError(res, 401, 'Authentication required');
+        if (user.role === 'ADMIN') return next();
+        if (user.role !== 'EMPLOYEE') {
+            return sendError(res, 403, 'Access denied: insufficient privileges');
+        }
+
+        const employee = await FoodAdmin.findById(user.userId)
+            .select('adminRoleId isActive')
+            .lean();
+        if (!employee || !employee.isActive) {
+            return sendError(res, 403, 'Employee account is suspended or inactive');
+        }
+        if (!employee.adminRoleId) {
+            return sendError(res, 403, 'No administrative role assigned to this account');
+        }
+
+        const permissions = await getCachedRolePermissions(employee.adminRoleId);
+        if (!permissions) {
+            return sendError(res, 403, 'Assigned administrative role is inactive');
+        }
+
+        const keys = ['porter::trips', 'porter::orders'];
+        const hasPerm = keys.some((key) => {
+            if (permissions[key]?.view === true) return true;
+            const prefix = `${key}::`;
+            return Object.entries(permissions).some(
+                ([k, val]) => k.startsWith(prefix) && val && val.view === true,
+            );
+        });
+
+        if (!hasPerm) {
+            return sendError(res, 403, 'Access denied: missing view permission for porter::trips or porter::orders');
+        }
+        return next();
+    } catch (error) {
+        return sendError(res, 500, `Internal authorization error: ${error.message}`);
+    }
+};
 
 router.get('/health', (_req, res) => res.json({ success: true, module: 'porter', status: 'ok' }));
+
+// Public vehicle catalog
+router.get('/vehicles/public', listPublicVehicles);
+router.get('/vehicle-types/public', listPublicVehicles);
 
 // Zones
 router.get('/admin/zones/dropdown', ...adminOrEmployee, checkPermission('porter::zones', 'view'), listZoneDropdown);
@@ -121,5 +191,22 @@ router.get('/admin/users', ...adminOrEmployee, checkPermission('porter::users', 
 router.get('/admin/users/:id', ...adminOrEmployee, checkPermission('porter::users', 'view'), getPorterUserById);
 router.put('/admin/users/:id', ...adminOrEmployee, checkPermission('porter::users', 'edit'), updatePorterUser);
 router.delete('/admin/users/:id', ...adminOrEmployee, checkPermission('porter::users', 'delete'), deletePorterUser);
+
+// Admin: Trips
+router.get('/admin/trips', ...adminOrEmployee, checkPorterTripView, listAdminTrips);
+router.get('/admin/trips/:id', ...adminOrEmployee, checkPorterTripView, getAdminTripById);
+
+// User: quote + trips
+router.post('/quote', ...userOnly, quoteTrip);
+router.post('/trips', ...userOnly, createTrip);
+router.get('/trips', ...userOnly, listMyTrips);
+router.get('/trips/:id', ...userOnly, getMyTripById);
+router.post('/trips/:id/cancel', ...userOnly, cancelMyTrip);
+
+// Partner: trip lifecycle
+router.post('/partner/trips/:id/accept', ...partnerOnly, acceptTrip);
+router.post('/partner/trips/:id/arrived', ...partnerOnly, markArrived);
+router.post('/partner/trips/:id/start', ...partnerOnly, startTrip);
+router.post('/partner/trips/:id/complete', ...partnerOnly, completeTrip);
 
 export default router;

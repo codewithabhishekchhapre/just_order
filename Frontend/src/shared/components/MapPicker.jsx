@@ -1,7 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import {
   GoogleMap,
-  useJsApiLoader,
   Marker,
   Autocomplete,
   Polygon,
@@ -9,18 +8,19 @@ import {
 import { Search, Navigation, Loader2 } from "lucide-react";
 import Modal from "./ui/Modal";
 import Button from "./ui/Button";
-
-const libraries = ["places"];
-const mapContainerStyle = {
-  width: "100%",
-  height: "400px",
-};
+import { loadGoogleMaps } from "@core/services/googleMapsLoader";
+import { getGoogleMapsApiKey } from "@food/utils/googleMapsApiKey";
 
 const defaultCenter = {
-  lat: 20.5937, // India center
+  lat: 20.5937,
   lng: 78.9629,
 };
 
+/**
+ * Shared location picker.
+ * Uses the singleton `loadGoogleMaps` loader so it does not conflict with
+ * other screens that already loaded the Maps JS API (Places autocomplete, etc.).
+ */
 const MapPicker = ({
   isOpen,
   onClose,
@@ -28,8 +28,11 @@ const MapPicker = ({
   initialLocation = null,
   zoneCoordinates = [],
   zoneLabel = "",
-  title = "Select Shop Location",
+  title = "Select Location",
+  searchPlaceholder = "Search area, landmark, or address…",
 }) => {
+  const [isLoaded, setIsLoaded] = useState(() => Boolean(window.google?.maps));
+  const [loadError, setLoadError] = useState("");
   const [center, setCenter] = useState(initialLocation || defaultCenter);
   const [marker, setMarker] = useState(initialLocation);
   const [address, setAddress] = useState("");
@@ -54,41 +57,118 @@ const MapPicker = ({
     [zoneCoordinates],
   );
 
-  const { isLoaded, loadError } = useJsApiLoader({
-    id: "google-map-script",
-    googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "",
-    libraries,
-  });
+  // Load Maps via singleton (safe even if already loaded elsewhere)
+  useEffect(() => {
+    if (!isOpen) return undefined;
 
-  // Initialize map state only once when modal opens
+    let cancelled = false;
+
+    (async () => {
+      try {
+        setLoadError("");
+        if (window.google?.maps) {
+          if (!cancelled) setIsLoaded(true);
+          return;
+        }
+        const apiKey = await getGoogleMapsApiKey();
+        if (!apiKey) {
+          if (!cancelled) {
+            setLoadError("Google Maps API key is missing");
+            setIsLoaded(false);
+          }
+          return;
+        }
+        await loadGoogleMaps(apiKey);
+        if (!cancelled) setIsLoaded(Boolean(window.google?.maps));
+      } catch (err) {
+        if (!cancelled) {
+          setLoadError(err?.message || "Failed to load Google Maps");
+          setIsLoaded(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
+
+  // Keep Places autocomplete dropdown above the dialog
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const style = document.createElement("style");
+    style.setAttribute("data-map-picker-pac", "true");
+    style.textContent = `
+      .pac-container {
+        z-index: 100000 !important;
+        border-radius: 12px;
+        border: 1px solid #e5e7eb;
+        box-shadow: 0 12px 40px rgba(15, 23, 42, 0.14);
+        margin-top: 4px;
+        font-family: inherit;
+      }
+      .pac-item { cursor: pointer; padding: 8px 12px; }
+      .pac-item:hover { background: #fff7f0; }
+    `;
+    document.head.appendChild(style);
+    return () => {
+      style.remove();
+    };
+  }, [isOpen]);
+
+  // Initialize map state when modal opens
   useEffect(() => {
     if (!isOpen) return;
 
-    if (initialLocation) {
-      setCenter(initialLocation);
-      setMarker(initialLocation);
-    } else if (zonePath.length > 0) {
+    const lat = Number(initialLocation?.lat ?? initialLocation?.latitude);
+    const lng = Number(initialLocation?.lng ?? initialLocation?.longitude);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      const pos = { lat, lng };
+      setCenter(pos);
+      setMarker(pos);
+      setAddress(
+        initialLocation?.address ||
+          initialLocation?.formattedAddress ||
+          "",
+      );
+      return;
+    }
+
+    if (zonePath.length > 0) {
       const avgLat =
         zonePath.reduce((sum, point) => sum + point.lat, 0) / zonePath.length;
       const avgLng =
         zonePath.reduce((sum, point) => sum + point.lng, 0) / zonePath.length;
       setCenter({ lat: avgLat, lng: avgLng });
       setMarker(null);
-    } else {
-      setCenter(defaultCenter);
-      setMarker(null);
+      setAddress("");
+      return;
     }
-  }, [isOpen]); // Only run when modal opens
+
+    setCenter(defaultCenter);
+    setMarker(null);
+    setAddress("");
+  }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!isLoaded || !isOpen || !mapRef.current || zonePath.length < 3 || !window.google) {
       return;
     }
-
     const bounds = new window.google.maps.LatLngBounds();
     zonePath.forEach((point) => bounds.extend(point));
     mapRef.current.fitBounds(bounds);
   }, [isLoaded, isOpen, zonePath]);
+
+  // Resize map after modal animation / layout
+  useEffect(() => {
+    if (!isLoaded || !isOpen || !mapRef.current || !window.google?.maps) return undefined;
+    const timer = setTimeout(() => {
+      window.google.maps.event.trigger(mapRef.current, "resize");
+      if (marker) mapRef.current.panTo(marker);
+      else mapRef.current.panTo(center);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [isLoaded, isOpen, marker, center]);
 
   const onMapClick = useCallback((e) => {
     const newPos = {
@@ -96,6 +176,7 @@ const MapPicker = ({
       lng: e.latLng.lng(),
     };
     setMarker(newPos);
+    setAddress("");
   }, []);
 
   const onMarkerDragEnd = useCallback((e) => {
@@ -104,25 +185,25 @@ const MapPicker = ({
       lng: e.latLng.lng(),
     };
     setMarker(newPos);
+    setAddress("");
   }, []);
 
   const handlePlaceChanged = () => {
-    if (autocompleteRef.current) {
-      const place = autocompleteRef.current.getPlace();
-      if (place.geometry) {
-        const newPos = {
-          lat: place.geometry.location.lat(),
-          lng: place.geometry.location.lng(),
-        };
-        setMarker(newPos);
-        setAddress(place.formatted_address || "");
-        if (mapRef.current) {
-          mapRef.current.panTo(newPos);
-          mapRef.current.setZoom(16);
-        } else {
-          setCenter(newPos);
-        }
-      }
+    if (!autocompleteRef.current) return;
+    const place = autocompleteRef.current.getPlace();
+    if (!place?.geometry?.location) return;
+
+    const newPos = {
+      lat: place.geometry.location.lat(),
+      lng: place.geometry.location.lng(),
+    };
+    setMarker(newPos);
+    setAddress(place.formatted_address || place.name || "");
+    if (mapRef.current) {
+      mapRef.current.panTo(newPos);
+      mapRef.current.setZoom(16);
+    } else {
+      setCenter(newPos);
     }
   };
 
@@ -149,16 +230,20 @@ const MapPicker = ({
           setCenter(newPos);
         }
 
-        const geocoder = new window.google.maps.Geocoder();
-        geocoder.geocode({ location: newPos }, (results, status) => {
-          if (status === "OK" && results[0]) {
-            setAddress(results[0].formatted_address);
-          }
-        });
+        if (window.google?.maps?.Geocoder) {
+          const geocoder = new window.google.maps.Geocoder();
+          geocoder.geocode({ location: newPos }, (results, status) => {
+            if (status === "OK" && results[0]) {
+              setAddress(results[0].formatted_address);
+            }
+          });
+        }
       },
       () => {
         setIsFetchingLocation(false);
-        alert("Unable to retrieve your current location. Please allow location access and try again.");
+        alert(
+          "Unable to retrieve your current location. Please allow location access and try again.",
+        );
       },
       {
         enableHighAccuracy: true,
@@ -176,24 +261,34 @@ const MapPicker = ({
 
     setIsGeocoding(true);
     try {
-      const geocoder = new window.google.maps.Geocoder();
-      const result = await new Promise((resolve, reject) => {
-        geocoder.geocode({ location: marker }, (results, status) => {
-          if (status === "OK") resolve(results[0]);
-          else reject(status);
+      let formatted = address;
+      if (!formatted && window.google?.maps?.Geocoder) {
+        const geocoder = new window.google.maps.Geocoder();
+        const result = await new Promise((resolve, reject) => {
+          geocoder.geocode({ location: marker }, (results, status) => {
+            if (status === "OK") resolve(results[0]);
+            else reject(status);
+          });
         });
-      });
+        formatted = result?.formatted_address || "";
+      }
 
       onConfirm({
         ...marker,
-        address: result.formatted_address,
+        latitude: marker.lat,
+        longitude: marker.lng,
+        address: formatted || address || "Custom Location",
+        formattedAddress: formatted || address || "Custom Location",
       });
       onClose();
     } catch (error) {
       console.error("Geocoding failed:", error);
       onConfirm({
         ...marker,
+        latitude: marker.lat,
+        longitude: marker.lng,
         address: address || "Custom Location",
+        formattedAddress: address || "Custom Location",
       });
       onClose();
     } finally {
@@ -203,9 +298,12 @@ const MapPicker = ({
 
   if (loadError) {
     return (
-      <Modal isOpen={isOpen} onClose={onClose} title="Select Location">
-        <div className="p-8 text-center text-red-500">
-          Failed to load Google Maps. Please check your API key and connection.
+      <Modal isOpen={isOpen} onClose={onClose} title={title}>
+        <div className="p-8 text-center text-red-500 text-sm">
+          {loadError}
+          <p className="mt-2 text-xs text-slate-500">
+            Check that `VITE_GOOGLE_MAPS_API_KEY` is set and Maps JavaScript API is enabled.
+          </p>
         </div>
       </Modal>
     );
@@ -218,78 +316,103 @@ const MapPicker = ({
       title={title}
       size="lg"
       footer={
-        <div className="flex justify-between w-full items-center">
-          <div className="text-sm text-gray-500">
-            {marker
-              ? address
-                ? <span className="font-medium text-slate-700 truncate max-w-xs block">{address}</span>
-                : `${marker.lat.toFixed(4)}, ${marker.lng.toFixed(4)}`
-              : "No location selected"}
+        <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0 text-sm text-gray-500">
+            {marker ? (
+              address ? (
+                <span className="block max-w-full truncate font-medium text-slate-700 sm:max-w-xs">
+                  {address}
+                </span>
+              ) : (
+                `${marker.lat.toFixed(4)}, ${marker.lng.toFixed(4)}`
+              )
+            ) : (
+              "Tap the map or search to set a pin"
+            )}
           </div>
-          <div className="flex gap-2">
+          <div className="flex shrink-0 gap-2">
             <Button variant="outline" onClick={onClose}>
               Cancel
             </Button>
             <Button onClick={handleConfirm} disabled={!marker || isGeocoding}>
               {isGeocoding ? (
-                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : null}
               Confirm Location
             </Button>
           </div>
         </div>
-      }>
+      }
+    >
       <div className="space-y-4">
-        <div className="flex gap-2">
-          <div className="relative flex-1">
-            {isLoaded && (
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="relative min-w-0 flex-1">
+            {isLoaded && window.google?.maps?.places ? (
               <Autocomplete
-                onLoad={(ref) => (autocompleteRef.current = ref)}
+                onLoad={(ref) => {
+                  autocompleteRef.current = ref;
+                }}
                 onPlaceChanged={handlePlaceChanged}
                 options={{
-                  componentRestrictions: { country: "IN" },
-                  fields: ["geometry", "formatted_address"],
-                }}>
+                  componentRestrictions: { country: "in" },
+                  fields: ["geometry", "formatted_address", "name"],
+                }}
+              >
                 <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4 pointer-events-none" />
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                   <input
                     type="text"
-                    placeholder="Search for your shop area..."
-                    className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm font-medium outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                    placeholder={searchPlaceholder}
+                    className="w-full rounded-lg border border-gray-300 py-2.5 pl-10 pr-4 text-sm font-medium outline-none focus:border-[#FF6A00] focus:ring-1 focus:ring-[#FF6A00]/30"
                   />
                 </div>
               </Autocomplete>
+            ) : (
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  disabled
+                  placeholder={isLoaded ? "Places search unavailable" : "Loading map…"}
+                  className="w-full rounded-lg border border-gray-200 bg-gray-50 py-2.5 pl-10 pr-4 text-sm text-gray-400"
+                />
+              </div>
             )}
           </div>
           <Button
             variant="outline"
             type="button"
             onClick={getCurrentLocation}
-            disabled={isFetchingLocation}
+            disabled={isFetchingLocation || !isLoaded}
             className="shrink-0 whitespace-nowrap px-4"
-            title="Use current location">
+            title="Use current location"
+          >
             {isFetchingLocation ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
               <Navigation className="mr-2 h-4 w-4" />
             )}
-            {isFetchingLocation ? "Fetching..." : "Use Current Location"}
+            {isFetchingLocation ? "Fetching…" : "Current location"}
           </Button>
         </div>
 
-        <div className="rounded-xl overflow-hidden border border-gray-200 shadow-inner relative">
+        <div className="relative overflow-hidden rounded-xl border border-gray-200 shadow-inner">
           {!isLoaded ? (
-            <div className="h-[400px] flex items-center justify-center bg-gray-50">
-              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            <div className="flex h-[400px] max-h-[55vh] min-h-[260px] items-center justify-center bg-gray-50">
+              <Loader2 className="h-8 w-8 animate-spin text-[#FF6A00]" />
             </div>
           ) : (
+            <div className="h-[400px] max-h-[55vh] min-h-[260px]">
             <GoogleMap
-              mapContainerStyle={mapContainerStyle}
+              mapContainerStyle={{ width: "100%", height: "100%" }}
               center={center}
               zoom={15}
               onClick={onMapClick}
               onLoad={(map) => {
                 mapRef.current = map;
+                setTimeout(() => {
+                  window.google?.maps?.event?.trigger(map, "resize");
+                }, 100);
               }}
               options={{
                 disableDefaultUI: true,
@@ -297,7 +420,10 @@ const MapPicker = ({
                 streetViewControl: false,
                 mapTypeControl: false,
                 fullscreenControl: false,
-              }}>
+                gestureHandling: "greedy",
+                clickableIcons: false,
+              }}
+            >
               {zonePath.length >= 3 && (
                 <Polygon
                   path={zonePath}
@@ -316,12 +442,12 @@ const MapPicker = ({
               {marker && (
                 <Marker
                   position={marker}
-                  draggable={true}
+                  draggable
                   onDragEnd={onMarkerDragEnd}
-                  animation={window.google.maps.Animation.DROP}
                 />
               )}
             </GoogleMap>
+            </div>
           )}
         </div>
 
@@ -329,7 +455,11 @@ const MapPicker = ({
           <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800">
             Pin your storefront inside the selected zone: {zoneLabel}
           </div>
-        ) : null}
+        ) : (
+          <p className="text-xs text-slate-500">
+            Search, use current location, or tap the map to place the pickup pin.
+          </p>
+        )}
       </div>
     </Modal>
   );

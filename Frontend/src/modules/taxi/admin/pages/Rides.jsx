@@ -1,7 +1,6 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
-  Search, Eye, UserPlus, XCircle, CarTaxiFront, Clock, CheckCircle2, Circle,
-  MapPin, IndianRupee, RefreshCw, Star,
+  Search, Eye, CarTaxiFront, MapPin, IndianRupee, CheckCircle2, Circle, XCircle,
 } from "lucide-react";
 import {
   PageHeader, SectionCard, StatCard, AdminTable, FilterBar, StatusBadge,
@@ -11,21 +10,20 @@ import Button from "@/shared/components/ui/Button";
 import Input from "@/shared/components/ui/Input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { MOCK_RIDES, RIDE_STATUSES } from "../utils/mock/rides";
-import { MOCK_TAXI_DRIVERS } from "../utils/mock/drivers";
-import { VEHICLE_TYPE_NAMES } from "../utils/mock/vehicleTypes";
+import { taxiAdminApi } from "../../services/api";
+import { rideStatusMeta } from "../utils/rideStatuses";
 import { filterBySearch, sortItems, paginateItems, formatCurrency, formatDateTime } from "../utils/taxiTableHelpers";
 
 const PAGE_CONFIG = {
   requests: {
     title: "Ride Requests",
     description: "Pending ride requests awaiting driver assignment",
-    statuses: ["pending"],
+    statuses: ["requested", "searching"],
   },
   active: {
     title: "Active Rides",
     description: "Rides currently assigned, arriving or in progress",
-    statuses: ["accepted", "arriving", "in_progress"],
+    statuses: ["assigned", "arriving", "arrived", "in_progress"],
   },
   completed: {
     title: "Completed Rides",
@@ -35,16 +33,30 @@ const PAGE_CONFIG = {
   cancelled: {
     title: "Cancelled Rides",
     description: "Trips cancelled by customer, driver or admin",
-    statuses: ["cancelled"],
+    statuses: ["cancelled_by_rider", "cancelled_by_driver", "cancelled_by_system", "no_show", "cancelled"],
   },
 };
 
 const selectCls = "h-10 px-3 bg-white border border-gray-200 rounded-lg text-sm outline-none focus:border-red-500 focus:ring-4 focus:ring-red-500/10";
 
+const buildTimeline = (r) => {
+  const steps = [];
+  if (r.createdAt) steps.push({ label: "Requested", status: "completed", at: r.createdAt });
+  if (r.assignedAt) steps.push({ label: "Driver assigned", status: "completed", at: r.assignedAt });
+  if (r.arrivedAt) steps.push({ label: "Driver arrived", status: "completed", at: r.arrivedAt });
+  if (r.startedAt) steps.push({ label: "Trip started", status: "completed", at: r.startedAt });
+  if (r.completedAt) steps.push({ label: "Completed", status: "completed", at: r.completedAt });
+  if (r.cancelledAt) steps.push({ label: "Cancelled", status: "cancelled", at: r.cancelledAt });
+  if (!steps.length) steps.push({ label: rideStatusMeta(r.status).label, status: "pending", at: null });
+  return steps;
+};
+
 const Rides = ({ statusKey = "requests" }) => {
   const config = PAGE_CONFIG[statusKey] || PAGE_CONFIG.requests;
 
-  const [rides, setRides] = useState(MOCK_RIDES);
+  const [rides, setRides] = useState([]);
+  const [vehicleTypes, setVehicleTypes] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [vehicleFilter, setVehicleFilter] = useState("all");
   const [paymentFilter, setPaymentFilter] = useState("all");
@@ -53,9 +65,57 @@ const Rides = ({ statusKey = "requests" }) => {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [detailOpen, setDetailOpen] = useState(false);
-  const [assignOpen, setAssignOpen] = useState(false);
   const [selected, setSelected] = useState(null);
-  const [assignDriverId, setAssignDriverId] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const [data, types] = await Promise.all([
+          taxiAdminApi.getRides({ limit: 100 }),
+          taxiAdminApi.getVehicleTypeDropdown().catch(() => []),
+        ]);
+        if (cancelled) return;
+        const mapped = (data.records || []).map((r) => ({
+          id: r.id,
+          rideNumber: r.rideNumber,
+          customer: r.userId || "—",
+          pickup: r.pickup?.address || "",
+          drop: r.drop?.address || "",
+          status: r.status,
+          fare: Number(r.fareEstimateTotal || r.fare?.total || 0),
+          distanceKm: Number(r.distanceKm || 0),
+          durationMin: Number(r.durationMin || 0),
+          vehicleType: r.vehicleType?.name || r.vehicleTypeId || "—",
+          paymentMethod: r.payment?.method || "cash",
+          paymentStatus: r.payment?.status || "",
+          driverName: r.dispatch?.deliveryPartnerId || "—",
+          cancelReason: r.cancelReason || "",
+          rating: r.userRating ?? r.driverRating ?? null,
+          otp: r.rideOtp,
+          createdAt: r.createdAt,
+          assignedAt: r.assignedAt,
+          arrivedAt: r.arrivedAt,
+          startedAt: r.startedAt,
+          completedAt: r.completedAt,
+          cancelledAt: r.cancelledAt,
+          timeline: buildTimeline(r),
+          raw: r,
+        }));
+        setRides(mapped);
+        setVehicleTypes(types || []);
+      } catch (err) {
+        if (!cancelled) {
+          toast.error(err?.response?.data?.message || "Failed to load rides");
+          setRides([]);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [statusKey]);
 
   const scoped = useMemo(
     () => rides.filter((r) => config.statuses.includes(r.status)),
@@ -63,11 +123,11 @@ const Rides = ({ statusKey = "requests" }) => {
   );
 
   const filtered = useMemo(() => {
-    let rows = filterBySearch(scoped, search, ["id", "customer", "pickup", "drop", "driverName"]);
+    let rows = filterBySearch(scoped, search, ["id", "rideNumber", "customer", "pickup", "drop", "driverName"]);
     if (vehicleFilter !== "all") rows = rows.filter((r) => r.vehicleType === vehicleFilter);
     if (paymentFilter !== "all") rows = rows.filter((r) => r.paymentMethod === paymentFilter);
     if (dateFrom) rows = rows.filter((r) => new Date(r.createdAt) >= new Date(dateFrom));
-    if (dateTo) rows = rows.filter((r) => new Date(r.createdAt) <= new Date(dateTo + "T23:59:59"));
+    if (dateTo) rows = rows.filter((r) => new Date(r.createdAt) <= new Date(`${dateTo}T23:59:59`));
     return sortItems(rows, "createdAt", "desc");
   }, [scoped, search, vehicleFilter, paymentFilter, dateFrom, dateTo]);
 
@@ -86,75 +146,34 @@ const Rides = ({ statusKey = "requests" }) => {
 
   const openDetail = (row) => { setSelected(row); setDetailOpen(true); };
 
-  const handleAssign = () => {
-    if (!selected || !assignDriverId) return;
-    const driver = MOCK_TAXI_DRIVERS.find((d) => d.id === assignDriverId);
-    setRides((prev) => prev.map((r) => r.id === selected.id ? {
-      ...r,
-      driverId: driver.id,
-      driverName: driver.name,
-      status: "accepted",
-      timeline: [...(r.timeline || []), { label: `Driver Assigned — ${driver.name}`, status: "completed", at: new Date().toISOString() }],
-    } : r));
-    setAssignOpen(false);
-    setDetailOpen(false);
-    toast.success(`${driver.name} assigned to ${selected.id}`);
-  };
-
-  const handleCancel = (id) => {
-    if (!window.confirm("Cancel this ride?")) return;
-    setRides((prev) => prev.map((r) => r.id === id ? {
-      ...r,
-      status: "cancelled",
-      paymentStatus: "refunded",
-      cancellationReason: "Cancelled by admin",
-      timeline: [...(r.timeline || []), { label: "Cancelled by Admin", status: "cancelled", at: new Date().toISOString() }],
-    } : r));
-    setDetailOpen(false);
-    toast.success("Ride cancelled");
-  };
-
-  const handleComplete = (id) => {
-    setRides((prev) => prev.map((r) => r.id === id ? {
-      ...r,
-      status: "completed",
-      paymentStatus: "paid",
-      timeline: [...(r.timeline || []), { label: "Trip Completed", status: "completed", at: new Date().toISOString() }],
-    } : r));
-    setDetailOpen(false);
-    toast.success("Ride marked completed");
-  };
-
   const columns = [
-    { key: "id", header: "Ride ID", cell: (row) => <span className="font-semibold">{row.id}</span> },
-    { key: "customer", header: "Customer" },
+    { key: "rideNumber", header: "Ride ID", cell: (row) => <span className="font-semibold">{row.rideNumber || row.id}</span> },
+    { key: "customer", header: "Customer", cell: (row) => <span className="text-xs font-mono">{String(row.customer).slice(-8)}</span> },
     { key: "pickup", header: "Pickup", cell: (row) => <span className="text-sm">{row.pickup}</span> },
     { key: "drop", header: "Drop", cell: (row) => <span className="text-sm">{row.drop}</span> },
-    { key: "driverName", header: "Driver" },
+    { key: "driverName", header: "Driver", cell: (row) => <span className="text-xs font-mono">{row.driverName === "—" ? "—" : String(row.driverName).slice(-8)}</span> },
     { key: "vehicleType", header: "Vehicle" },
     { key: "distanceKm", header: "Distance", cell: (row) => `${row.distanceKm} km` },
     { key: "fare", header: "Fare", cell: (row) => formatCurrency(row.fare) },
     { key: "paymentMethod", header: "Payment", cell: (row) => <span className="uppercase text-xs font-semibold text-gray-600">{row.paymentMethod}</span> },
-    { key: "status", header: "Status", cell: (row) => <StatusBadge tone={RIDE_STATUSES[row.status].tone} label={RIDE_STATUSES[row.status].label} /> },
+    {
+      key: "status", header: "Status",
+      cell: (row) => {
+        const meta = rideStatusMeta(row.status);
+        return <StatusBadge tone={meta.tone} label={meta.label} />;
+      },
+    },
     ...(statusKey === "completed" ? [
-      { key: "rating", header: "Rating", cell: (row) => row.rating ? <span className="text-yellow-600 font-medium">★ {row.rating}</span> : "—" },
+      { key: "rating", header: "Rating", cell: (row) => (row.rating != null ? <span className="text-yellow-600 font-medium">★ {row.rating}</span> : "—") },
     ] : []),
     ...(statusKey === "cancelled" ? [
-      { key: "cancellationReason", header: "Reason", cell: (row) => <span className="text-xs text-muted-foreground">{row.cancellationReason}</span> },
+      { key: "cancelReason", header: "Reason", cell: (row) => <span className="text-xs text-muted-foreground">{row.cancelReason || "—"}</span> },
     ] : []),
     { key: "createdAt", header: "Created", cell: (row) => <span className="text-xs text-muted-foreground">{formatDateTime(row.createdAt)}</span> },
     {
       key: "actions", header: "Actions", align: "right",
       cell: (row) => (
-        <div className="flex justify-end gap-1">
-          <Button variant="ghost" size="sm" onClick={() => openDetail(row)}><Eye size={14} /></Button>
-          {row.status === "pending" && (
-            <Button variant="ghost" size="sm" onClick={() => { setSelected(row); setAssignDriverId(""); setAssignOpen(true); }}><UserPlus size={14} /></Button>
-          )}
-          {!["completed", "cancelled"].includes(row.status) && (
-            <Button variant="ghost" size="sm" className="text-red-500" onClick={() => handleCancel(row.id)}><XCircle size={14} /></Button>
-          )}
-        </div>
+        <Button variant="ghost" size="sm" onClick={() => openDetail(row)}><Eye size={14} /></Button>
       ),
     },
   ];
@@ -184,7 +203,7 @@ const Rides = ({ statusKey = "requests" }) => {
                 </div>
                 <select className={selectCls} value={vehicleFilter} onChange={(e) => { setVehicleFilter(e.target.value); setPage(1); }}>
                   <option value="all">All Vehicles</option>
-                  {VEHICLE_TYPE_NAMES.map((v) => <option key={v} value={v}>{v}</option>)}
+                  {vehicleTypes.map((v) => <option key={v.id} value={v.name}>{v.name}</option>)}
                 </select>
                 <select className={selectCls} value={paymentFilter} onChange={(e) => { setPaymentFilter(e.target.value); setPage(1); }}>
                   <option value="all">All Payments</option>
@@ -201,124 +220,88 @@ const Rides = ({ statusKey = "requests" }) => {
           <AdminTable
             columns={columns}
             data={pageItems}
+            loading={loading}
             getRowId={(r) => r.id}
-            pagination={{ page, totalPages, total, pageSize, onPageChange: setPage, onPageSizeChange: (s) => { setPageSize(s); setPage(1); } }}
+            pagination={{
+              page,
+              pageSize,
+              total,
+              totalPages,
+              onPageChange: setPage,
+              onPageSizeChange: (s) => { setPageSize(s); setPage(1); },
+            }}
+            emptyState={{ title: "No rides in this view", description: "Live rides from the taxi API will appear here." }}
           />
         </div>
       </SectionCard>
 
-      {/* Ride Details */}
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
         <DialogContent className="just-order-theme-scope sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Ride {selected?.id}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Ride {selected?.rideNumber || selected?.id}</DialogTitle></DialogHeader>
           {selected && (
-            <>
-              <div className="px-6 py-4 overflow-y-auto">
-                <FormLayout>
-                  <div className="flex flex-wrap gap-2 mb-4">
-                    <StatusBadge tone={RIDE_STATUSES[selected.status].tone} label={RIDE_STATUSES[selected.status].label} />
-                    <StatusBadge status={selected.paymentStatus === "paid" ? "success" : selected.paymentStatus === "refunded" ? "danger" : "warning"} label={selected.paymentStatus} />
-                    <StatusBadge status="neutral" label={selected.vehicleType} />
+            <div className="px-6 py-4 overflow-y-auto">
+              <FormLayout>
+                <div className="flex flex-wrap gap-2 mb-4">
+                  <StatusBadge tone={rideStatusMeta(selected.status).tone} label={rideStatusMeta(selected.status).label} />
+                  <StatusBadge status="neutral" label={selected.vehicleType} />
+                  <StatusBadge status="neutral" label={(selected.paymentMethod || "cash").toUpperCase()} />
+                </div>
+
+                <FormSection title="Ride Summary">
+                  <FormRow>
+                    <FormField label="Customer"><div className="text-sm font-mono">{selected.customer}</div></FormField>
+                    <FormField label="Driver"><div className="text-sm font-mono">{selected.driverName}</div></FormField>
+                  </FormRow>
+                  <FormRow>
+                    <FormField label="Distance"><div className="text-sm font-medium">{selected.distanceKm} km · {selected.durationMin} min</div></FormField>
+                    <FormField label="Fare"><div className="text-sm font-medium text-emerald-600">{formatCurrency(selected.fare)}</div></FormField>
+                  </FormRow>
+                  {selected.cancelReason ? (
+                    <FormRow>
+                      <FormField label="Cancellation Reason"><div className="text-sm text-red-600">{selected.cancelReason}</div></FormField>
+                    </FormRow>
+                  ) : null}
+                </FormSection>
+
+                <FormSection title="Route">
+                  <div className="space-y-3">
+                    <div className="flex items-start gap-3 text-sm p-3 border rounded-lg bg-gray-50/50">
+                      <MapPin size={16} className="mt-0.5 text-green-600 shrink-0" />
+                      <div><p className="font-semibold text-gray-900">Pickup</p><p className="text-muted-foreground">{selected.pickup || "—"}</p></div>
+                    </div>
+                    <div className="flex items-start gap-3 text-sm p-3 border rounded-lg bg-gray-50/50">
+                      <MapPin size={16} className="mt-0.5 text-red-600 shrink-0" />
+                      <div><p className="font-semibold text-gray-900">Drop</p><p className="text-muted-foreground">{selected.drop || "—"}</p></div>
+                    </div>
                   </div>
+                </FormSection>
 
-                  <FormSection title="Ride Summary">
-                    <FormRow>
-                      <FormField label="Customer"><div className="text-sm font-medium">{selected.customer}</div></FormField>
-                      <FormField label="Phone"><div className="text-sm font-medium">{selected.customerPhone}</div></FormField>
-                    </FormRow>
-                    <FormRow>
-                      <FormField label="Driver"><div className="text-sm font-medium">{selected.driverName}</div></FormField>
-                      <FormField label="Ride OTP"><div className="text-sm font-mono font-semibold">{selected.otp}</div></FormField>
-                    </FormRow>
-                    <FormRow>
-                      <FormField label="Distance"><div className="text-sm font-medium">{selected.distanceKm} km · {selected.durationMin} min</div></FormField>
-                      <FormField label="Fare"><div className="text-sm font-medium text-emerald-600">{formatCurrency(selected.fare)} ({selected.paymentMethod.toUpperCase()})</div></FormField>
-                    </FormRow>
-                    {selected.rating && (
-                      <FormRow>
-                        <FormField label="Customer Rating">
-                          <div className="text-sm font-medium text-yellow-600 flex items-center gap-1"><Star size={14} /> {selected.rating} / 5</div>
-                        </FormField>
-                      </FormRow>
-                    )}
-                    {selected.cancellationReason && (
-                      <FormRow>
-                        <FormField label="Cancellation Reason"><div className="text-sm text-red-600">{selected.cancellationReason}</div></FormField>
-                      </FormRow>
-                    )}
-                  </FormSection>
-
-                  <FormSection title="Route">
-                    <div className="space-y-3">
-                      <div className="flex items-start gap-3 text-sm p-3 border rounded-lg bg-gray-50/50">
-                        <MapPin size={16} className="mt-0.5 text-green-600 shrink-0" />
-                        <div><p className="font-semibold text-gray-900">Pickup</p><p className="text-muted-foreground">{selected.pickup}</p></div>
-                      </div>
-                      <div className="flex items-start gap-3 text-sm p-3 border rounded-lg bg-gray-50/50">
-                        <MapPin size={16} className="mt-0.5 text-red-600 shrink-0" />
-                        <div><p className="font-semibold text-gray-900">Drop</p><p className="text-muted-foreground">{selected.drop}</p></div>
-                      </div>
-                    </div>
-                  </FormSection>
-
-                  <FormSection title="Trip Timeline">
-                    <div className="space-y-4 pl-2">
-                      {(selected.timeline || []).map((step, i) => (
-                        <div key={i} className="flex gap-4 relative">
-                          {i !== (selected.timeline || []).length - 1 && (
-                            <div className="absolute left-[11px] top-6 bottom-[-16px] w-[2px] bg-gray-200" />
-                          )}
-                          <div className="relative z-10 shrink-0 mt-1">
-                            {step.status === "completed" ? <CheckCircle2 size={24} className="text-green-600 bg-white" /> :
-                             step.status === "cancelled" ? <XCircle size={24} className="text-red-500 bg-white" /> :
-                             <Circle size={24} className="text-amber-500 bg-white fill-amber-50" />}
-                          </div>
-                          <div>
-                            <p className="text-sm font-semibold text-gray-900">{step.label}</p>
-                            {step.at && <p className="text-xs text-muted-foreground">{formatDateTime(step.at)}</p>}
-                          </div>
+                <FormSection title="Trip Timeline">
+                  <div className="space-y-4 pl-2">
+                    {(selected.timeline || []).map((step, i) => (
+                      <div key={i} className="flex gap-4 relative">
+                        {i !== (selected.timeline || []).length - 1 && (
+                          <div className="absolute left-[11px] top-6 bottom-[-16px] w-[2px] bg-gray-200" />
+                        )}
+                        <div className="relative z-10 shrink-0 mt-1">
+                          {step.status === "completed" ? <CheckCircle2 size={24} className="text-green-600 bg-white" /> :
+                           step.status === "cancelled" ? <XCircle size={24} className="text-red-500 bg-white" /> :
+                           <Circle size={24} className="text-amber-500 bg-white fill-amber-50" />}
                         </div>
-                      ))}
-                    </div>
-                  </FormSection>
-                </FormLayout>
+                        <div>
+                          <p className="text-sm font-semibold text-gray-900">{step.label}</p>
+                          {step.at && <p className="text-xs text-muted-foreground">{formatDateTime(step.at)}</p>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </FormSection>
+              </FormLayout>
+              <div className="flex justify-end pt-4">
+                <Button variant="outline" onClick={() => setDetailOpen(false)}>Close</Button>
               </div>
-              <div className="px-6 py-4 border-t flex flex-wrap gap-2 justify-end bg-gray-50/50">
-                {selected.status === "pending" && (
-                  <Button size="sm" className="gap-1" onClick={() => { setAssignDriverId(""); setAssignOpen(true); }}><UserPlus size={14} /> Assign Driver</Button>
-                )}
-                {["accepted", "arriving"].includes(selected.status) && (
-                  <Button size="sm" variant="outline" className="gap-1" onClick={() => {
-                    setRides((prev) => prev.map((r) => r.id === selected.id ? { ...r, status: "in_progress", timeline: [...(r.timeline || []), { label: "Trip Started", status: "completed", at: new Date().toISOString() }] } : r));
-                    setDetailOpen(false);
-                  }}><RefreshCw size={14} /> Mark Trip Started</Button>
-                )}
-                {selected.status === "in_progress" && (
-                  <Button size="sm" onClick={() => handleComplete(selected.id)}>Mark Completed</Button>
-                )}
-                {!["completed", "cancelled"].includes(selected.status) && (
-                  <Button size="sm" variant="outline" className="text-red-600" onClick={() => handleCancel(selected.id)}>Cancel Ride</Button>
-                )}
-              </div>
-            </>
+            </div>
           )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Assign Driver */}
-      <Dialog open={assignOpen} onOpenChange={setAssignOpen}>
-        <DialogContent className="just-order-theme-scope sm:max-w-[400px]">
-          <DialogHeader><DialogTitle>Assign Driver</DialogTitle></DialogHeader>
-          <select className={selectCls + " w-full"} value={assignDriverId} onChange={(e) => setAssignDriverId(e.target.value)}>
-            <option value="">Select driver</option>
-            {MOCK_TAXI_DRIVERS.filter((d) => d.onlineStatus === "online" && d.status === "active").map((d) => (
-              <option key={d.id} value={d.id}>{d.name} · {d.vehicleType} · ★{d.rating}</option>
-            ))}
-          </select>
-          <div className="flex justify-end gap-2 mt-4">
-            <Button variant="outline" onClick={() => setAssignOpen(false)}>Cancel</Button>
-            <Button onClick={handleAssign} disabled={!assignDriverId}>Assign</Button>
-          </div>
         </DialogContent>
       </Dialog>
     </div>

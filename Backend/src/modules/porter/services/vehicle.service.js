@@ -204,6 +204,16 @@ export async function listVehicleDropdown() {
     return docs.map((doc) => mapVehicle(doc, pricingMap.get(String(doc._id)) || null));
 }
 
+/** Public catalog of active vehicles (no auth). */
+export async function listPublicVehicles() {
+    const docs = await PorterVehicle.find({ ...baseFilter, status: 'active' })
+        .sort({ displayOrder: 1, name: 1 })
+        .lean();
+
+    const pricingMap = await attachPricingMap(docs);
+    return docs.map((doc) => mapVehicle(doc, pricingMap.get(String(doc._id)) || null));
+}
+
 export async function uploadVehicleIcon(id, file, reqUser) {
     if (!file?.buffer) throw new ValidationError('Icon file is required');
     return updateVehicle(id, {}, reqUser, file);

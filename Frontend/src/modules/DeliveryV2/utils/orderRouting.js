@@ -161,12 +161,36 @@ export const normalizePickupPoints = (order) => {
   }
 
   const restaurantLocation = normalizeLocationPoint(
-    order?.restaurantLocation || order?.restaurantId || order?.storeLocation || order?.sellerLocation,
+    order?.restaurantLocation ||
+      order?.restaurantId ||
+      order?.storeLocation ||
+      order?.sellerLocation ||
+      order?.pickup,
   );
   if (!restaurantLocation) return [];
-  const fallbackPickupType = explicitOrderType === "quick" ? "quick" : "food";
+  const moduleKey = String(order?.module || order?.jobType || "")
+    .trim()
+    .toLowerCase();
+  const isTaxiOrPorter =
+    explicitOrderType === "taxi" ||
+    explicitOrderType === "ride" ||
+    explicitOrderType === "porter" ||
+    explicitOrderType === "parcel" ||
+    moduleKey === "taxi" ||
+    moduleKey === "porter" ||
+    moduleKey === "ride" ||
+    moduleKey === "parcel" ||
+    Boolean(order?.rideId) ||
+    Boolean(order?.tripId);
+  const fallbackPickupType = isTaxiOrPorter
+    ? "taxi"
+    : explicitOrderType === "quick"
+      ? "quick"
+      : "food";
   const fallbackSourceName = String(
-    fallbackPickupType === "quick"
+    fallbackPickupType === "taxi"
+      ? order?.pickup?.name || order?.pickup?.label || "Pickup"
+      : fallbackPickupType === "quick"
       ? order?.storeName ||
           order?.sellerName ||
           order?.seller?.shopName ||
@@ -175,7 +199,9 @@ export const normalizePickupPoints = (order) => {
       : order?.restaurantName || order?.restaurantId?.restaurantName || order?.restaurantId?.name || "Restaurant",
   ).trim();
   const fallbackAddress = String(
-    fallbackPickupType === "quick"
+    fallbackPickupType === "taxi"
+      ? order?.pickup?.address || order?.restaurantLocation?.address || ""
+      : fallbackPickupType === "quick"
       ? order?.storeAddress ||
           order?.sellerAddress ||
           order?.seller?.location?.address ||
@@ -184,7 +210,9 @@ export const normalizePickupPoints = (order) => {
       : order?.restaurantAddress || order?.restaurantLocation?.address || ""
   ).trim();
   const fallbackPhone = String(
-    fallbackPickupType === "quick"
+    fallbackPickupType === "taxi"
+      ? order?.pickup?.phone || order?.customerPhone || ""
+      : fallbackPickupType === "quick"
       ? order?.storePhone || order?.sellerPhone || order?.seller?.phone || ""
       : order?.restaurantPhone || order?.restaurantId?.phone || ""
   ).trim();
@@ -192,11 +220,11 @@ export const normalizePickupPoints = (order) => {
   return [
     {
       id: `${fallbackPickupType}:primary`,
-      pickupType: fallbackPickupType,
+      pickupType: fallbackPickupType === "taxi" ? "food" : fallbackPickupType,
       sourceId: String(
         fallbackPickupType === "quick"
           ? order?.storeId || order?.sellerId || order?.seller?._id || ""
-          : order?.restaurantId?._id || order?.restaurantId || "",
+          : order?.restaurantId?._id || order?.restaurantId || order?.rideId || "",
       ),
       sourceName: fallbackSourceName,
       address: fallbackAddress || "",

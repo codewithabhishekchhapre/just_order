@@ -170,3 +170,45 @@ export const mapPorterUser = (doc = {}, extras = {}) => ({
     registeredAt: doc.createdAt,
     recentOrders: Array.isArray(extras.recentOrders) ? extras.recentOrders : [],
 });
+
+export const mapTrip = (doc = {}, extras = {}) => ({
+    id: toId(doc),
+    tripNumber: doc.tripNumber || '',
+    userId: toId(doc.userId),
+    vehicleId: toId(doc.vehicleId),
+    zoneId: doc.zoneId ? String(doc.zoneId) : null,
+    pickup: doc.pickup || null,
+    drop: doc.drop || null,
+    parcel: doc.parcel || null,
+    distanceKm: Number(doc.distanceKm || 0),
+    durationMin: Number(doc.durationMin || 0),
+    fare: doc.fare || null,
+    fareEstimateTotal: Number(doc.fareEstimateTotal || 0),
+    payment: doc.payment || null,
+    status: doc.status || 'quoted',
+    dispatch: doc.dispatch
+        ? {
+            status: doc.dispatch.status || 'unassigned',
+            deliveryPartnerId: doc.dispatch.deliveryPartnerId
+                ? String(doc.dispatch.deliveryPartnerId)
+                : null,
+            offeredTo: Array.isArray(doc.dispatch.offeredTo) ? doc.dispatch.offeredTo : [],
+            assignedAt: doc.dispatch.assignedAt || null,
+            acceptedAt: doc.dispatch.acceptedAt || null,
+        }
+        : null,
+    deliveryOtp: extras.includeOtp ? doc.deliveryOtp : undefined,
+    assignedAt: doc.assignedAt || null,
+    arrivedAt: doc.arrivedAt || null,
+    startedAt: doc.startedAt || null,
+    completedAt: doc.completedAt || null,
+    cancelledAt: doc.cancelledAt || null,
+    cancelReason: doc.cancelReason || '',
+    driverRating: doc.driverRating ?? null,
+    userRating: doc.userRating ?? null,
+    lastDriverLocation: doc.lastDriverLocation || null,
+    module: doc.module || 'porter',
+    vehicle: extras.vehicle || null,
+    createdAt: doc.createdAt,
+    updatedAt: doc.updatedAt,
+});

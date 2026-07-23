@@ -1,10 +1,6 @@
 import React, { useMemo } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import {
-  CarTaxiFront,
-  ShoppingBasket,
-  UtensilsCrossed,
-} from "lucide-react";
+import { CarTaxiFront, Package, ShoppingBasket, UtensilsCrossed } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useEnabledModules } from "@/modules/common/hooks/useEnabledModules";
 
@@ -26,6 +22,15 @@ const ADMIN_MODULES = [
     path: "/admin/quick-commerce",
     icon: ShoppingBasket,
     active: (pathname) => pathname.startsWith("/admin/quick-commerce"),
+  },
+  {
+    key: "porter",
+    moduleKey: "porter",
+    label: "Porter",
+    shortLabel: "Porter",
+    path: "/admin/porter",
+    icon: Package,
+    active: (pathname) => pathname.startsWith("/admin/porter"),
   },
   {
     key: "taxi",

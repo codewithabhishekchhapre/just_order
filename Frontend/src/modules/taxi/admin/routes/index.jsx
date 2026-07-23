@@ -12,6 +12,8 @@ const VehicleTypes = React.lazy(() => import("../pages/VehicleTypes"));
 const Pricing = React.lazy(() => import("../pages/Pricing"));
 const Coupons = React.lazy(() => import("../pages/Coupons"));
 const Zones = React.lazy(() => import("../pages/Zones"));
+const AddZone = React.lazy(() => import("../pages/AddZone"));
+const ViewZone = React.lazy(() => import("../pages/ViewZone"));
 const Reports = React.lazy(() => import("../pages/Reports"));
 const Settings = React.lazy(() => import("../pages/Settings"));
 
@@ -34,6 +36,9 @@ function TaxiAdminRoutesInner() {
       <Route path="vehicle-types" element={<VehicleTypes />} />
       <Route path="pricing" element={<Pricing />} />
       <Route path="coupons" element={<Coupons />} />
+      <Route path="zones/add" element={<AddZone />} />
+      <Route path="zones/edit/:id" element={<AddZone />} />
+      <Route path="zones/view/:id" element={<ViewZone />} />
       <Route path="zones" element={<Zones />} />
       <Route path="reports" element={<Reports />} />
       <Route path="settings" element={<Settings />} />

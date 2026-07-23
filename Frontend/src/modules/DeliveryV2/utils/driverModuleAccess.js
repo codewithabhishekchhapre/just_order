@@ -32,7 +32,6 @@ export const DRIVER_SWITCHER_MODULE_ORDER = [
   "food",
   "quick-commerce",
   "porter",
-  "parcel",
   "taxi",
 ];
 
@@ -44,6 +43,8 @@ export const normalizeDriverModuleKey = (raw) => {
   if (key === "quick" || key === "quickcommerce" || key === "quick-commerce") {
     return "quick-commerce";
   }
+  // Canonical parcel work module is porter
+  if (key === "parcel") return "porter";
   return key;
 };
 

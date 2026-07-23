@@ -269,6 +269,15 @@ export async function updateGlobalSettings(req, res, next) {
 
     await settings.save();
 
+    try {
+      const { invalidateModuleEnabledCache } = await import(
+        "../../../core/modules/moduleEnabled.service.js"
+      );
+      invalidateModuleEnabledCache();
+    } catch {
+      /* optional during boot */
+    }
+
     const responsePayload = settings.toObject();
     responsePayload.modules = cleanModulesForResponse(
       responsePayload.modules,

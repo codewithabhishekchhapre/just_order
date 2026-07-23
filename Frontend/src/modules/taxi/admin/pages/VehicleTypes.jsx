@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Plus, Search, Pencil, FolderTree, Bike, Car, Bus, Truck } from "lucide-react";
 import {
   PageHeader, SectionCard, StatCard, AdminTable, FilterBar, StatusBadge,
@@ -8,28 +8,24 @@ import Button from "@/shared/components/ui/Button";
 import Input from "@/shared/components/ui/Input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { MOCK_VEHICLE_TYPES } from "../utils/mock/vehicleTypes";
-import { filterBySearch, paginateItems, formatCurrency } from "../utils/taxiTableHelpers";
+import { taxiAdminApi } from "../../services/api";
+import { filterBySearch, paginateItems } from "../utils/taxiTableHelpers";
 
 const selectCls = "h-10 px-3 bg-white border border-gray-200 rounded-lg text-sm outline-none focus:border-red-500 focus:ring-4 focus:ring-red-500/10";
-
-const ICON_MAP = { Bike, Car, Bus, Truck, CarFront: Car };
+const ICON_MAP = { Bike, Car, Bus, Truck };
 
 const EMPTY_FORM = {
   name: "",
+  category: "car",
   icon: "Car",
-  description: "",
-  capacity: 4,
-  baseFare: 50,
-  perKmRate: 14,
-  perMinRate: 2,
-  minFare: 80,
-  commissionPercent: 20,
+  seats: 4,
   status: "active",
+  displayOrder: 0,
 };
 
 const VehicleTypes = () => {
-  const [types, setTypes] = useState(MOCK_VEHICLE_TYPES);
+  const [types, setTypes] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [page, setPage] = useState(1);
@@ -37,9 +33,28 @@ const VehicleTypes = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await taxiAdminApi.getVehicleTypes({
+        limit: 100,
+        status: statusFilter !== "all" ? statusFilter : undefined,
+      });
+      setTypes(data.records || []);
+    } catch (err) {
+      toast.error(err?.response?.data?.message || "Failed to load vehicle types");
+      setTypes([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [statusFilter]);
+
+  useEffect(() => { load(); }, [load]);
 
   const filtered = useMemo(() => {
-    let rows = filterBySearch(types, search, ["name", "description"]);
+    let rows = filterBySearch(types, search, ["name", "code", "category"]);
     if (statusFilter !== "all") rows = rows.filter((r) => r.status === statusFilter);
     return rows;
   }, [types, search, statusFilter]);
@@ -51,24 +66,40 @@ const VehicleTypes = () => {
 
   const openModal = (row = null) => {
     setEditing(row);
-    setForm(row ? { ...row } : EMPTY_FORM);
+    setForm(row
+      ? {
+          name: row.name || "",
+          category: row.category || "car",
+          icon: row.icon || "Car",
+          seats: row.seats || 4,
+          status: row.status || "active",
+          displayOrder: row.displayOrder || 0,
+        }
+      : EMPTY_FORM);
     setModalOpen(true);
   };
 
-  const saveType = () => {
+  const saveType = async () => {
     if (!form.name.trim()) {
       toast.error("Vehicle type name is required");
       return;
     }
-    if (editing) {
-      setTypes((prev) => prev.map((t) => t.id === editing.id ? { ...editing, ...form } : t));
-      toast.success("Vehicle type updated");
-    } else {
-      const id = `VT-${String(types.length + 1).padStart(2, "0")}`;
-      setTypes((prev) => [...prev, { ...form, id, activeVehicles: 0 }]);
-      toast.success("Vehicle type created");
+    setSaving(true);
+    try {
+      if (editing?.id) {
+        await taxiAdminApi.updateVehicleType(editing.id, form);
+        toast.success("Vehicle type updated");
+      } else {
+        await taxiAdminApi.createVehicleType(form);
+        toast.success("Vehicle type created");
+      }
+      setModalOpen(false);
+      await load();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || "Save failed");
+    } finally {
+      setSaving(false);
     }
-    setModalOpen(false);
   };
 
   const columns = [
@@ -83,22 +114,22 @@ const VehicleTypes = () => {
             </div>
             <div>
               <p className="font-medium">{row.name}</p>
-              <p className="text-xs text-gray-500">{row.description}</p>
+              <p className="text-xs text-gray-500">{row.code || row.category}</p>
             </div>
           </div>
         );
       },
     },
-    { key: "capacity", header: "Seats" },
-    { key: "baseFare", header: "Base Fare", cell: (row) => formatCurrency(row.baseFare) },
-    { key: "perKmRate", header: "Per Km", cell: (row) => formatCurrency(row.perKmRate) },
-    { key: "minFare", header: "Min Fare", cell: (row) => formatCurrency(row.minFare) },
-    { key: "commissionPercent", header: "Commission", cell: (row) => `${row.commissionPercent}%` },
-    { key: "activeVehicles", header: "Fleet" },
+    { key: "category", header: "Category", cell: (row) => <span className="capitalize">{row.category}</span> },
+    { key: "seats", header: "Seats" },
     { key: "status", header: "Status", cell: (row) => <StatusBadge status={row.status === "active" ? "success" : "default"} label={row.status} /> },
     {
       key: "actions", header: "Actions", align: "right",
-      cell: (row) => <Button variant="ghost" size="sm" onClick={() => openModal(row)}><Pencil size={14} /></Button>,
+      cell: (row) => (
+        <Button variant="ghost" size="sm" onClick={() => openModal(row)}>
+          <Pencil size={14} />
+        </Button>
+      ),
     },
   ];
 
@@ -106,90 +137,87 @@ const VehicleTypes = () => {
     <div className="just-order-theme-scope space-y-6 max-w-[90rem] mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-24">
       <PageHeader
         title="Vehicle Types"
-        description="Configure Bike, Auto, Taxi, Cab and other ride categories"
-        actions={<Button className="gap-2" onClick={() => openModal()}><Plus size={16} /> Add Type</Button>}
+        description="Catalog of taxi vehicle classes used for booking and pricing"
+        actions={<Button onClick={() => openModal()}><Plus className="mr-2 h-4 w-4" /> Add Type</Button>}
       />
 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-        <StatCard title="Vehicle Types" value={String(types.length)} icon={<FolderTree size={18} />} />
-        <StatCard title="Active Types" value={String(types.filter((t) => t.status === "active").length)} />
-        <StatCard title="Total Fleet" value={String(types.reduce((s, t) => s + t.activeVehicles, 0))} />
+        <StatCard title="Total Types" value={String(types.length)} icon={<FolderTree size={18} />} />
+        <StatCard title="Active" value={String(types.filter((t) => t.status === "active").length)} />
+        <StatCard title="Inactive" value={String(types.filter((t) => t.status !== "active").length)} />
       </div>
 
-      <SectionCard flush>
-        <div className="p-4 space-y-4">
-          <FilterBar
-            start={
-              <div className="flex flex-wrap gap-2 w-full">
-                <div className="relative min-w-[200px] flex-1">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input className="pl-9" placeholder="Search types..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
-                </div>
-                <select className={selectCls} value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}>
-                  <option value="all">All Status</option>
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                </select>
-              </div>
-            }
-          />
-          <AdminTable
-            columns={columns}
-            data={pageItems}
-            getRowId={(r) => r.id}
-            pagination={{ page, totalPages, total, pageSize, onPageChange: setPage, onPageSizeChange: (s) => { setPageSize(s); setPage(1); } }}
-          />
-        </div>
+      <SectionCard>
+        <FilterBar
+          start={
+            <div className="relative flex-1 max-w-xs">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <Input className="pl-9" placeholder="Search types..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
+            </div>
+          }
+          end={
+            <select className={selectCls} value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}>
+              <option value="all">All status</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          }
+        />
+        <AdminTable
+          columns={columns}
+          data={pageItems}
+          loading={loading}
+          pagination={{
+            page,
+            pageSize,
+            total,
+            totalPages,
+            onPageChange: setPage,
+            onPageSizeChange: setPageSize,
+          }}
+          emptyState={{ title: "No vehicle types yet", description: "Create bike, auto, car, or SUV types for taxi booking." }}
+        />
       </SectionCard>
 
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent className="just-order-theme-scope sm:max-w-[560px] max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>{editing ? "Edit Vehicle Type" : "Add Vehicle Type"}</DialogTitle></DialogHeader>
-          <div className="px-6 py-4">
-            <FormLayout>
-              <FormSection title="Basics">
-                <FormRow>
-                  <FormField label="Name"><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></FormField>
-                  <FormField label="Icon">
-                    <select className={selectCls + " w-full"} value={form.icon} onChange={(e) => setForm({ ...form, icon: e.target.value })}>
-                      <option value="Bike">Bike</option>
-                      <option value="Truck">Auto</option>
-                      <option value="Car">Taxi</option>
-                      <option value="CarFront">Premium</option>
-                      <option value="Bus">SUV</option>
-                    </select>
-                  </FormField>
-                </FormRow>
-                <FormRow>
-                  <FormField label="Description"><Input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></FormField>
-                  <FormField label="Capacity"><Input type="number" value={form.capacity} onChange={(e) => setForm({ ...form, capacity: Number(e.target.value) })} /></FormField>
-                </FormRow>
-              </FormSection>
-              <FormSection title="Fare Defaults">
-                <FormRow>
-                  <FormField label="Base Fare"><Input type="number" value={form.baseFare} onChange={(e) => setForm({ ...form, baseFare: Number(e.target.value) })} /></FormField>
-                  <FormField label="Per Km"><Input type="number" value={form.perKmRate} onChange={(e) => setForm({ ...form, perKmRate: Number(e.target.value) })} /></FormField>
-                </FormRow>
-                <FormRow>
-                  <FormField label="Per Minute"><Input type="number" value={form.perMinRate} onChange={(e) => setForm({ ...form, perMinRate: Number(e.target.value) })} /></FormField>
-                  <FormField label="Min Fare"><Input type="number" value={form.minFare} onChange={(e) => setForm({ ...form, minFare: Number(e.target.value) })} /></FormField>
-                </FormRow>
-                <FormRow>
-                  <FormField label="Commission %"><Input type="number" value={form.commissionPercent} onChange={(e) => setForm({ ...form, commissionPercent: Number(e.target.value) })} /></FormField>
-                  <FormField label="Status">
-                    <select className={selectCls + " w-full"} value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
-                      <option value="active">Active</option>
-                      <option value="inactive">Inactive</option>
-                    </select>
-                  </FormField>
-                </FormRow>
-              </FormSection>
-            </FormLayout>
-          </div>
-          <div className="px-6 py-4 border-t flex justify-end gap-2 bg-gray-50/50">
-            <Button variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
-            <Button onClick={saveType}>{editing ? "Save Changes" : "Create Type"}</Button>
-          </div>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{editing ? "Edit vehicle type" : "Create vehicle type"}</DialogTitle>
+          </DialogHeader>
+          <FormLayout>
+            <FormSection>
+              <FormRow>
+                <FormField label="Name" required>
+                  <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+                </FormField>
+              </FormRow>
+              <FormRow>
+                <FormField label="Category" required>
+                  <select className={selectCls + " w-full"} value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}>
+                    <option value="bike">Bike</option>
+                    <option value="auto">Auto</option>
+                    <option value="car">Car</option>
+                    <option value="suv">SUV</option>
+                  </select>
+                </FormField>
+                <FormField label="Seats">
+                  <Input type="number" min={1} value={form.seats} onChange={(e) => setForm((f) => ({ ...f, seats: Number(e.target.value) }))} />
+                </FormField>
+              </FormRow>
+              <FormRow>
+                <FormField label="Status">
+                  <select className={selectCls + " w-full"} value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                  </select>
+                </FormField>
+              </FormRow>
+            </FormSection>
+            <div className="flex justify-end gap-2 pt-4">
+              <Button variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
+              <Button onClick={saveType} disabled={saving}>{saving ? "Saving…" : "Save"}</Button>
+            </div>
+          </FormLayout>
         </DialogContent>
       </Dialog>
     </div>

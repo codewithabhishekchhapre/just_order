@@ -414,6 +414,53 @@ export const initSocket = async (server) => {
                 socket.to(roomNames.restaurant(data.restaurantId)).emit('location-update', payload);
             }
 
+            // Taxi: persist driver ping on active ride + fan-out to ride tracking + rider user room
+            try {
+                const { TaxiRide } = await import('../modules/taxi/models/taxiRide.model.js');
+                const mongoose = await import('mongoose');
+                const orderKey = String(data.orderId || '');
+                const rideFilter = {
+                    isDeleted: { $ne: true },
+                    'dispatch.deliveryPartnerId': userId,
+                    status: { $in: ['assigned', 'arriving', 'arrived', 'in_progress'] },
+                };
+                if (mongoose.default.isValidObjectId(orderKey)) {
+                    rideFilter.$or = [{ _id: orderKey }, { rideNumber: orderKey }];
+                } else if (orderKey) {
+                    rideFilter.rideNumber = orderKey;
+                }
+                const taxiRide = await TaxiRide.findOneAndUpdate(
+                    rideFilter,
+                    {
+                        $set: {
+                            lastDriverLocation: { lat, lng, at: new Date(now) },
+                        },
+                    },
+                    { new: true },
+                ).select('_id rideNumber userId').lean();
+
+                if (taxiRide) {
+                    const rideId = String(taxiRide._id);
+                    const ridePayload = {
+                        ...payload,
+                        module: 'taxi',
+                        rideId,
+                        orderId: rideId,
+                        rideNumber: taxiRide.rideNumber || '',
+                    };
+                    socket.to(roomNames.tracking(rideId)).emit('location-update', ridePayload);
+                    if (taxiRide.rideNumber && taxiRide.rideNumber !== orderKey) {
+                        socket.to(roomNames.tracking(taxiRide.rideNumber)).emit('location-update', ridePayload);
+                    }
+                    if (taxiRide.userId) {
+                        socket.to(roomNames.user(taxiRide.userId)).emit('location-update', ridePayload);
+                        socket.to(roomNames.user(taxiRide.userId)).emit('ride_location_update', ridePayload);
+                    }
+                }
+            } catch (taxiLocErr) {
+                // non-fatal — food tracking path already ran
+            }
+
             // ─── Scalable Persistence (BullMQ + Redis "Hot" Buffering) ───
             try {
                 const { getTrackingQueue } = await import('../queues/index.js');

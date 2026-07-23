@@ -8,6 +8,7 @@ export const SETTINGS_TO_DRIVER = {
   quickCommerce: "quick-commerce",
   porter: "porter",
   taxi: "taxi",
+  /** Legacy alias — normalize to porter via canonicalizeDriverModuleKey */
   parcel: "parcel",
 };
 
@@ -16,7 +17,7 @@ export const DRIVER_TO_SETTINGS = {
   "quick-commerce": "quickCommerce",
   porter: "porter",
   taxi: "taxi",
-  parcel: "parcel",
+  parcel: "porter",
 };
 
 export const DRIVER_MODULE_KEYS = [
@@ -24,6 +25,14 @@ export const DRIVER_MODULE_KEYS = [
   "quick-commerce",
   "porter",
   "parcel",
+  "taxi",
+];
+
+/** Canonical work-module keys used for activeWorkModule / dispatch filters */
+export const CANONICAL_DRIVER_MODULE_KEYS = [
+  "food",
+  "quick-commerce",
+  "porter",
   "taxi",
 ];
 
@@ -45,6 +54,27 @@ export const toDriverModuleKey = (raw) => {
   if (SETTINGS_TO_DRIVER[lower]) return SETTINGS_TO_DRIVER[lower];
   if (DRIVER_TO_SETTINGS[lower]) return lower;
   return null;
+};
+
+/**
+ * Map legacy aliases to the single work-module key used in dispatch.
+ * `parcel` → `porter`. Prefer this for activeWorkModule comparisons.
+ */
+export const canonicalizeDriverModuleKey = (raw) => {
+  const key = toDriverModuleKey(raw);
+  if (!key) return null;
+  if (key === "parcel") return "porter";
+  return key;
+};
+
+/** True if driver's authorizedServices covers the requested module (incl. parcel↔porter). */
+export const driverAuthorizedForModule = (authorizedServices = [], moduleKey) => {
+  const wanted = canonicalizeDriverModuleKey(moduleKey);
+  if (!wanted) return false;
+  const set = new Set(
+    (authorizedServices || []).map((k) => canonicalizeDriverModuleKey(k)).filter(Boolean),
+  );
+  return set.has(wanted);
 };
 
 export const toSettingsModuleKey = (raw) => {

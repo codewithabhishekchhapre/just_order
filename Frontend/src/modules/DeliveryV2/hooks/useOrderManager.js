@@ -2,6 +2,15 @@ import { useDeliveryStore } from '@/modules/DeliveryV2/store/useDeliveryStore';
 import { deliveryAPI } from '@food/api';
 import { toast } from 'sonner';
 import { getPrimaryPickupLocation, normalizeLocationPoint, normalizePickupPoints, isReturnPickupTrip, getDeliveryDocumentId, getReturnDropLocation, enrichReturnDeliveryOrder } from '@/modules/DeliveryV2/utils/orderRouting';
+import { normalizeDriverModuleKey } from '@/modules/DeliveryV2/utils/driverModuleAccess';
+import { taxiPartnerApi } from '@/modules/taxi/services/api';
+import { porterPartnerApi } from '@/modules/porter/user/services/api';
+import {
+  buildTaxiActiveOrder,
+  getTaxiRideId,
+  isTaxiActiveOrder,
+  mapTaxiRideStatusToTripStatus,
+} from '@/modules/DeliveryV2/utils/taxiRideFlow';
 
 /**
  * useOrderManager - Professional hook for real-world trip lifecycle actions.
@@ -13,6 +22,69 @@ export const useOrderManager = () => {
   } = useDeliveryStore();
 
   const acceptOrder = async (order) => {
+    const moduleKey =
+      normalizeDriverModuleKey(order?.module) ||
+      (order?.jobType === 'ride' || order?.rideId
+        ? 'taxi'
+        : order?.jobType === 'parcel' || order?.tripId
+          ? 'porter'
+          : 'food');
+
+    // Taxi ride accept
+    if (moduleKey === 'taxi') {
+      const rideId = order?.rideId || order?.orderMongoId || order?.id || order?._id;
+      if (!rideId) {
+        toast.error('Invalid ride data');
+        return;
+      }
+      try {
+        const ride = await taxiPartnerApi.acceptRide(rideId);
+        setActiveOrder(buildTaxiActiveOrder(ride, rideId));
+        updateTripStatus(mapTaxiRideStatusToTripStatus(ride?.status) || 'PICKING_UP');
+        toast.success('Ride accepted');
+        return ride;
+      } catch (error) {
+        const msg = error?.response?.data?.message || error?.message || 'Failed to accept ride';
+        toast.error(msg);
+        return;
+      }
+    }
+
+    // Porter parcel accept
+    if (moduleKey === 'porter') {
+      const tripId = order?.tripId || order?.orderMongoId || order?.id || order?._id;
+      if (!tripId) {
+        toast.error('Invalid trip data');
+        return;
+      }
+      try {
+        const trip = await porterPartnerApi.acceptTrip(tripId);
+        setActiveOrder({
+          ...trip,
+          module: 'porter',
+          jobType: 'parcel',
+          tripId: trip?.id || tripId,
+          orderId: trip?.tripNumber || tripId,
+          pickup: trip?.pickup,
+          drop: trip?.drop,
+          restaurantLocation: trip?.pickup
+            ? { lat: Number(trip.pickup.lat), lng: Number(trip.pickup.lng), address: trip.pickup.address }
+            : null,
+          customerLocation: trip?.drop
+            ? { lat: Number(trip.drop.lat), lng: Number(trip.drop.lng), address: trip.drop.address }
+            : null,
+          total: trip?.fareEstimateTotal || trip?.fare?.total,
+        });
+        updateTripStatus('PICKING_UP');
+        toast.success('Parcel trip accepted');
+        return trip;
+      } catch (error) {
+        const msg = error?.response?.data?.message || error?.message || 'Failed to accept trip';
+        toast.error(msg);
+        return;
+      }
+    }
+
     const orderId = getDeliveryDocumentId(order);
     if (!orderId) {
       toast.error('Invalid order data');
@@ -110,10 +182,74 @@ export const useOrderManager = () => {
     }
   };
 
+  const taxiArrivePickup = async () => {
+    const rideId = getTaxiRideId(activeOrder);
+    if (!rideId) {
+      toast.error('Invalid ride');
+      throw new Error('Invalid ride');
+    }
+    try {
+      const ride = await taxiPartnerApi.markArrived(rideId);
+      setActiveOrder(buildTaxiActiveOrder(ride, rideId));
+      updateTripStatus('REACHED_PICKUP');
+      toast.success('Arrived at pickup');
+      return ride;
+    } catch (error) {
+      toast.error(error?.response?.data?.message || 'Failed to mark arrived');
+      throw error;
+    }
+  };
+
+  const taxiStartTrip = async (otp) => {
+    const rideId = getTaxiRideId(activeOrder);
+    if (!rideId) {
+      toast.error('Invalid ride');
+      throw new Error('Invalid ride');
+    }
+    try {
+      const ride = await taxiPartnerApi.startRide(rideId, String(otp || '').trim());
+      setActiveOrder(buildTaxiActiveOrder(ride, rideId));
+      updateTripStatus('PICKED_UP');
+      toast.success('Trip started');
+      return ride;
+    } catch (error) {
+      toast.error(error?.response?.data?.message || 'Invalid OTP. Ask the rider.');
+      throw error;
+    }
+  };
+
+  const taxiCompleteTrip = async () => {
+    const rideId = getTaxiRideId(activeOrder);
+    if (!rideId) {
+      toast.error('Invalid ride');
+      throw new Error('Invalid ride');
+    }
+    try {
+      const ride = await taxiPartnerApi.completeRide(rideId, {
+        distanceKm: activeOrder?.distanceKm,
+        durationMin: activeOrder?.durationMin,
+      });
+      setActiveOrder(buildTaxiActiveOrder({
+        ...ride,
+        earnings: Number(ride?.fare?.total ?? ride?.fareEstimateTotal ?? activeOrder?.total ?? 0),
+      }, rideId));
+      updateTripStatus('COMPLETED');
+      toast.success('Ride completed');
+      return ride;
+    } catch (error) {
+      toast.error(error?.response?.data?.message || 'Failed to complete ride');
+      throw error;
+    }
+  };
+
   /**
-   * Mark "Reached Pickup" (Arrival at restaurant)
+   * Mark "Reached Pickup" (Arrival at restaurant / taxi pickup)
    */
   const reachPickup = async () => {
+    if (isTaxiActiveOrder(activeOrder)) {
+      return taxiArrivePickup();
+    }
+
     const orderId = getDeliveryDocumentId(activeOrder);
     try {
       const response = await deliveryAPI.confirmReachedPickup(orderId, {
@@ -174,6 +310,11 @@ export const useOrderManager = () => {
    * Mark "Reached Drop" (Arrival at customer)
    */
   const reachDrop = async () => {
+    if (isTaxiActiveOrder(activeOrder)) {
+      // Taxi completes via taxiCompleteTrip — no separate reached-drop API.
+      return;
+    }
+
     const orderId = getDeliveryDocumentId(activeOrder);
     try {
       const response = await deliveryAPI.confirmReachedDrop(orderId, {
@@ -264,5 +405,8 @@ export const useOrderManager = () => {
     reachDrop,
     completeDelivery,
     resetTrip,
+    taxiArrivePickup,
+    taxiStartTrip,
+    taxiCompleteTrip,
   };
 };

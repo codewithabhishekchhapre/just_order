@@ -20,6 +20,7 @@ export default function ServiceCards({
   vehicles = [],
   loading = false,
   selectedId = null,
+  quotesByVehicle = {},
   onSelect,
 }) {
   if (loading) {
@@ -28,7 +29,7 @@ export default function ServiceCards({
         {Array.from({ length: 5 }).map((_, i) => (
           <div
             key={i}
-            className="h-[88px] w-[84px] shrink-0 animate-pulse rounded-2xl bg-gray-100"
+            className="h-[96px] w-[92px] shrink-0 animate-pulse rounded-2xl bg-gray-100"
           />
         ))}
       </div>
@@ -46,16 +47,26 @@ export default function ServiceCards({
   return (
     <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
       {vehicles.map((vehicle) => {
+        const quote = quotesByVehicle[vehicle.id];
+        const available = quote?.ok;
         const active = selectedId === vehicle.id;
+        const fareLabel = available
+          ? formatInr(quote.fare)
+          : quote
+            ? "N/A"
+            : "—";
+
         return (
           <button
             key={vehicle.id}
             type="button"
             onClick={() => onSelect?.(vehicle)}
-            className={`w-[84px] shrink-0 rounded-2xl border px-2 py-2.5 text-center transition active:scale-95 ${
-              active
+            className={`w-[92px] shrink-0 rounded-2xl border px-2 py-2.5 text-center transition active:scale-95 ${
+              active && available
                 ? "border-[#FF6A00] bg-[#FFF4ED] shadow-sm shadow-[#FF6A00]/15"
-                : "border-gray-100 bg-white shadow-sm"
+                : available
+                  ? "border-gray-100 bg-white shadow-sm"
+                  : "border-gray-100 bg-gray-50 opacity-70"
             }`}
           >
             <div className="mx-auto flex h-9 w-9 items-center justify-center rounded-xl bg-gray-50">
@@ -64,8 +75,12 @@ export default function ServiceCards({
             <p className="mt-1.5 truncate text-[11px] font-bold text-gray-900">
               {vehicle.name}
             </p>
-            <p className="mt-0.5 text-[10px] font-semibold text-[#FF6A00]">
-              {formatInr(vehicle.baseFare)}+
+            <p
+              className={`mt-0.5 text-[10px] font-semibold ${
+                available ? "text-[#FF6A00]" : "text-gray-400"
+              }`}
+            >
+              {fareLabel}
             </p>
           </button>
         );

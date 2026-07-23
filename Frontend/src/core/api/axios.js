@@ -45,20 +45,30 @@ axiosInstance.interceptors.request.use(
             token = localStorage.getItem('auth_seller');
         } else if (pagePath.startsWith('/admin')) {
             token = localStorage.getItem('auth_admin');
-        } else if (pagePath.startsWith('/delivery')) {
-            token = localStorage.getItem('auth_delivery');
-        } else if (pagePath.startsWith('/customer') || pagePath.startsWith('/quick')) {
+        } else if (pagePath.startsWith('/delivery') || pagePath.startsWith('/food/delivery')) {
+            token = localStorage.getItem('auth_delivery') || localStorage.getItem('delivery_accessToken');
+        } else if (
+          pagePath.startsWith('/customer') ||
+          pagePath.startsWith('/quick') ||
+          pagePath.startsWith('/porter') ||
+          pagePath.startsWith('/taxi') ||
+          pagePath.startsWith('/food/user')
+        ) {
             token = pickCustomerToken();
         }
 
         // 2. Fallback to URL-based detection
         if (!token) {
             if (url.startsWith('/seller')) token = localStorage.getItem('auth_seller');
-            else if (url.startsWith('/admin')) token = localStorage.getItem('auth_admin');
-            else if (url.startsWith('/delivery')) token = localStorage.getItem('auth_delivery');
+            else if (url.startsWith('/admin') || url.includes('/admin/')) token = localStorage.getItem('auth_admin');
+            else if (url.startsWith('/delivery') || url.includes('/partner/')) {
+                token = localStorage.getItem('auth_delivery') || localStorage.getItem('delivery_accessToken');
+            }
             else if (
               url.startsWith('/customer') ||
               url.startsWith('/quick-commerce') ||
+              url.startsWith('/porter') ||
+              url.startsWith('/taxi') ||
               url.startsWith('/cart') ||
               url.startsWith('/wishlist') ||
               url.startsWith('/categories') ||

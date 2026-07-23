@@ -101,15 +101,15 @@ export const LiveMap = ({
     setDirections(null);
     routeProgressDistanceRef.current = 0;
     routeProgressSignatureRef.current = '';
-  }, [tripStatus, activeOrder?._id]);
+  }, [tripStatus, activeOrder?._id, activeOrder?.id, activeOrder?.rideId]);
 
   const targetLocation = useMemo(() => {
     if (!activeOrder) return null;
     let rawLoc = null;
-    if (tripStatus === 'PICKING_UP' || tripStatus === 'REACHED_PICKUP') {
-      rawLoc = activeOrder.restaurantLocation;
-    } else if (tripStatus === 'PICKED_UP' || tripStatus === 'REACHED_DROP') {
-      rawLoc = activeOrder.customerLocation;
+    if (tripStatus === 'PICKING_UP' || tripStatus === 'REACHED_PICKUP' || tripStatus === 'to_pickup') {
+      rawLoc = activeOrder.restaurantLocation || activeOrder.pickup;
+    } else if (tripStatus === 'PICKED_UP' || tripStatus === 'REACHED_DROP' || tripStatus === 'to_drop') {
+      rawLoc = activeOrder.customerLocation || activeOrder.drop;
     }
     if (!rawLoc) return null;
     const lat = parseFloat(rawLoc.lat || rawLoc.latitude);

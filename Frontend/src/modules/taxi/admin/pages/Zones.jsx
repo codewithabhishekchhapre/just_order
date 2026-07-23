@@ -1,40 +1,48 @@
-import React, { useMemo, useState } from "react";
-import { Plus, Search, Pencil, MapPin } from "lucide-react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { Plus, Search, Pencil, Eye, Trash2, MapPin } from "lucide-react";
 import {
   PageHeader, SectionCard, StatCard, AdminTable, FilterBar, StatusBadge,
-  FormLayout, FormSection, FormRow, FormField,
 } from "@/shared/components/admin";
 import Button from "@/shared/components/ui/Button";
 import Input from "@/shared/components/ui/Input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { MOCK_TAXI_ZONES } from "../utils/mock/zones";
+import { taxiAdminApi } from "../../services/api";
 import { filterBySearch, paginateItems } from "../utils/taxiTableHelpers";
 
 const selectCls = "h-10 px-3 bg-white border border-gray-200 rounded-lg text-sm outline-none focus:border-red-500 focus:ring-4 focus:ring-red-500/10";
 
-const EMPTY_FORM = {
-  name: "",
-  city: "Indore",
-  areaKm2: 10,
-  activeDrivers: 0,
-  dailyRides: 0,
-  surgeMultiplier: 1,
-  status: "active",
-};
-
 const Zones = () => {
-  const [zones, setZones] = useState(MOCK_TAXI_ZONES);
+  const navigate = useNavigate();
+  const [zones, setZones] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState(EMPTY_FORM);
+
+  const loadZones = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await taxiAdminApi.getZones({
+        limit: 100,
+        status: statusFilter !== "all" ? statusFilter : undefined,
+      });
+      setZones(data.records || []);
+    } catch (err) {
+      toast.error(err?.response?.data?.message || err?.message || "Failed to load zones");
+      setZones([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [statusFilter]);
+
+  useEffect(() => {
+    loadZones();
+  }, [loadZones]);
 
   const filtered = useMemo(() => {
-    let rows = filterBySearch(zones, search, ["name", "city"]);
+    let rows = filterBySearch(zones, search, ["name", "country", "polygon"]);
     if (statusFilter !== "all") rows = rows.filter((r) => r.status === statusFilter);
     return rows;
   }, [zones, search, statusFilter]);
@@ -44,119 +52,138 @@ const Zones = () => {
     [filtered, page, pageSize],
   );
 
-  const openModal = (row = null) => {
-    setEditing(row);
-    setForm(row ? { ...row } : EMPTY_FORM);
-    setModalOpen(true);
-  };
-
-  const saveZone = () => {
-    if (!form.name.trim()) {
-      toast.error("Zone name is required");
-      return;
+  const handleDelete = async (row) => {
+    if (!window.confirm(`Delete zone "${row.name}"?`)) return;
+    try {
+      await taxiAdminApi.deleteZone(row.id);
+      toast.success("Zone deleted");
+      await loadZones();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || "Failed to delete zone");
     }
-    if (editing) {
-      setZones((prev) => prev.map((z) => z.id === editing.id ? { ...editing, ...form } : z));
-      toast.success("Zone updated");
-    } else {
-      const id = `TXZ-${String(zones.length + 1).padStart(2, "0")}`;
-      setZones((prev) => [...prev, { ...form, id }]);
-      toast.success("Zone created");
-    }
-    setModalOpen(false);
   };
 
   const columns = [
-    { key: "name", header: "Zone", cell: (row) => (
-      <div>
-        <p className="font-semibold">{row.name}</p>
-        <p className="text-xs text-gray-500">{row.city}</p>
-      </div>
-    ) },
-    { key: "areaKm2", header: "Area", cell: (row) => `${row.areaKm2} km²` },
-    { key: "activeDrivers", header: "Drivers" },
-    { key: "dailyRides", header: "Daily Rides" },
-    { key: "surgeMultiplier", header: "Surge", cell: (row) => (
-      <span className={row.surgeMultiplier > 1 ? "font-semibold text-orange-600" : ""}>{row.surgeMultiplier}x</span>
-    ) },
-    { key: "status", header: "Status", cell: (row) => <StatusBadge status={row.status === "active" ? "success" : "default"} label={row.status} /> },
     {
-      key: "actions", header: "Actions", align: "right",
-      cell: (row) => <Button variant="ghost" size="sm" onClick={() => openModal(row)}><Pencil size={14} /></Button>,
+      key: "name",
+      header: "Zone",
+      cell: (row) => (
+        <div className="flex items-start gap-3">
+          <div className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
+            <MapPin size={16} />
+          </div>
+          <div>
+            <p className="font-semibold">{row.name}</p>
+            <p className="text-xs text-gray-500">{row.country}</p>
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: "polygon",
+      header: "Area",
+      cell: (row) => (
+        <span className="text-sm text-muted-foreground">
+          {Array.isArray(row.coordinates) && row.coordinates.length >= 3
+            ? `${row.coordinates.length}-point polygon`
+            : row.polygon || "No polygon"}
+        </span>
+      ),
+    },
+    { key: "unit", header: "Unit", cell: (row) => row.unit || "kilometer" },
+    { key: "displayOrder", header: "Order" },
+    {
+      key: "status",
+      header: "Status",
+      cell: (row) => <StatusBadge status={row.status === "active" ? "success" : "default"} label={row.status} />,
+    },
+    {
+      key: "actions",
+      header: "Actions",
+      align: "right",
+      cell: (row) => (
+        <div className="flex justify-end gap-1">
+          <Button variant="ghost" size="sm" onClick={() => navigate(`/admin/taxi/zones/view/${row.id}`)} title="View">
+            <Eye size={14} />
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => navigate(`/admin/taxi/zones/edit/${row.id}`)} title="Edit">
+            <Pencil size={14} />
+          </Button>
+          <Button variant="ghost" size="sm" className="text-red-600" onClick={() => handleDelete(row)} title="Delete">
+            <Trash2 size={14} />
+          </Button>
+        </div>
+      ),
     },
   ];
 
   return (
     <div className="just-order-theme-scope space-y-6 max-w-[90rem] mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-24">
       <PageHeader
-        title="Service Zones"
-        description="Define operational areas and surge pricing multipliers"
-        actions={<Button className="gap-2" onClick={() => openModal()}><Plus size={16} /> Add Zone</Button>}
+        title="Taxi Service Zones"
+        description="Draw service areas on the map — same flow as Food zone setup"
+        actions={
+          <Button onClick={() => navigate("/admin/taxi/zones/add")}>
+            <Plus className="mr-2 h-4 w-4" /> Add Zone
+          </Button>
+        }
       />
 
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-        <StatCard title="Zones" value={String(zones.length)} icon={<MapPin size={18} />} />
-        <StatCard title="Active Zones" value={String(zones.filter((z) => z.status === "active").length)} />
-        <StatCard title="Drivers Deployed" value={String(zones.reduce((s, z) => s + z.activeDrivers, 0))} />
+      <div className="grid gap-4 sm:grid-cols-3">
+        <StatCard title="Total zones" value={String(zones.length)} />
+        <StatCard title="Active" value={String(zones.filter((z) => z.status === "active").length)} />
+        <StatCard title="Inactive" value={String(zones.filter((z) => z.status !== "active").length)} />
       </div>
 
-      <SectionCard flush>
-        <div className="p-4 space-y-4">
-          <FilterBar
-            start={
-              <div className="flex flex-wrap gap-2 w-full">
-                <div className="relative min-w-[200px] flex-1">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input className="pl-9" placeholder="Search zones..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
-                </div>
-                <select className={selectCls} value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}>
-                  <option value="all">All Status</option>
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                </select>
-              </div>
-            }
-          />
-          <AdminTable
-            columns={columns}
-            data={pageItems}
-            getRowId={(r) => r.id}
-            pagination={{ page, totalPages, total, pageSize, onPageChange: setPage, onPageSizeChange: (s) => { setPageSize(s); setPage(1); } }}
-          />
-        </div>
+      <SectionCard>
+        <FilterBar
+          start={
+            <div className="relative flex-1 max-w-xs">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <Input
+                className="pl-9"
+                placeholder="Search zones…"
+                value={search}
+                onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+              />
+            </div>
+          }
+          end={
+            <select
+              className={selectCls}
+              value={statusFilter}
+              onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+            >
+              <option value="all">All status</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          }
+        />
+        <AdminTable
+          columns={columns}
+          data={pageItems}
+          loading={loading}
+          getRowId={(r) => r.id}
+          pagination={{
+            page,
+            pageSize,
+            total,
+            totalPages,
+            onPageChange: setPage,
+            onPageSizeChange: setPageSize,
+          }}
+          emptyState={{
+            title: "No taxi zones yet",
+            description: "Create a zone and draw its service area on the map.",
+            action: (
+              <Button onClick={() => navigate("/admin/taxi/zones/add")}>
+                <Plus className="mr-2 h-4 w-4" /> Add Zone
+              </Button>
+            ),
+          }}
+        />
       </SectionCard>
-
-      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent className="just-order-theme-scope sm:max-w-[520px]">
-          <DialogHeader><DialogTitle>{editing ? "Edit Zone" : "Add Zone"}</DialogTitle></DialogHeader>
-          <div className="px-6 py-4">
-            <FormLayout>
-              <FormSection title="Zone Details">
-                <FormRow>
-                  <FormField label="Name"><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></FormField>
-                  <FormField label="City"><Input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} /></FormField>
-                </FormRow>
-                <FormRow>
-                  <FormField label="Area (km²)"><Input type="number" value={form.areaKm2} onChange={(e) => setForm({ ...form, areaKm2: Number(e.target.value) })} /></FormField>
-                  <FormField label="Surge Multiplier"><Input type="number" step="0.1" value={form.surgeMultiplier} onChange={(e) => setForm({ ...form, surgeMultiplier: Number(e.target.value) })} /></FormField>
-                </FormRow>
-                <FormRow>
-                  <FormField label="Status">
-                    <select className={selectCls + " w-full"} value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
-                      <option value="active">Active</option>
-                      <option value="inactive">Inactive</option>
-                    </select>
-                  </FormField>
-                </FormRow>
-              </FormSection>
-            </FormLayout>
-          </div>
-          <div className="px-6 py-4 border-t flex justify-end gap-2 bg-gray-50/50">
-            <Button variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
-            <Button onClick={saveZone}>{editing ? "Save Changes" : "Create Zone"}</Button>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 };

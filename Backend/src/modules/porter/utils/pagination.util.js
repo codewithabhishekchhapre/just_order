@@ -29,6 +29,9 @@ export const parseListQuery = (query = {}) => {
         verification: query.verification && String(query.verification) !== 'all'
             ? String(query.verification).trim()
             : '',
+        vehicleId: query.vehicleId ? String(query.vehicleId).trim() : '',
+        userId: query.userId ? String(query.userId).trim() : '',
+        zoneId: query.zoneId ? String(query.zoneId).trim() : '',
     };
 };
 

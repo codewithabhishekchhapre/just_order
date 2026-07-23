@@ -1,0 +1,124 @@
+import express from 'express';
+import { authMiddleware, checkPermission } from '../../../core/auth/auth.middleware.js';
+import { requireRoles } from '../../../core/roles/role.middleware.js';
+
+import {
+    listZones,
+    getZoneById,
+    createZone,
+    updateZone,
+    patchZoneStatus,
+    deleteZone,
+    listZoneDropdown,
+} from '../controllers/zone.controller.js';
+
+import {
+    listVehicleTypes,
+    getVehicleTypeById,
+    createVehicleType,
+    updateVehicleType,
+    patchVehicleTypeStatus,
+    deleteVehicleType,
+    listVehicleTypeDropdown,
+} from '../controllers/vehicleType.controller.js';
+
+import {
+    listPricing,
+    getPricingById,
+    getPricingByVehicleTypeId,
+    createPricing,
+    updatePricing,
+    patchPricingStatus,
+    deletePricing,
+} from '../controllers/pricing.controller.js';
+
+import {
+    quoteRide,
+    createRide,
+    listMyRides,
+    getMyRideById,
+    getMyActiveRide,
+    cancelMyRide,
+    listAdminRides,
+    getAdminRideById,
+    getActivePartnerRide,
+    acceptRide,
+    markArrived,
+    startRide,
+    completeRide,
+} from '../controllers/ride.controller.js';
+
+import {
+    listDrivers,
+    getDriverById,
+    patchDriverStatus,
+    listCustomers,
+    listFleet,
+    getDashboard,
+} from '../controllers/adminOps.controller.js';
+
+const router = express.Router();
+const adminOrEmployee = [authMiddleware, requireRoles('ADMIN', 'EMPLOYEE')];
+const userOnly = [authMiddleware, requireRoles('USER')];
+const partnerOnly = [authMiddleware, requireRoles('DELIVERY_PARTNER')];
+
+router.get('/health', (_req, res) => res.json({ success: true, module: 'taxi', status: 'ok' }));
+
+// Public vehicle catalog for customer booking
+router.get('/vehicle-types/public', listVehicleTypeDropdown);
+
+// ── Admin: Dashboard / drivers / customers / fleet ────────────
+router.get('/admin/dashboard', ...adminOrEmployee, checkPermission('taxi::rides', 'view'), getDashboard);
+router.get('/admin/drivers', ...adminOrEmployee, checkPermission('taxi::rides', 'view'), listDrivers);
+router.get('/admin/drivers/:id', ...adminOrEmployee, checkPermission('taxi::rides', 'view'), getDriverById);
+router.patch('/admin/drivers/:id/status', ...adminOrEmployee, checkPermission('taxi::rides', 'edit'), patchDriverStatus);
+router.get('/admin/customers', ...adminOrEmployee, checkPermission('taxi::rides', 'view'), listCustomers);
+router.get('/admin/fleet', ...adminOrEmployee, checkPermission('taxi::vehicles', 'view'), listFleet);
+
+// ── Admin: Zones ──────────────────────────────────────────────
+router.get('/admin/zones/dropdown', ...adminOrEmployee, checkPermission('taxi::zones', 'view'), listZoneDropdown);
+router.get('/admin/zones', ...adminOrEmployee, checkPermission('taxi::zones', 'view'), listZones);
+router.get('/admin/zones/:id', ...adminOrEmployee, checkPermission('taxi::zones', 'view'), getZoneById);
+router.post('/admin/zones', ...adminOrEmployee, checkPermission('taxi::zones', 'create'), createZone);
+router.put('/admin/zones/:id', ...adminOrEmployee, checkPermission('taxi::zones', 'edit'), updateZone);
+router.patch('/admin/zones/:id/status', ...adminOrEmployee, checkPermission('taxi::zones', 'edit'), patchZoneStatus);
+router.delete('/admin/zones/:id', ...adminOrEmployee, checkPermission('taxi::zones', 'delete'), deleteZone);
+
+// ── Admin: Vehicle types ──────────────────────────────────────
+router.get('/admin/vehicle-types/dropdown', ...adminOrEmployee, checkPermission('taxi::vehicles', 'view'), listVehicleTypeDropdown);
+router.get('/admin/vehicle-types', ...adminOrEmployee, checkPermission('taxi::vehicles', 'view'), listVehicleTypes);
+router.get('/admin/vehicle-types/:id', ...adminOrEmployee, checkPermission('taxi::vehicles', 'view'), getVehicleTypeById);
+router.post('/admin/vehicle-types', ...adminOrEmployee, checkPermission('taxi::vehicles', 'create'), createVehicleType);
+router.put('/admin/vehicle-types/:id', ...adminOrEmployee, checkPermission('taxi::vehicles', 'edit'), updateVehicleType);
+router.patch('/admin/vehicle-types/:id/status', ...adminOrEmployee, checkPermission('taxi::vehicles', 'edit'), patchVehicleTypeStatus);
+router.delete('/admin/vehicle-types/:id', ...adminOrEmployee, checkPermission('taxi::vehicles', 'delete'), deleteVehicleType);
+
+// ── Admin: Pricing ────────────────────────────────────────────
+router.get('/admin/pricing', ...adminOrEmployee, checkPermission('taxi::pricing', 'view'), listPricing);
+router.get('/admin/pricing/vehicle/:vehicleTypeId', ...adminOrEmployee, checkPermission('taxi::pricing', 'view'), getPricingByVehicleTypeId);
+router.get('/admin/pricing/:id', ...adminOrEmployee, checkPermission('taxi::pricing', 'view'), getPricingById);
+router.post('/admin/pricing', ...adminOrEmployee, checkPermission('taxi::pricing', 'create'), createPricing);
+router.put('/admin/pricing/:id', ...adminOrEmployee, checkPermission('taxi::pricing', 'edit'), updatePricing);
+router.patch('/admin/pricing/:id/status', ...adminOrEmployee, checkPermission('taxi::pricing', 'edit'), patchPricingStatus);
+router.delete('/admin/pricing/:id', ...adminOrEmployee, checkPermission('taxi::pricing', 'delete'), deletePricing);
+
+// ── Admin: Rides ──────────────────────────────────────────────
+router.get('/admin/rides', ...adminOrEmployee, checkPermission('taxi::rides', 'view'), listAdminRides);
+router.get('/admin/rides/:id', ...adminOrEmployee, checkPermission('taxi::rides', 'view'), getAdminRideById);
+
+// ── User: quote + rides ───────────────────────────────────────
+router.post('/quote', ...userOnly, quoteRide);
+router.post('/rides', ...userOnly, createRide);
+router.get('/rides/active', ...userOnly, getMyActiveRide);
+router.get('/rides', ...userOnly, listMyRides);
+router.get('/rides/:id', ...userOnly, getMyRideById);
+router.post('/rides/:id/cancel', ...userOnly, cancelMyRide);
+
+// ── Partner: ride lifecycle ───────────────────────────────────
+router.get('/partner/rides/active', ...partnerOnly, getActivePartnerRide);
+router.post('/partner/rides/:id/accept', ...partnerOnly, acceptRide);
+router.post('/partner/rides/:id/arrived', ...partnerOnly, markArrived);
+router.post('/partner/rides/:id/start', ...partnerOnly, startRide);
+router.post('/partner/rides/:id/complete', ...partnerOnly, completeRide);
+
+export default router;

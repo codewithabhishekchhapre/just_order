@@ -97,6 +97,9 @@ export const getFeedEarnings = (order = {}) => {
     order.riderEarning ??
     order.tripEarning ??
     order.walletEarning ??
+    order.fareEstimateTotal ??
+    order.fare?.total ??
+    order.total ??
     (order.orderAmount != null ? Number(order.orderAmount) * 0.1 : null);
   const n = Number(value);
   return Number.isFinite(n) ? n : 0;
@@ -115,10 +118,24 @@ export const getFeedPaymentMethod = (order = {}) => {
 };
 
 export const getFeedPickup = (order = {}) => {
+  const serviceKey = getFeedServiceKey(order);
+  if (serviceKey === "taxi" || serviceKey === "porter" || serviceKey === "parcel") {
+    const title =
+      order?.pickup?.name ||
+      order?.pickup?.label ||
+      (serviceKey === "taxi" ? "Pickup" : "Parcel pickup");
+    const address =
+      order?.pickup?.address ||
+      order?.pickup?.formattedAddress ||
+      order?.restaurantLocation?.address ||
+      "Address unavailable";
+    return { title: String(title), address: String(address) };
+  }
+
   const pickups = normalizePickupPoints(order);
   const primary = pickups[0] || null;
   const isQuick =
-    getFeedServiceKey(order) === "quick-commerce" ||
+    serviceKey === "quick-commerce" ||
     String(order?.orderType || "").toLowerCase() === "quick";
 
   const title =
@@ -148,6 +165,21 @@ export const getFeedPickup = (order = {}) => {
 };
 
 export const getFeedDrop = (order = {}) => {
+  const serviceKey = getFeedServiceKey(order);
+  if (serviceKey === "taxi" || serviceKey === "porter" || serviceKey === "parcel") {
+    const title =
+      order?.drop?.name ||
+      order?.drop?.label ||
+      order?.customerName ||
+      (serviceKey === "taxi" ? "Drop" : "Parcel drop");
+    const address =
+      order?.drop?.address ||
+      order?.drop?.formattedAddress ||
+      order?.customerLocation?.address ||
+      "Location unavailable";
+    return { title: String(title), address: String(address) };
+  }
+
   const deliveryAddress = order?.deliveryAddress || {};
   const dropPoint = order?.dropPoint || null;
   const title =
@@ -225,7 +257,11 @@ export const getFeedTripEstimates = (order = {}, riderLocation = null) => {
       order?.distanceKm,
   );
   const etaMins = Number(
-    order?.estimatedTime ?? order?.duration ?? order?.eta ?? order?.prepTime,
+    order?.estimatedTime ??
+      order?.durationMin ??
+      order?.duration ??
+      order?.eta ??
+      order?.prepTime,
   );
 
   return {

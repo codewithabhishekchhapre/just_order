@@ -944,6 +944,43 @@ export const useDeliveryNotifications = () => {
       handleIncomingOrderAlert(orderData);
     });
 
+    socketRef.current.on('new_ride_available', (rideData) => {
+      debugLog('new_ride_available', rideData);
+      const normalized = {
+        ...rideData,
+        module: 'taxi',
+        jobType: 'ride',
+        id: rideData?.rideId || rideData?.id,
+        orderId: rideData?.rideNumber || rideData?.rideId,
+        orderMongoId: rideData?.rideId,
+        total: rideData?.fareEstimateTotal || rideData?.fare?.total,
+        pickup: rideData?.pickup,
+        drop: rideData?.drop,
+        deliveryAddress: rideData?.drop,
+      };
+      setNewOrder(normalized);
+      handleIncomingOrderAlert(normalized);
+    });
+
+    socketRef.current.on('new_parcel_available', (tripData) => {
+      debugLog('new_parcel_available', tripData);
+      const normalized = {
+        ...tripData,
+        module: 'porter',
+        jobType: 'parcel',
+        id: tripData?.tripId || tripData?.id,
+        orderId: tripData?.tripNumber || tripData?.tripId,
+        orderMongoId: tripData?.tripId,
+        tripId: tripData?.tripId,
+        total: tripData?.fareEstimateTotal || tripData?.fare?.total,
+        pickup: tripData?.pickup,
+        drop: tripData?.drop,
+        deliveryAddress: tripData?.drop,
+      };
+      setNewOrder(normalized);
+      handleIncomingOrderAlert(normalized);
+    });
+
     socketRef.current.on('play_notification_sound', (data) => {
       const normalizedData = {
         orderId: data?.orderId || data?.order_id,

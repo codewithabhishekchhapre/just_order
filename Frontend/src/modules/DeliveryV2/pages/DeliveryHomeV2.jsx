@@ -13,7 +13,14 @@ import LocationPermissionModal from '@/modules/DeliveryV2/components/modals/Loca
 import { useGeoPermission } from '@core/location/useGeoPermission';
 import { PickupActionModal } from '@/modules/DeliveryV2/components/modals/PickupActionModal';
 import { DeliveryVerificationModal } from '@/modules/DeliveryV2/components/modals/DeliveryVerificationModal';
+import TaxiRideActionModal from '@/modules/DeliveryV2/components/modals/TaxiRideActionModal';
 import { isReturnPickupTrip, getReturnPickupStopLabels, enrichReturnDeliveryOrder } from '@/modules/DeliveryV2/utils/orderRouting';
+import {
+  buildTaxiActiveOrder,
+  isTaxiActiveOrder,
+  mapTaxiRideStatusToTripStatus,
+} from '@/modules/DeliveryV2/utils/taxiRideFlow';
+import { taxiPartnerApi } from '@/modules/taxi/services/api';
 import { OrderSummaryModal } from '@/modules/DeliveryV2/components/modals/OrderSummaryModal';
 import ActionSlider from '@/modules/DeliveryV2/components/ui/ActionSlider';
 import VehicleSwitcherSheet from '@/modules/DeliveryV2/components/modals/VehicleSwitcherSheet';
@@ -269,7 +276,8 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
     return Boolean(useDeliveryStore.getState().resolveActiveVehicleId());
   }, [seedVehicleFromProfile]);
   const { isWithinRange, distanceToTarget } = useProximityCheck();
-  const { acceptOrder, reachPickup, pickUpOrder, reachDrop, completeDelivery, resetTrip } = useOrderManager();
+  const { acceptOrder, reachPickup, pickUpOrder, reachDrop, completeDelivery, resetTrip, taxiArrivePickup, taxiStartTrip, taxiCompleteTrip } = useOrderManager();
+  const isTaxiTrip = isTaxiActiveOrder(activeOrder);
   const realtime = useDeliveryRealtimeOptional();
   const {
     newOrder,
@@ -544,7 +552,12 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                   lat, 
                   lng, 
                   heading, 
-                  orderId: activeOrder?.orderId || activeOrder?._id,
+                  orderId:
+                    activeOrder?.rideId ||
+                    activeOrder?._id ||
+                    activeOrder?.id ||
+                    activeOrder?.orderId,
+                  userId: activeOrder?.userId || null,
                   status: 'on_the_way',
                  polyline: activePolyline, // Include polyline in every stream update for resilience
                  eta,
@@ -615,10 +628,31 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
     setIsModalMinimized(false);
   }, [tripStatus, showVerification, incomingOrder]);
 
+  // Remap legacy taxi tripStatus values from earlier builds
+  useEffect(() => {
+    if (!isTaxiTrip) return;
+    if (tripStatus === 'to_pickup') updateTripStatus('PICKING_UP');
+    else if (tripStatus === 'at_pickup') updateTripStatus('REACHED_PICKUP');
+    else if (tripStatus === 'to_drop' || tripStatus === 'in_trip') updateTripStatus('PICKED_UP');
+  }, [isTaxiTrip, tripStatus, updateTripStatus]);
+
   // 1. Initial Sync (Force sync with server to avoid 'stuck' persistent state)
   useEffect(() => {
     const syncWithServer = async () => {
       try {
+        // Prefer active taxi ride when partner is on a taxi trip / taxi module.
+        try {
+          const taxiRide = await taxiPartnerApi.getActiveRide();
+          if (taxiRide?.id || taxiRide?._id) {
+            const active = buildTaxiActiveOrder(taxiRide);
+            setActiveOrder(active);
+            updateTripStatus(mapTaxiRideStatusToTripStatus(taxiRide.status));
+            return;
+          }
+        } catch (taxiErr) {
+          // ignore — fall through to food current delivery
+        }
+
         const response = await deliveryAPI.getCurrentDelivery();
         const rawData = response?.data?.data?.activeOrder || response?.data?.data;
         const serverData = (rawData && (rawData._id || rawData.orderId)) ? rawData : null;
@@ -682,11 +716,16 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
             updateTripStatus('PICKING_UP');
           }
         } else {
-          clearActiveOrder();
+          // Don't wipe an in-memory taxi trip if food has nothing active
+          if (!isTaxiActiveOrder(useDeliveryStore.getState().activeOrder)) {
+            clearActiveOrder();
+          }
         }
       } catch (err) { 
         console.error('Order Sync Failed:', err); 
-        clearActiveOrder();
+        if (!isTaxiActiveOrder(useDeliveryStore.getState().activeOrder)) {
+          clearActiveOrder();
+        }
       }
     };
     syncWithServer();
@@ -741,7 +780,7 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
           lastAutoArrivalRef.current[tripStatus] = true;
           reachPickup().catch(() => { lastAutoArrivalRef.current[tripStatus] = false; });
           // toast.success('Auto-arrived at Restaurant');
-        } else if (tripStatus === 'PICKED_UP') {
+        } else if (tripStatus === 'PICKED_UP' && !isTaxiActiveOrder(activeOrder)) {
           lastAutoArrivalRef.current[tripStatus] = true;
           reachDrop().catch(() => { lastAutoArrivalRef.current[tripStatus] = false; });
           // toast.success('Auto-arrived at Customer');
@@ -768,7 +807,12 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
             heading: heading || 0,
             speed: speed || 0,
             accuracy: pos.coords.accuracy,
-            orderId: activeOrder?.orderId || activeOrder?._id,
+            orderId:
+              activeOrder?.rideId ||
+              activeOrder?._id ||
+              activeOrder?.id ||
+              activeOrder?.orderId,
+            userId: activeOrder?.userId || null,
             status: 'on_the_way',
             polyline: activePolyline,
             eta,
@@ -1291,6 +1335,25 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
               className="fixed inset-x-0 top-0 bottom-0 z-[300] pointer-events-none flex items-end"
             >
               <div className="w-full pointer-events-auto relative">
+                {isTaxiTrip ? (
+                  (tripStatus === 'PICKING_UP' ||
+                    tripStatus === 'REACHED_PICKUP' ||
+                    tripStatus === 'PICKED_UP' ||
+                    tripStatus === 'REACHED_DROP') && (
+                    <TaxiRideActionModal
+                      order={activeOrder}
+                      status={tripStatus}
+                      isWithinRange={isWithinRange}
+                      distanceToTarget={distanceToTarget}
+                      eta={eta}
+                      onArrivedPickup={taxiArrivePickup}
+                      onStartTrip={taxiStartTrip}
+                      onCompleteTrip={taxiCompleteTrip}
+                      onMinimize={() => setIsModalMinimized(true)}
+                    />
+                  )
+                ) : (
+                  <>
                 {(tripStatus === 'PICKING_UP' || tripStatus === 'REACHED_PICKUP') && (
                   <PickupActionModal 
                     order={activeOrder} 
@@ -1385,6 +1448,8 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                     onClose={() => setShowVerification(false)}
                   />
                 )}
+                  </>
+                )}
                 {tripStatus === 'COMPLETED' && <OrderSummaryModal order={activeOrder} onDone={resetTrip} />}
               </div>
             </motion.div>
@@ -1428,8 +1493,12 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
             className="w-full bg-slate-900/95 text-white rounded-2xl py-3.5 flex items-center justify-between px-5 shadow-2xl backdrop-blur-md border border-white/10"
           >
             <div className="flex flex-col items-start gap-0.5">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Order action pending</span>
-              <span className="text-xs font-semibold">Tap to open delivery panel</span>
+              <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                {isTaxiTrip ? 'Ride action pending' : 'Order action pending'}
+              </span>
+              <span className="text-xs font-semibold">
+                {isTaxiTrip ? 'Tap to open ride panel' : 'Tap to open delivery panel'}
+              </span>
             </div>
             <div className="bg-primary-orange p-2 rounded-xl text-white">
               <Plus className="w-5 h-5" />

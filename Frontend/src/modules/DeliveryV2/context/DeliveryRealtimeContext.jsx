@@ -35,6 +35,8 @@ function getOfferKeys(orderLike = {}) {
     orderLike?._id,
     orderLike?.id,
     orderLike?.orderId,
+    orderLike?.rideId,
+    orderLike?.tripId,
     orderLike?.returnId,
     orderLike?.dispatchLeg?.legId,
   ]
@@ -54,7 +56,13 @@ function driverCanReceiveOffer(order) {
   // Vehicle/profile not seeded yet — don't drop offers preemptively
   if (!available.length) return true;
   const moduleKey = getOfferModuleKey(order);
-  return available.includes(moduleKey);
+  if (!available.includes(moduleKey)) return false;
+  // Respect active work tab — backend also filters; this is defense-in-depth
+  const active = store.activeModule
+    ? normalizeDriverModuleKey(store.activeModule)
+    : null;
+  if (active && active !== moduleKey) return false;
+  return true;
 }
 
 function normalizeIncomingOffer(order) {
