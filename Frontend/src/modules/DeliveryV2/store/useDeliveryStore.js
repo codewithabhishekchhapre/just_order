@@ -1,24 +1,14 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-
-/**
- * @typedef {Object} Location
- * @property {number} lat
- * @property {number} lng
- */
-
-/**
- * @typedef {Object} ActiveOrder
- * @property {string} orderId
- * @property {string} status
- * @property {Location} restaurantLocation
- * @property {Location} customerLocation
- * @property {number} orderAmount
- */
+import {
+  getApprovedModulesFromEnrollments,
+  normalizeDriverModuleKey,
+  orderSwitcherEnrollments,
+} from '@/modules/DeliveryV2/utils/driverModuleAccess'
 
 /**
  * useDeliveryStore - Professional Zustand store for Delivery V2
- * Handles Trip Lifecycle, Rider Status, and Admin Settings.
+ * Handles Trip Lifecycle, Rider Status, Module Context, and Admin Settings.
  */
 export const useDeliveryStore = create(
   persist(
@@ -28,7 +18,11 @@ export const useDeliveryStore = create(
       riderLocation: null, // { lat, lng }
       activeVehicleId: null, // string | null
       driverVehicles: [], // array of vehicle objects
-      
+
+      // --- Active work module (Food / Taxi / Porter / …) ---
+      activeModule: null, // string | null — last selected approved module
+      moduleEnrollments: [], // applied enrollments for switcher + profile
+
       // --- Trip State ---
       activeOrder: null, // ActiveOrder | null
       tripStatus: 'IDLE', // 'IDLE' | 'PICKING_UP' | 'REACHED_PICKUP' | 'PICKED_UP' | 'DELIVERING' | 'REACHED_DROP' | 'COMPLETED'
@@ -54,6 +48,38 @@ export const useDeliveryStore = create(
         return pick?.vehicleId || pick?.id || null;
       },
 
+      resolveActiveModule: (state = get()) => {
+        const approved = getApprovedModulesFromEnrollments(state.moduleEnrollments);
+        if (!approved.length) {
+          // Fall back to vehicle-supported services before enrollments hydrate
+          const vehicle = (() => {
+            const id = state.activeVehicleId;
+            const list = state.driverVehicles || [];
+            if (!id || !list.length) return null;
+            return list.find((v) => v.vehicleId === id || v.id === id) || null;
+          })();
+          const fromVehicle =
+            vehicle?.supportedServices ||
+            vehicle?.master?.supportedServices ||
+            [];
+          const normalized = (Array.isArray(fromVehicle) ? fromVehicle : []).map(
+            (k) => normalizeDriverModuleKey(k),
+          );
+          if (
+            state.activeModule &&
+            normalized.includes(normalizeDriverModuleKey(state.activeModule))
+          ) {
+            return normalizeDriverModuleKey(state.activeModule);
+          }
+          return normalized[0] || null;
+        }
+        const current = state.activeModule
+          ? normalizeDriverModuleKey(state.activeModule)
+          : null;
+        if (current && approved.includes(current)) return current;
+        return approved[0] || null;
+      },
+
       toggleOnline: () => set((state) => {
         if (!state.isOnline) {
           const vehicleId = get().resolveActiveVehicleId(state);
@@ -61,7 +87,8 @@ export const useDeliveryStore = create(
             console.warn("Cannot go online without an active vehicle");
             return state;
           }
-          return { isOnline: true, activeVehicleId: vehicleId };
+          const activeModule = get().resolveActiveModule(state);
+          return { isOnline: true, activeVehicleId: vehicleId, activeModule };
         }
         return { isOnline: false };
       }),
@@ -73,7 +100,8 @@ export const useDeliveryStore = create(
             console.warn("Cannot go online without an active vehicle");
             return state;
           }
-          return { isOnline: true, activeVehicleId: vehicleId };
+          const activeModule = get().resolveActiveModule(state);
+          return { isOnline: true, activeVehicleId: vehicleId, activeModule };
         }
         return { isOnline: false };
       }),
@@ -97,6 +125,56 @@ export const useDeliveryStore = create(
         }
         set({ activeVehicleId: id });
         return true;
+      },
+
+      /**
+       * Seed / refresh enrollments from profile. Auto-repairs activeModule
+       * when the previous selection is no longer approved.
+       */
+      setModuleEnrollments: (enrollments) => {
+        const list = orderSwitcherEnrollments(
+          Array.isArray(enrollments) ? enrollments : [],
+        );
+        const state = get();
+        const nextActive = get().resolveActiveModule({
+          ...state,
+          moduleEnrollments: list,
+        });
+        set({
+          moduleEnrollments: list,
+          activeModule: nextActive,
+        });
+      },
+
+      /**
+       * Switch the active work module (Food / Taxi / …).
+       * @returns {{ ok: boolean, reason?: string, module?: string }}
+       */
+      setActiveModule: (moduleKey, { force = false } = {}) => {
+        const state = get();
+        const key = normalizeDriverModuleKey(moduleKey);
+        if (!key) return { ok: false, reason: "invalid" };
+
+        if (state.isOnline && !force) {
+          return { ok: false, reason: "online" };
+        }
+        if (state.activeOrder && !force) {
+          return { ok: false, reason: "active_trip" };
+        }
+
+        const approved = getApprovedModulesFromEnrollments(state.moduleEnrollments);
+        const enrollment = (state.moduleEnrollments || []).find(
+          (item) => normalizeDriverModuleKey(item.module) === key,
+        );
+        if (enrollment && enrollment.status !== "approved") {
+          return { ok: false, reason: enrollment.status || "pending" };
+        }
+        if (approved.length && !approved.includes(key)) {
+          return { ok: false, reason: "not_approved" };
+        }
+
+        set({ activeModule: key });
+        return { ok: true, module: key };
       },
       
       setRiderLocation: (location) => set({ riderLocation: location }),
@@ -135,24 +213,47 @@ export const useDeliveryStore = create(
         return driverVehicles.find(v => v.vehicleId === activeVehicleId || v.id === activeVehicleId) || null;
       },
 
-      getAvailableModules: () => {
+      /** All approved modules the driver can work in. */
+      getAuthorizedModules: () => {
+        const fromEnrollments = getApprovedModulesFromEnrollments(
+          get().moduleEnrollments,
+        );
+        if (fromEnrollments.length) return fromEnrollments;
         const activeVehicle = get().getActiveVehicle();
         if (!activeVehicle) return [];
-        // Support either a nested master vehicle object or a flat supportedServices array
-        return activeVehicle.supportedServices || (activeVehicle.master && activeVehicle.master.supportedServices) || [];
+        const services =
+          activeVehicle.supportedServices ||
+          (activeVehicle.master && activeVehicle.master.supportedServices) ||
+          [];
+        return (Array.isArray(services) ? services : []).map((k) =>
+          normalizeDriverModuleKey(k),
+        );
+      },
+
+      /**
+       * Modules that should receive offers right now.
+       * Scoped to the selected active module for production multi-service drivers.
+       */
+      getAvailableModules: () => {
+        const active = get().resolveActiveModule();
+        if (active) return [active];
+        return get().getAuthorizedModules();
       },
 
       getCurrentModule: () => {
         const { activeOrder } = get();
-        return activeOrder?.module || 'food'; // Default fallback
-      }
+        if (activeOrder?.module) {
+          return normalizeDriverModuleKey(activeOrder.module);
+        }
+        return get().resolveActiveModule() || "food";
+      },
     }),
     {
       name: 'delivery-v2-online-pref',
-      // ONLY persist the 'isOnline' and 'activeVehicleId' state
       partialize: (state) => ({ 
         isOnline: state.isOnline,
-        activeVehicleId: state.activeVehicleId
+        activeVehicleId: state.activeVehicleId,
+        activeModule: state.activeModule,
       }),
     }
   )

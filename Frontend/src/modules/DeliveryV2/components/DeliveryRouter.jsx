@@ -51,6 +51,8 @@ const OTP = lazy(() => import("@food/pages/delivery/auth/OTP"))
 const Signup = lazy(() => import("@food/pages/delivery/auth/Signup"))
 const SignupStep1 = lazy(() => import("@food/pages/delivery/auth/SignupStep1"))
 const SignupStep2 = lazy(() => import("@food/pages/delivery/auth/SignupStep2"))
+const SignupStepAddress = lazy(() => import("../pages/auth/SignupStepAddress"))
+const SignupStepReview = lazy(() => import("../pages/auth/SignupStepReview"))
 
 export default function DeliveryRouter() {
   return (
@@ -62,7 +64,9 @@ export default function DeliveryRouter() {
         <Route path="otp" element={<OTP />} />
         <Route path="signup" element={<Signup />} />
         <Route path="signup/details" element={<SignupStep1 />} />
+        <Route path="signup/address" element={<SignupStepAddress />} />
         <Route path="signup/documents" element={<SignupStep2 />} />
+        <Route path="signup/review" element={<SignupStepReview />} />
         {/* Protected routes - require authentication */}
         <Route
           path="/"

@@ -28,6 +28,7 @@ const MapPicker = ({
   initialLocation = null,
   zoneCoordinates = [],
   zoneLabel = "",
+  title = "Select Shop Location",
 }) => {
   const [center, setCenter] = useState(initialLocation || defaultCenter);
   const [marker, setMarker] = useState(initialLocation);
@@ -214,7 +215,7 @@ const MapPicker = ({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Select Shop Location"
+      title={title}
       size="lg"
       footer={
         <div className="flex justify-between w-full items-center">

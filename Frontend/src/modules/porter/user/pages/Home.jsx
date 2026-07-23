@@ -1,7 +1,15 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Package, MapPin, ChevronRight, Bell, Shield, Clock, Search } from "lucide-react";
+import {
+  Package,
+  MapPin,
+  ChevronRight,
+  Bell,
+  Shield,
+  Clock,
+  Search,
+} from "lucide-react";
 import MapPreview from "../components/MapPreview";
 import PorterBottomNav from "../components/layout/BottomNav";
 import { PrimaryButton, SectionLabel, inr } from "../components/ui";
@@ -23,7 +31,9 @@ export default function Home({ embedded = false }) {
   const featuredVehicles = DELIVERY_VEHICLES.slice(0, 4);
 
   return (
-    <div className={`min-h-screen bg-[#FAF7F2] dark:bg-[#0a0a0a] ${embedded ? "pb-24" : "pb-28"}`}>
+    <div
+      className={`min-h-screen bg-[#FAF7F2] dark:bg-[#0a0a0a] ${embedded ? "pb-24" : "pb-28"}`}
+    >
       <header className="sticky top-0 z-40 bg-white/90 dark:bg-[#1a1a1a]/90 backdrop-blur-md border-b border-gray-100 dark:border-white/10">
         <div className="px-4 py-3">
           <div className="flex w-full items-center relative">
@@ -38,15 +48,25 @@ export default function Home({ embedded = false }) {
       </header>
 
       <main className="px-4 py-4 space-y-5">
-        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="overflow-hidden rounded-2xl bg-white shadow-sm">
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="overflow-hidden rounded-2xl bg-white shadow-sm"
+        >
           <MapPreview height={160} showRoute pin />
           <div className="p-4">
             <div className="mb-3 flex items-start gap-2">
               <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-[#2e7d32]" />
               <div className="min-w-0">
-                <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Pickup</p>
-                <p className="truncate text-[14px] font-bold text-gray-900">{pickup.title}</p>
-                <p className="truncate text-[12px] text-gray-500">{pickup.address}</p>
+                <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">
+                  Pickup
+                </p>
+                <p className="truncate text-[14px] font-bold text-gray-900">
+                  {pickup.title}
+                </p>
+                <p className="truncate text-[12px] text-gray-500">
+                  {pickup.address}
+                </p>
               </div>
             </div>
             <PrimaryButton onClick={() => navigate(getPorterAddressPath())}>
@@ -69,11 +89,17 @@ export default function Home({ embedded = false }) {
                 <div className="mb-2 flex items-center gap-2">
                   <span className="text-xl">{v.icon}</span>
                   <div>
-                    <p className="text-[13px] font-bold text-gray-900">{v.name}</p>
-                    <p className="text-[10px] text-gray-500">Up to {v.maxWeightKg} kg</p>
+                    <p className="text-[13px] font-bold text-gray-900">
+                      {v.name}
+                    </p>
+                    <p className="text-[10px] text-gray-500">
+                      Up to {v.maxWeightKg} kg
+                    </p>
                   </div>
                 </div>
-                <p className="text-[11px] text-gray-500 line-clamp-2">{v.tagline}</p>
+                <p className="text-[11px] text-gray-500 line-clamp-2">
+                  {v.tagline}
+                </p>
               </button>
             ))}
           </div>
@@ -83,10 +109,15 @@ export default function Home({ embedded = false }) {
           <SectionLabel>Offers for you</SectionLabel>
           <div className="space-y-2">
             {OFFERS.map((o) => (
-              <div key={o.id} className="flex items-center gap-3 rounded-2xl border border-[#FF6A00]/10 bg-[#FFF1F1] p-3">
+              <div
+                key={o.id}
+                className="flex items-center gap-3 rounded-2xl border border-[#FF6A00]/10 bg-[#FFF1F1] p-3"
+              >
                 <span className="text-2xl">{o.icon}</span>
                 <div className="min-w-0 flex-1">
-                  <p className="text-[13px] font-bold text-gray-900">{o.title}</p>
+                  <p className="text-[13px] font-bold text-gray-900">
+                    {o.title}
+                  </p>
                   <p className="text-[11px] text-gray-600">{o.subtitle}</p>
                 </div>
                 <ChevronRight className="h-4 w-4 shrink-0 text-[#FF6A00]" />
@@ -98,7 +129,11 @@ export default function Home({ embedded = false }) {
         <section>
           <div className="mb-2 flex items-center justify-between">
             <SectionLabel className="mb-0">Recent shipments</SectionLabel>
-            <button type="button" onClick={() => navigate("/porter/shipments")} className="text-[12px] font-bold text-[#FF6A00]">
+            <button
+              type="button"
+              onClick={() => navigate("/porter/shipments")}
+              className="text-[12px] font-bold text-[#FF6A00]"
+            >
               View all
             </button>
           </div>
@@ -114,12 +149,20 @@ export default function Home({ embedded = false }) {
                   <Package className="h-5 w-5 text-[#FF6A00]" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-[13px] font-bold text-gray-900">{s.delivery.title} · {s.trackingId}</p>
-                  <p className="truncate text-[11px] text-gray-500">{s.vehicle} · {s.weightKg} kg</p>
+                  <p className="truncate text-[13px] font-bold text-gray-900">
+                    {s.delivery.title} · {s.trackingId}
+                  </p>
+                  <p className="truncate text-[11px] text-gray-500">
+                    {s.vehicle} · {s.weightKg} kg
+                  </p>
                 </div>
                 <div className="text-right">
-                  <p className="text-[13px] font-bold text-gray-900">{inr(s.total)}</p>
-                  <p className={`text-[10px] font-bold capitalize ${s.status === "delivered" ? "text-[#2e7d32]" : s.status === "cancelled" ? "text-gray-400" : "text-amber-600"}`}>
+                  <p className="text-[13px] font-bold text-gray-900">
+                    {inr(s.total)}
+                  </p>
+                  <p
+                    className={`text-[10px] font-bold capitalize ${s.status === "delivered" ? "text-[#2e7d32]" : s.status === "cancelled" ? "text-gray-400" : "text-amber-600"}`}
+                  >
                     {s.status.replace("_", " ")}
                   </p>
                 </div>

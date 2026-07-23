@@ -58,13 +58,15 @@ export function notifyNetworkStatus(code, force = false) {
   }
   const message = getFriendlyMessageForCode(code);
   const key = `status::${code}`;
-  if (!force && !shouldShow(key, 8000)) return false;
+  // Slow-network: 2 min cooldown so multi-request flows don't spam
+  const ttlMs = code === ApiErrorCode.SLOW_NETWORK ? 120000 : 8000;
+  if (!force && !shouldShow(key, ttlMs)) return false;
   if (code === ApiErrorCode.OFFLINE) {
     toast.error(message, { id: "network-offline", duration: Infinity });
     return true;
   }
   if (code === ApiErrorCode.SLOW_NETWORK) {
-    toast.message(message, { id: "network-slow", duration: 3500 });
+    toast.message(message, { id: "network-slow", duration: 2500 });
     return true;
   }
   toast.message(message, { id: `network-${code}`, duration: 3000 });

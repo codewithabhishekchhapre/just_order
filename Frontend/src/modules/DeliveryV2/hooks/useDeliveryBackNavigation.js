@@ -26,6 +26,7 @@ const resolveDeliveryBackPath = ({ pathname, state }) => {
   const explicitBackPath = toDeliveryPath(state?.backTo) || toDeliveryPath(state?.from)
 
   if (normalizedPath === "/signup/details") return "/food/delivery/login"
+  if (normalizedPath === "/signup/address") return "/food/delivery/signup/details"
   if (normalizedPath === "/signup/documents") {
     try {
       const requested = JSON.parse(sessionStorage.getItem("deliveryDocumentsRequested") || "[]")
@@ -35,8 +36,9 @@ const resolveDeliveryBackPath = ({ pathname, state }) => {
     } catch {
       /* ignore */
     }
-    return "/food/delivery/signup/details"
+    return "/food/delivery/signup/address"
   }
+  if (normalizedPath === "/signup/review") return "/food/delivery/signup/documents"
   if (normalizedPath === "/otp") return explicitBackPath || "/food/delivery/login"
   if (normalizedPath === "/terms") return explicitBackPath || "/food/delivery/signup"
 

@@ -18,8 +18,12 @@ import {
 import { notifyApiError } from "./networkToast.js";
 import { isOnline } from "./networkMonitor.js";
 
-const SLOW_THRESHOLD_MS = 4500;
+const SLOW_THRESHOLD_MS = 15000;
 const MAX_GET_RETRIES = 2;
+
+/** Session-wide latch so concurrent slow requests don't toast-storm */
+let lastSlowNetworkToastAt = 0;
+const SLOW_NETWORK_TOAST_COOLDOWN_MS = 120000;
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -34,12 +38,19 @@ export function clearRequestWatchers(config) {
 
 /**
  * Attach slow-network detection on the request config.
+ * Skips multipart uploads and background calls — those are expected to take longer.
  */
 export function attachSlowNetworkWatcher(config, onSlow) {
   if (!config || config.skipSlowWarning || config.background) return config;
+  if (typeof FormData !== "undefined" && config.data instanceof FormData) {
+    return config;
+  }
   clearRequestWatchers(config);
   config.__slowTimer = setTimeout(() => {
     if (!isOnline()) return;
+    const now = Date.now();
+    if (now - lastSlowNetworkToastAt < SLOW_NETWORK_TOAST_COOLDOWN_MS) return;
+    lastSlowNetworkToastAt = now;
     onSlow?.();
   }, Number(config.slowThresholdMs) || SLOW_THRESHOLD_MS);
   return config;
@@ -48,6 +59,16 @@ export function attachSlowNetworkWatcher(config, onSlow) {
 function shouldAutoNotify(error, normalized) {
   if (normalized.silent) return false;
   if (error?.config?.skipErrorToast || error?.config?.silent || error?.config?.background) {
+    return false;
+  }
+  // Expected while onboarding-scoped tokens hit work APIs — never toast these.
+  const serverMsg = String(
+    error?.response?.data?.message || error?.normalized?.message || "",
+  );
+  if (
+    normalized.code === ApiErrorCode.FORBIDDEN &&
+    /module approval|Module access requires approval/i.test(serverMsg)
+  ) {
     return false;
   }
   const autoCodes = new Set([

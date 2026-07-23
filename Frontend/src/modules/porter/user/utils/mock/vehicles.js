@@ -109,17 +109,29 @@ export function getVehicleById(id) {
   return DELIVERY_VEHICLES.find((v) => v.id === id) || DELIVERY_VEHICLES[2];
 }
 
-export function estimateDeliveryCost(vehicleId, distanceKm = 8.2, durationMin = 26) {
+export function estimateDeliveryCost(
+  vehicleId,
+  distanceKm = 8.2,
+  durationMin = 26,
+) {
   const v = getVehicleById(vehicleId);
   const raw = v.baseFare + distanceKm * v.perKm + durationMin * v.perMin;
   return Math.round(raw * (v.surge || 1));
 }
 
 export function recommendVehicle(weightKg = 20) {
-  const eligible = DELIVERY_VEHICLES.filter(v => weightKg >= v.minWeightKg && weightKg <= v.maxWeightKg);
+  const eligible = DELIVERY_VEHICLES.filter(
+    (v) => weightKg >= v.minWeightKg && weightKg <= v.maxWeightKg,
+  );
   if (eligible.length > 0) {
-    return eligible.reduce((prev, curr) => (prev.baseFare < curr.baseFare ? prev : curr));
+    return eligible.reduce((prev, curr) =>
+      prev.baseFare < curr.baseFare ? prev : curr,
+    );
   }
-  const sorted = [...DELIVERY_VEHICLES].sort((a, b) => a.maxWeightKg - b.maxWeightKg);
-  return sorted.find((v) => v.maxWeightKg >= weightKg) || sorted[sorted.length - 1];
+  const sorted = [...DELIVERY_VEHICLES].sort(
+    (a, b) => a.maxWeightKg - b.maxWeightKg,
+  );
+  return (
+    sorted.find((v) => v.maxWeightKg >= weightKg) || sorted[sorted.length - 1]
+  );
 }

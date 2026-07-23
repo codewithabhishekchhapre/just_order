@@ -14,6 +14,7 @@ import BottomNavigation from "./BottomNavigation"
 import DesktopNavbar from "./DesktopNavbar"
 import QuickBottomNav from "@/modules/quickCommerce/user/components/layout/BottomNav"
 import PorterBottomNav from "@/modules/porter/user/components/layout/BottomNav"
+import TaxiBottomNav from "@/modules/taxi/user/components/layout/BottomNav"
 import { useUserNotifications } from "../../hooks/useUserNotifications"
 
 // Create SearchOverlay context with default value
@@ -141,14 +142,21 @@ export default function UserLayout({ children }) {
     normalizedPath === "/profile" &&
     profileSource === "porter"
 
+  const isSharedTaxiProfile =
+    normalizedPath === "/profile" &&
+    profileSource === "taxi"
+
   const isSharedFoodProfile =
     normalizedPath === "/profile" &&
     profileSource !== "quick" &&
-    profileSource !== "porter"
+    profileSource !== "porter" &&
+    profileSource !== "taxi"
 
   const isProfileRoot =
     normalizedPath === "/user/profile" ||
     isSharedFoodProfile
+
+  const isTaxiHome = normalizedPath === "/taxi"
 
   const showBottomNav = normalizedPath === "/" ||
     normalizedPath === "/user" ||
@@ -160,7 +168,12 @@ export default function UserLayout({ children }) {
     normalizedPath === "" // Handle empty string case for root relative to /food
 
   const isUnder250 = normalizedPath === "/under-250" || normalizedPath === "/user/under-250"
-  const showFoodBottomNav = showBottomNav && !isSharedQuickProfile && !isSharedPorterProfile
+  const showFoodBottomNav =
+    showBottomNav &&
+    !isSharedQuickProfile &&
+    !isSharedPorterProfile &&
+    !isSharedTaxiProfile &&
+    !isTaxiHome
 
   return (
     <div className="min-h-screen bg-[#f5f5f5] dark:bg-[#0a0a0a] transition-colors duration-200">
@@ -174,13 +187,14 @@ export default function UserLayout({ children }) {
                   <div className="hidden md:block">
                     {showFoodBottomNav && <DesktopNavbar showLogo={!isUnder250} />}
                   </div>
-                  <LocationPrompt />
+                  {!isTaxiHome && !isSharedTaxiProfile ? <LocationPrompt /> : null}
                   <main className={showFoodBottomNav ? "md:pt-40" : ""}>
                     {children || <Outlet />}
                   </main>
                   {showFoodBottomNav && <BottomNavigation />}
                   {isSharedQuickProfile && <QuickBottomNav />}
                   {isSharedPorterProfile && <PorterBottomNav />}
+                  {isSharedTaxiProfile && <TaxiBottomNav />}
                 </LocationSelectorProvider>
               </SearchOverlayProvider>
           </OrdersProvider>

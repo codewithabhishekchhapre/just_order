@@ -21,6 +21,11 @@ import {
   getDeliveryDocumentId,
   normalizePickupPoints,
 } from "@/modules/DeliveryV2/utils/orderRouting";
+import {
+  isDeliveryWorkFeaturesBlocked,
+  normalizeDriverModuleKey,
+} from "@/modules/DeliveryV2/utils/driverModuleAccess";
+import { useLocation } from "react-router-dom";
 
 const DeliveryRealtimeContext = createContext(null);
 
@@ -35,6 +40,21 @@ function getOfferKeys(orderLike = {}) {
   ]
     .map((v) => (v == null ? "" : String(v).trim()))
     .filter(Boolean);
+}
+
+function getOfferModuleKey(order = {}) {
+  return normalizeDriverModuleKey(
+    order?.module || order?.sourceType || order?.serviceType || "food",
+  );
+}
+
+function driverCanReceiveOffer(order) {
+  const store = useDeliveryStore.getState();
+  const available = store.getAvailableModules?.() || [];
+  // Vehicle/profile not seeded yet — don't drop offers preemptively
+  if (!available.length) return true;
+  const moduleKey = getOfferModuleKey(order);
+  return available.includes(moduleKey);
 }
 
 function normalizeIncomingOffer(order) {
@@ -57,15 +77,19 @@ export function DeliveryRealtimeProvider({ children }) {
   const notifications = useDeliveryNotifications();
   const { acceptOrder } = useOrderManager();
   const activeOrder = useDeliveryStore((s) => s.activeOrder);
+  const activeModule = useDeliveryStore((s) => s.activeModule);
 
   const [queue, setQueue] = useState([]);
   const [isMinimized, setIsMinimized] = useState(false);
+  const [offersLoading, setOffersLoading] = useState(true);
+  const [offersError, setOffersError] = useState(null);
   const seenIdsRef = useRef(new Set());
   const queueRef = useRef([]);
 
   const enqueueOffer = useCallback((rawOrder) => {
     const order = normalizeIncomingOffer(rawOrder);
     if (!order) return;
+    if (!driverCanReceiveOffer(order)) return;
     const keys = getOfferKeys(order);
     if (!keys.length) return;
     if (keys.some((k) => seenIdsRef.current.has(k))) return;
@@ -90,45 +114,63 @@ export function DeliveryRealtimeProvider({ children }) {
     }
   }, [notifications.newOrder, enqueueOffer]);
 
-  // One-shot catch-up so deep pages still surface open offers after login/refresh.
-  useEffect(() => {
-    let cancelled = false;
-    const hydrate = async () => {
-      try {
-        const availableResponse = await deliveryAPI.getOrders({ limit: 20, page: 1 });
-        const availablePayload =
-          availableResponse?.data?.data || availableResponse?.data || {};
-        const availableOrders = Array.isArray(availablePayload?.docs)
-          ? availablePayload.docs
-          : Array.isArray(availablePayload?.items)
-            ? availablePayload.items
-            : Array.isArray(availablePayload)
-              ? availablePayload
-              : [];
-        if (cancelled) return;
-        availableOrders
-          .filter((order) => {
-            const dispatchStatus = String(order?.dispatch?.status || "").toLowerCase();
-            const orderStatus = String(
-              order?.orderStatus || order?.status || "",
-            ).toLowerCase();
-            return (
-              ["unassigned", "assigned"].includes(dispatchStatus) &&
-              ["confirmed", "preparing", "ready_for_pickup", "return_approved", "return_pickup_assigned"].includes(
-                orderStatus,
-              )
-            );
-          })
-          .forEach((order) => enqueueOffer(order));
-      } catch {
-        // non-blocking
-      }
-    };
-    hydrate();
-    return () => {
-      cancelled = true;
-    };
+  const refreshOffers = useCallback(async () => {
+    setOffersLoading(true);
+    setOffersError(null);
+    try {
+      const availableResponse = await deliveryAPI.getOrders({
+        limit: 20,
+        page: 1,
+      });
+      const availablePayload =
+        availableResponse?.data?.data || availableResponse?.data || {};
+      const availableOrders = Array.isArray(availablePayload?.docs)
+        ? availablePayload.docs
+        : Array.isArray(availablePayload?.items)
+          ? availablePayload.items
+          : Array.isArray(availablePayload)
+            ? availablePayload
+            : [];
+      availableOrders
+        .filter((order) => {
+          const dispatchStatus = String(
+            order?.dispatch?.status || "",
+          ).toLowerCase();
+          const orderStatus = String(
+            order?.orderStatus || order?.status || "",
+          ).toLowerCase();
+          return (
+            ["unassigned", "assigned"].includes(dispatchStatus) &&
+            [
+              "confirmed",
+              "preparing",
+              "ready_for_pickup",
+              "return_approved",
+              "return_pickup_assigned",
+            ].includes(orderStatus)
+          );
+        })
+        .forEach((order) => enqueueOffer(order));
+    } catch (error) {
+      setOffersError(
+        error?.response?.data?.message ||
+          error?.message ||
+          "Failed to load nearby requests",
+      );
+    } finally {
+      setOffersLoading(false);
+    }
   }, [enqueueOffer]);
+
+  // Catch-up + re-scope when the selected work module changes (incl. first hydrate).
+  useEffect(() => {
+    setQueue((prev) => {
+      const next = prev.filter((order) => driverCanReceiveOffer(order));
+      queueRef.current = next;
+      return next;
+    });
+    void refreshOffers();
+  }, [activeModule, refreshOffers]);
 
   // Clear offer when driver already has an active trip, or status leaves offerable state.
   useEffect(() => {
@@ -250,7 +292,11 @@ export function DeliveryRealtimeProvider({ children }) {
     () => ({
       ...notifications,
       incomingOrder,
+      offerQueue: queue,
       queueLength: queue.length,
+      offersLoading,
+      offersError,
+      refreshOffers,
       isMinimized,
       setIsMinimized,
       acceptIncoming,
@@ -261,7 +307,10 @@ export function DeliveryRealtimeProvider({ children }) {
     [
       notifications,
       incomingOrder,
-      queue.length,
+      queue,
+      offersLoading,
+      offersError,
+      refreshOffers,
       isMinimized,
       acceptIncoming,
       rejectIncoming,
@@ -288,10 +337,23 @@ export function DeliveryRealtimeProvider({ children }) {
   );
 }
 
-/** Mount socket+popup only for authenticated delivery sessions. */
+/** Mount socket+popup only for authenticated delivery sessions with work access. */
 export function DeliveryRealtimeGate({ children }) {
   const authenticated = isModuleAuthenticated("delivery");
-  if (!authenticated) return children;
+  const location = useLocation();
+  const path = String(location?.pathname || "");
+  const isAuthOrOnboardingPath =
+    /\/food\/delivery\/(welcome|login|auth\/login|otp|signup|verification)(\/|$)/.test(
+      path,
+    );
+
+  if (
+    !authenticated ||
+    isAuthOrOnboardingPath ||
+    isDeliveryWorkFeaturesBlocked()
+  ) {
+    return children;
+  }
   return <DeliveryRealtimeProvider>{children}</DeliveryRealtimeProvider>;
 }
 

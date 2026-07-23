@@ -5,6 +5,8 @@ import { loadBusinessSettings, setAppType } from "@common/utils/businessSettings
 import BottomNavigation from "./BottomNavigation"
 import { getUnreadDeliveryNotificationCount } from "@food/utils/deliveryNotifications"
 import { deliveryAPI } from "@food/api"
+import { clearModuleAuth } from "@food/utils/auth"
+import { clearDeliveryOnboardingOnlyGate } from "../utils/driverModuleAccess"
 
 export default function DeliveryLayout({
   children,
@@ -87,7 +89,13 @@ export default function DeliveryLayout({
           </p>
           <button
             type="button"
-            onClick={() => navigate("/food/delivery/login", { replace: true })}
+            onClick={() => {
+              clearModuleAuth("delivery")
+              clearDeliveryOnboardingOnlyGate()
+              sessionStorage.removeItem("deliveryPendingPhone")
+              sessionStorage.removeItem("deliveryAuthData")
+              navigate("/food/delivery/login", { replace: true })
+            }}
             className="w-full h-11 rounded-xl bg-primary-orange text-white text-sm font-semibold hover:bg-primary-orange/90"
           >
             Back to login

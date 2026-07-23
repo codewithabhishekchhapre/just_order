@@ -2,6 +2,7 @@ import axiosInstance from "@core/api/axios";
 import { adminSidebarMenu } from "@food/utils/adminSidebarMenu";
 import { quickAdminSidebarMenu } from "@food/utils/quickAdminSidebarMenu";
 import { commonAdminSidebarMenu } from "@food/utils/commonAdminSidebarMenu";
+import { taxiAdminSidebarMenu } from "@/modules/taxi/admin/utils/taxiAdminSidebarMenu";
 
 const rolePermissionCache = new Map();
 
@@ -74,6 +75,10 @@ export const getAdminModuleConfig = (pathname = "") => {
     return { rootKey: "global", menu: commonAdminSidebarMenu };
   }
 
+  if (normalizedPath.startsWith("/admin/taxi")) {
+    return { rootKey: "taxi", menu: taxiAdminSidebarMenu };
+  }
+
   return { rootKey: "food", menu: adminSidebarMenu };
 };
 
@@ -82,6 +87,7 @@ const isModuleDashboardPath = (pathname = "", rootKey = "") => {
   if (rootKey === "food") return normalizedPath === "/admin/food";
   if (rootKey === "quick") return normalizedPath === "/admin/quick-commerce";
   if (rootKey === "global") return normalizedPath === "/admin/global-settings";
+  if (rootKey === "taxi") return normalizedPath === "/admin/taxi";
   return false;
 };
 

@@ -12,6 +12,7 @@ import { deliveryAPI } from '@food/api';
 import { toast } from 'sonner';
 import { formatCurrency } from '@food/utils/currency';
 import DepositPopup from '../components/DepositPopup';
+import { getModuleShortLabel } from '@/modules/DeliveryV2/utils/driverModuleAccess';
 
 /**
  * PocketV2 - 1:1 Match with Old PocketPage UI.
@@ -20,9 +21,18 @@ import DepositPopup from '../components/DepositPopup';
  */
 export const PocketV2 = () => {
   const navigate = useNavigate();
-  const getAvailableModules = useDeliveryStore(state => state.getAvailableModules);
-  const availableModules = getAvailableModules();
-  const [activeModuleFilter, setActiveModuleFilter] = useState('all');
+  const getAuthorizedModules = useDeliveryStore(state => state.getAuthorizedModules);
+  const activeModule = useDeliveryStore(state => state.activeModule);
+  const resolveActiveModule = useDeliveryStore(state => state.resolveActiveModule);
+  const availableModules = getAuthorizedModules();
+  const [activeModuleFilter, setActiveModuleFilter] = useState(
+    () => activeModule || resolveActiveModule() || 'all',
+  );
+
+  useEffect(() => {
+    const next = activeModule || resolveActiveModule();
+    if (next) setActiveModuleFilter(next);
+  }, [activeModule, resolveActiveModule]);
   const [loading, setLoading] = useState(true);
   const [walletState, setWalletState] = useState({
     totalBalance: 0,
@@ -208,7 +218,7 @@ export const PocketV2 = () => {
                       : 'bg-white text-gray-500 border border-gray-200'
                   }`}
                 >
-                  {mod.replace('_', ' ')}
+                  {getModuleShortLabel(mod)}
                 </button>
               ))}
             </div>

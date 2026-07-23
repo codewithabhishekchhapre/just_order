@@ -5,6 +5,7 @@ import {
   LayoutGrid,
   Zap,
   AlertCircle,
+  CarTaxiFront,
   Truck,
   UtensilsCrossed,
 } from "lucide-react";
@@ -45,6 +46,16 @@ const MODULE_CARDS = [
     toggleActiveClass: "bg-blue-500",
     glowClass: "bg-blue-500",
   },
+  {
+    key: "taxi",
+    title: "Taxi",
+    description: "On-demand taxi rides for customers.",
+    icon: CarTaxiFront,
+    activeClass: "border-amber-200 bg-amber-50/60",
+    iconActiveClass: "bg-amber-500 text-white",
+    toggleActiveClass: "bg-amber-500",
+    glowClass: "bg-amber-500",
+  },
 ];
 
 const ModuleCard = ({
@@ -76,8 +87,12 @@ const ModuleCard = ({
           <Icon size={22} />
         </div>
         <div className="min-w-0">
-          <h3 className="text-base font-bold text-gray-900 sm:text-lg">{title}</h3>
-          <p className="mt-1 text-sm leading-relaxed text-gray-500">{description}</p>
+          <h3 className="text-base font-bold text-gray-900 sm:text-lg">
+            {title}
+          </h3>
+          <p className="mt-1 text-sm leading-relaxed text-gray-500">
+            {description}
+          </p>
         </div>
       </div>
 
@@ -145,13 +160,16 @@ const ModuleManagement = () => {
     setSavingKey(name);
 
     try {
-      const response = await adminAPI.updateBusinessSettings({ modules: nextModules });
+      const response = await adminAPI.updateBusinessSettings({
+        modules: nextModules,
+      });
       const updatedSettings = response?.data?.data || response?.data;
 
       if (updatedSettings) {
         setModules(normalizeEnabledModules(updatedSettings.modules));
         setCachedSettings(updatedSettings);
-        const label = MODULE_CARDS.find((card) => card.key === name)?.title || "Module";
+        const label =
+          MODULE_CARDS.find((card) => card.key === name)?.title || "Module";
         toast.success(
           `${label} ${nextModules[name] ? "enabled" : "disabled"} for customers`,
         );
@@ -222,13 +240,16 @@ const ModuleManagement = () => {
             </div>
 
             <div className="flex items-start gap-3 rounded-2xl border border-indigo-100 bg-indigo-50 p-4 sm:gap-4 sm:p-5">
-              <AlertCircle className="mt-0.5 shrink-0 text-indigo-500" size={20} />
+              <AlertCircle
+                className="mt-0.5 shrink-0 text-indigo-500"
+                size={20}
+              />
               <div className="space-y-1">
                 <h4 className="text-sm font-bold text-indigo-900">Important</h4>
                 <p className="text-xs leading-relaxed text-indigo-700 sm:text-sm">
-                  Disabling a module hides it from the customer app immediately and
-                  redirects users to the next available module. Admin navigation is
-                  updated as well.
+                  Disabling a module hides it from the customer app immediately
+                  and redirects users to the next available module. Admin
+                  navigation is updated as well.
                 </p>
               </div>
             </div>

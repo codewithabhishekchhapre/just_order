@@ -1,11 +1,17 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { ShoppingBasket, UtensilsCrossed } from "lucide-react";
+import {
+  CarTaxiFront,
+  ShoppingBasket,
+  UtensilsCrossed,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useEnabledModules } from "@/modules/common/hooks/useEnabledModules";
 
 const ADMIN_MODULES = [
   {
     key: "food",
+    moduleKey: "food",
     label: "Food",
     shortLabel: "Food",
     path: "/admin/food",
@@ -14,19 +20,36 @@ const ADMIN_MODULES = [
   },
   {
     key: "quick",
+    moduleKey: "quickCommerce",
     label: "Quick",
     shortLabel: "Quick",
     path: "/admin/quick-commerce",
     icon: ShoppingBasket,
     active: (pathname) => pathname.startsWith("/admin/quick-commerce"),
   },
-
-
+  {
+    key: "taxi",
+    moduleKey: "taxi",
+    label: "Taxi",
+    shortLabel: "Taxi",
+    path: "/admin/taxi",
+    icon: CarTaxiFront,
+    active: (pathname) => pathname.startsWith("/admin/taxi"),
+  },
 ];
 
 export default function AdminModuleSwitcher({ className = "" }) {
   const location = useLocation();
   const navigate = useNavigate();
+  const { modules } = useEnabledModules();
+
+  const visibleModules = useMemo(
+    () =>
+      ADMIN_MODULES.filter(
+        (module) => modules[module.moduleKey] !== false,
+      ),
+    [modules],
+  );
 
   return (
     <div
@@ -36,7 +59,7 @@ export default function AdminModuleSwitcher({ className = "" }) {
       )}
       aria-label="Switch admin module"
     >
-      {ADMIN_MODULES.map((module) => {
+      {visibleModules.map((module) => {
         const Icon = module.icon;
         const isActive = module.active(location.pathname);
 

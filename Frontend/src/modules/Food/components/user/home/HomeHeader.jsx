@@ -21,6 +21,7 @@ import {
   UtensilsCrossed,
   ShoppingBag,
   Truck,
+  CarTaxiFront,
 } from "lucide-react";
 import { useEnabledModules } from "@/modules/common/hooks/useEnabledModules";
 import { getVisibleHomeTabs } from "@/modules/common/utils/enabledModules";
@@ -50,6 +51,11 @@ const tabs = [
     id: "porter",
     name: "Porter",
     icon: Truck,
+  },
+  {
+    id: "taxi",
+    name: "Taxi",
+    icon: CarTaxiFront,
   },
 ];
 
@@ -160,7 +166,13 @@ export default function HomeHeader({
     () =>
       tabs.filter((tab) => {
         const moduleKey =
-          tab.id === "quick" ? "quickCommerce" : tab.id === "porter" ? "porter" : "food";
+          tab.id === "quick"
+            ? "quickCommerce"
+            : tab.id === "porter"
+              ? "porter"
+              : tab.id === "taxi"
+                ? "taxi"
+                : "food";
         return enabledModules[moduleKey] !== false;
       }),
     [enabledModules],
@@ -170,7 +182,9 @@ export default function HomeHeader({
       ? "grid-cols-1"
       : visibleTabs.length === 2
         ? "grid-cols-2"
-        : "grid-cols-3";
+        : visibleTabs.length === 3
+          ? "grid-cols-3"
+          : "grid-cols-4";
   const [isListening, setIsListening] = useState(false);
   const routerLocation = useRouterLocation();
   const videoRef = useRef(null);
@@ -198,20 +212,21 @@ export default function HomeHeader({
   }, []);
 
   const isPorter = activeTab === "porter";
-  // Porter reuses Food's light header chrome (white bg, red accent).
+  const isTaxi = activeTab === "taxi";
+  // Porter/Taxi reuse Food's light header chrome (white bg, red accent).
   const theme = activeTab === "quick"
     ? quickTheme(FIXED_QUICK_THEME_COLOR)
-    : isPorter
+    : isPorter || isTaxi
     ? { accent: "#FF6A00" }
     : foodTheme(vegMode);
   const isFood = activeTab === "food";
-  const isLightChrome = isFood || isPorter;
+  const isLightChrome = isFood || isPorter || isTaxi;
   const isDarkTheme = !isLightChrome && isColorDark(theme.accent);
   const textColorClass = isLightChrome ? "text-gray-900" : (isDarkTheme ? "text-white" : "text-gray-900");
   const subtextColorClass = isLightChrome ? "text-gray-500" : (isDarkTheme ? "text-white/80" : "text-gray-600");
   const iconColor = isLightChrome ? theme.accent : (isDarkTheme ? "#ffffff" : "#111827");
 
-  const walletPath = activeTab === "quick" ? "/quick/wallet" : activeTab === "porter" ? "/food/user/wallet?from=porter" : "/food/user/wallet";
+  const walletPath = activeTab === "quick" ? "/quick/wallet" : activeTab === "porter" ? "/food/user/wallet?from=porter" : activeTab === "taxi" ? "/food/user/wallet?from=taxi" : "/food/user/wallet";
   const { title: locationTitle, subtitle: locationSubtitle } = useMemo(
     () => buildLocationDisplay(savedAddressText, location),
     [savedAddressText, location],

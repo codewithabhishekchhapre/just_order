@@ -17,6 +17,8 @@ import { isReturnPickupTrip, getReturnPickupStopLabels, enrichReturnDeliveryOrde
 import { OrderSummaryModal } from '@/modules/DeliveryV2/components/modals/OrderSummaryModal';
 import ActionSlider from '@/modules/DeliveryV2/components/ui/ActionSlider';
 import VehicleSwitcherSheet from '@/modules/DeliveryV2/components/modals/VehicleSwitcherSheet';
+import { DriverFeedPanel } from '@/modules/DeliveryV2/components/feed';
+import { getFeedRequestId } from '@/modules/DeliveryV2/utils/feedRequestFormatters';
 
 // Sub Pages (Lazy Loaded for Bundle Size Optimization)
 const PocketV2 = React.lazy(() => import('@/modules/DeliveryV2/pages/PocketV2'));
@@ -38,6 +40,8 @@ import { useCompanyName } from "@food/hooks/useCompanyName";
 import { useNavigate } from 'react-router-dom';
 import useNotificationInbox from "@food/hooks/useNotificationInbox";
 import { Button } from "@food/components/ui/button";
+import { getAuthorizedServicesFromUser, flattenDriverEnrollments, getModuleShortLabel } from "@/modules/DeliveryV2/utils/driverModuleAccess";
+import DriverModuleSwitcher from "@/modules/DeliveryV2/components/DriverModuleSwitcher";
 
 /** Minimal bottom-sheet popup (Restored from legacy FeedNavbar) */
 function BottomPopup({ isOpen, onClose, title, children }) {
@@ -170,7 +174,9 @@ const CashLimitBlockingModal = ({ isOpen, onClose }) => {
  */
 export default function DeliveryHomeV2({ tab = 'feed' }) {
   const navigate = useNavigate();
-  const { isOnline, setOnline, toggleOnline, activeOrder, tripStatus, setRiderLocation, setActiveOrder, updateTripStatus, clearActiveOrder, setDriverVehicles } = useDeliveryStore();
+  const { isOnline, setOnline, toggleOnline, activeOrder, tripStatus, setRiderLocation, setActiveOrder, updateTripStatus, clearActiveOrder, setDriverVehicles, setModuleEnrollments, activeModule } = useDeliveryStore();
+  const resolveActiveModule = useDeliveryStore((s) => s.resolveActiveModule);
+  const workModule = activeModule || resolveActiveModule();
   const riderLocation = useDeliveryStore((s) => s.riderLocation);
   // Reactive browser geolocation permission — drives the blocking popup and
   // re-registers the GPS watch when the driver enables location later.
@@ -201,29 +207,42 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
       vehicleNumber ||
       vehicleType ||
       "primary-vehicle";
+    const authorizedServices = getAuthorizedServicesFromUser(profile);
+    const supportedServices =
+      authorizedServices.length > 0 ? authorizedServices : ["food"];
     const vehicle = {
       id: String(vehicleId),
       vehicleId: String(vehicleId),
       registrationNumber: vehicleNumber || (vehicleType === "bicycle" ? "Bicycle" : ""),
       verificationStatus:
-        profile.status === "approved" || profile.status === "Approved"
+        profile.status === "approved" ||
+        profile.status === "Approved" ||
+        authorizedServices.length > 0
           ? "Approved"
           : profile.status || "Approved",
       name: vehicleName,
       image: null,
-      supportedServices: ["food"],
+      supportedServices,
       master: {
         name: vehicleName,
         image: null,
-        supportedServices: ["food"],
+        supportedServices,
       },
       type: vehicleType,
       brand,
       model,
     };
     setDriverVehicles([vehicle]);
+    const enrollments = flattenDriverEnrollments(profile);
+    if (enrollments.length) {
+      setModuleEnrollments(enrollments);
+    } else if (authorizedServices.length) {
+      setModuleEnrollments(
+        authorizedServices.map((module) => ({ module, status: "approved" })),
+      );
+    }
     return true;
-  }, [setDriverVehicles]);
+  }, [setDriverVehicles, setModuleEnrollments]);
 
   const resolveProfilePhoto = useCallback((profile) => {
     if (!profile) return null;
@@ -265,6 +284,12 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
     isMinimized: realtimeMinimized,
     setIsMinimized: setRealtimeMinimized,
     enqueueOffer,
+    offerQueue = [],
+    offersLoading = false,
+    offersError = null,
+    refreshOffers = async () => {},
+    acceptIncoming = async () => false,
+    rejectIncoming = async () => false,
   } = realtime || {
     newOrder: null,
     clearNewOrder: () => {},
@@ -278,8 +303,15 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
     isMinimized: false,
     setIsMinimized: () => {},
     enqueueOffer: () => {},
+    offerQueue: [],
+    offersLoading: false,
+    offersError: null,
+    refreshOffers: async () => {},
+    acceptIncoming: async () => false,
+    rejectIncoming: async () => false,
   };
   const [isProcessingToggle, setIsProcessingToggle] = useState(false);
+  const [feedBusyId, setFeedBusyId] = useState(null);
 
   useEffect(() => {
     if (forcedOfflineEvent) {
@@ -349,6 +381,27 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
     const incomingOrder = realtimeIncoming;
     const isModalMinimized = realtimeMinimized;
     const setIsModalMinimized = setRealtimeMinimized;
+
+    const handleFeedAccept = useCallback(async (order) => {
+      const id = getFeedRequestId(order);
+      setFeedBusyId(id);
+      try {
+        await acceptIncoming(order);
+      } finally {
+        setFeedBusyId(null);
+      }
+    }, [acceptIncoming]);
+
+    const handleFeedDecline = useCallback(async (order) => {
+      const id = getFeedRequestId(order);
+      setFeedBusyId(id);
+      try {
+        await rejectIncoming(order);
+      } finally {
+        setFeedBusyId(null);
+      }
+    }, [rejectIncoming]);
+
     const [eta, setEta] = useState(null);
     const scrollContainerRef = useRef(null);
     const lastLocationSentAt = useRef(0);
@@ -864,7 +917,11 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
         setShowVehicleSwitcher(true);
         return;
       }
-      await deliveryAPI.updateOnlineStatus(true);
+      const moduleKey =
+        useDeliveryStore.getState().resolveActiveModule() || undefined;
+      await deliveryAPI.updateOnlineStatus(true, false, {
+        activeModule: moduleKey,
+      });
       handleGoOnlineSuccess();
     } catch (err) {
       const errMsg = err?.response?.data?.message || err?.message || "";
@@ -883,7 +940,10 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
   const confirmPassAndGoOnline = useCallback(async () => {
     setIsProcessingToggle(true);
     try {
-      await deliveryAPI.updateOnlineStatus(true, true);
+      await deliveryAPI.updateOnlineStatus(true, true, {
+        activeModule:
+          useDeliveryStore.getState().resolveActiveModule() || undefined,
+      });
       handleGoOnlineSuccess();
       setShowSubModal(false);
     } catch (err) {
@@ -893,7 +953,6 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
     }
   }, [handleGoOnlineSuccess]);
 
-  const driverFirstName = driverProfile?.name?.trim()?.split(/\s+/)[0] || "Partner";
   const vehicleLabel =
     (activeVehicle?.master || activeVehicle)?.name ||
     activeVehicle?.type ||
@@ -932,16 +991,22 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
           deliveryAPI.updateLocation(latitude, longitude, true, { heading: heading || 0 }).catch(() => {});
         }}
       />
-      {/* FEED HEADER - compact mobile chrome */}
+      {/* FEED HEADER */}
       {currentTab === 'feed' && (
         <header className="absolute top-0 inset-x-0 z-[200] pointer-events-none">
-          <div className="pointer-events-auto px-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
+          <div className="pointer-events-auto px-3 pt-[max(0.65rem,env(safe-area-inset-top))] space-y-2">
+            <DriverModuleSwitcher
+              onSwitched={() => {
+                void refreshOffers();
+              }}
+            />
+
             <div className="rounded-2xl bg-[#111827]/92 backdrop-blur-xl border border-white/10 shadow-xl shadow-black/20 overflow-hidden">
               <div className="flex items-center gap-2.5 px-3 py-2.5">
                 <button
                   type="button"
                   onClick={() => navigate('/food/delivery/profile')}
-                  className="shrink-0 w-11 h-11 rounded-full border border-white/15 overflow-hidden bg-white/10 flex items-center justify-center active:scale-95 transition"
+                  className="shrink-0 w-10 h-10 rounded-full border border-white/15 overflow-hidden bg-white/10 flex items-center justify-center active:scale-95 transition"
                   aria-label="Open profile"
                 >
                   {profileImage ? (
@@ -962,8 +1027,17 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                   <p className="text-white text-sm font-semibold truncate leading-tight">
                     {driverProfile?.name || 'Delivery Partner'}
                   </p>
-                  <p className="text-white/50 text-[11px] truncate mt-0.5">
-                    {driverProfile?.deliveryId || 'Partner account'}
+                  <p className="text-white/55 text-[11px] truncate leading-tight mt-0.5 flex items-center gap-1.5">
+                    <span
+                      className={`inline-block w-2 h-2 rounded-full shrink-0 ${
+                        isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-slate-400'
+                      }`}
+                    />
+                    {activeOrder
+                      ? 'On an active trip'
+                      : isOnline
+                        ? `Online · ${getModuleShortLabel(workModule || 'food')} requests`
+                        : 'Offline · go online to earn'}
                   </p>
                 </div>
 
@@ -972,8 +1046,10 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                   onClick={handleOnlineToggle}
                   disabled={isProcessingToggle}
                   aria-pressed={isOnline}
-                  className={`relative shrink-0 w-[88px] h-9 rounded-full p-1 transition-colors duration-300 flex items-center ${
-                    isOnline ? 'bg-emerald-500 shadow-md shadow-emerald-500/30' : 'bg-slate-500'
+                  className={`relative shrink-0 w-[82px] h-8 rounded-full p-1 transition-colors duration-300 flex items-center ${
+                    isOnline
+                      ? 'bg-emerald-500 shadow-md shadow-emerald-500/25'
+                      : 'bg-slate-500'
                   }`}
                 >
                   {isProcessingToggle ? (
@@ -982,12 +1058,16 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                     </span>
                   ) : (
                     <>
-                      <span className={`absolute inset-x-0 text-[10px] font-bold uppercase tracking-wide text-white pointer-events-none ${isOnline ? 'pl-2 text-left' : 'pr-2 text-right'}`}>
+                      <span
+                        className={`absolute inset-x-0 text-[9px] font-bold uppercase tracking-wide text-white pointer-events-none ${
+                          isOnline ? 'pl-2 text-left' : 'pr-2 text-right'
+                        }`}
+                      >
                         {isOnline ? 'Online' : 'Offline'}
                       </span>
                       <motion.span
-                        className="relative z-10 w-7 h-7 bg-white rounded-full shadow"
-                        animate={{ x: isOnline ? 52 : 0 }}
+                        className="relative z-10 w-6 h-6 bg-white rounded-full shadow"
+                        animate={{ x: isOnline ? 46 : 0 }}
                         transition={{ type: 'spring', stiffness: 400, damping: 28 }}
                       />
                     </>
@@ -997,7 +1077,7 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                 <button
                   type="button"
                   onClick={() => navigate('/food/delivery/notifications')}
-                  className="relative shrink-0 w-10 h-10 rounded-full bg-white/10 border border-white/10 flex items-center justify-center text-white active:scale-95"
+                  className="relative shrink-0 w-9 h-9 rounded-full bg-white/10 border border-white/10 flex items-center justify-center text-white active:scale-95"
                   aria-label="Notifications"
                 >
                   <Bell className="w-4 h-4" />
@@ -1007,70 +1087,76 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                 </button>
               </div>
 
-              <div className="px-3 pb-3">
-                {activeOrder ? (
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="rounded-xl bg-primary-orange px-3 py-2.5 flex items-center justify-between">
-                      <div>
-                        <p className="text-[10px] font-semibold uppercase tracking-wide text-white/80">Distance</p>
-                        <p className="text-xl font-bold text-white leading-none mt-1">
-                          {distanceToTarget && distanceToTarget !== Infinity ? (distanceToTarget / 1000).toFixed(1) : '--'}
-                          <span className="text-xs font-semibold ml-1 opacity-80">km</span>
-                        </p>
-                      </div>
-                      <Navigation2 className="w-4 h-4 text-white/90 rotate-45" />
-                    </div>
-                    <div className="rounded-xl bg-emerald-500 px-3 py-2.5 flex items-center justify-between">
-                      <div>
-                        <p className="text-[10px] font-semibold uppercase tracking-wide text-white/80">ETA</p>
-                        <p className="text-xl font-bold text-white leading-none mt-1">
-                          {eta ? String(eta) : '--'}
-                          <span className="text-xs font-semibold ml-1 opacity-80">min</span>
-                        </p>
-                      </div>
-                      <Clock className="w-4 h-4 text-white/90" />
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex items-stretch gap-2">
-                    <div className={`flex-1 min-w-0 rounded-xl px-3 py-2.5 border ${isOnline ? 'bg-emerald-500/15 border-emerald-400/30' : 'bg-white/5 border-white/10'}`}>
-                      <div className="flex items-center gap-2">
-                        <span className={`w-2 h-2 rounded-full shrink-0 ${isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-slate-400'}`} />
-                        <div className="min-w-0">
-                          <p className="text-white text-xs font-semibold truncate">
-                            {isOnline ? `${driverFirstName}, you're online` : "You're offline"}
-                          </p>
-                          <p className="text-white/50 text-[10px] truncate mt-0.5">
-                            {isOnline ? 'Waiting for delivery requests' : 'Go online to start earning'}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                    {activeVehicle && (
-                      <button
-                        type="button"
-                        onClick={() => setShowVehicleSwitcher(true)}
-                        className="shrink-0 max-w-[42%] rounded-xl bg-white/5 border border-white/10 px-2.5 py-2 flex items-center gap-2 active:scale-[0.98] transition"
-                      >
-                        <span className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center text-white shrink-0">
-                          {activeVehicle.type === 'bicycle' ? <Bike className="w-4 h-4" /> : <Truck className="w-4 h-4" />}
+              {!activeOrder && activeVehicle ? (
+                <div className="px-3 pb-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowVehicleSwitcher(true)}
+                    className="w-full rounded-xl bg-white/5 border border-white/10 px-2.5 py-2 flex items-center gap-2.5 active:scale-[0.99] transition"
+                  >
+                    <span className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center text-white shrink-0">
+                      {activeVehicle.type === 'bicycle' ? (
+                        <Bike className="w-4 h-4" />
+                      ) : (
+                        <Truck className="w-4 h-4" />
+                      )}
+                    </span>
+                    <span className="min-w-0 flex-1 text-left">
+                      <span className="block text-white text-xs font-semibold truncate">
+                        {vehicleLabel}
+                      </span>
+                      <span className="block text-white/45 text-[10px] truncate">
+                        {vehicleReg || 'Tap to change vehicle'}
+                      </span>
+                    </span>
+                    <span className="text-white/40 text-[10px] font-semibold shrink-0">
+                      Change
+                    </span>
+                  </button>
+                </div>
+              ) : null}
+
+              {activeOrder ? (
+                <div className="grid grid-cols-2 gap-2 px-3 pb-2.5">
+                  <div className="rounded-xl bg-primary-orange px-3 py-2 flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-white/80">
+                        Distance
+                      </p>
+                      <p className="text-lg font-bold text-white leading-none mt-1">
+                        {distanceToTarget && distanceToTarget !== Infinity
+                          ? (distanceToTarget / 1000).toFixed(1)
+                          : '--'}
+                        <span className="text-xs font-semibold ml-1 opacity-80">
+                          km
                         </span>
-                        <span className="min-w-0 text-left">
-                          <span className="block text-white text-[11px] font-semibold truncate">{vehicleLabel}</span>
-                          <span className="block text-white/45 text-[10px] truncate">{vehicleReg || 'Tap to change'}</span>
-                        </span>
-                      </button>
-                    )}
+                      </p>
+                    </div>
+                    <Navigation2 className="w-4 h-4 text-white/90 rotate-45" />
                   </div>
-                )}
-              </div>
+                  <div className="rounded-xl bg-emerald-500 px-3 py-2 flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-white/80">
+                        ETA
+                      </p>
+                      <p className="text-lg font-bold text-white leading-none mt-1">
+                        {eta ? String(eta) : '--'}
+                        <span className="text-xs font-semibold ml-1 opacity-80">
+                          min
+                        </span>
+                      </p>
+                    </div>
+                    <Clock className="w-4 h-4 text-white/90" />
+                  </div>
+                </div>
+              ) : null}
             </div>
 
-            <div className="flex items-center justify-end gap-2 mt-2">
+            <div className="flex items-center justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setShowEmergencyPopup(true)}
-                className="h-9 px-3 rounded-full bg-white/95 shadow-md border border-red-100 text-red-600 text-[11px] font-semibold flex items-center gap-1.5 active:scale-95"
+                className="h-8 px-3 rounded-full bg-white/95 shadow-md border border-red-100 text-red-600 text-[11px] font-semibold flex items-center gap-1.5 active:scale-95"
               >
                 <AlertTriangle className="w-3.5 h-3.5" />
                 SOS
@@ -1078,7 +1164,7 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
               <button
                 type="button"
                 onClick={() => navigate('/food/delivery/help/id-card')}
-                className="h-9 px-3 rounded-full bg-white/95 shadow-md border border-slate-200 text-slate-700 text-[11px] font-semibold flex items-center gap-1.5 active:scale-95"
+                className="h-8 px-3 rounded-full bg-white/95 shadow-md border border-slate-200 text-slate-700 text-[11px] font-semibold flex items-center gap-1.5 active:scale-95"
               >
                 <Contact className="w-3.5 h-3.5" />
                 ID Card
@@ -1108,7 +1194,7 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                />
              
             {isSimMode && (
-              <div className="absolute top-[9.5rem] left-3 right-3 z-[100] bg-slate-950/90 backdrop-blur-md rounded-2xl p-3 border border-white/10 flex items-center justify-between shadow-xl">
+              <div className="absolute top-[8.75rem] left-3 right-3 z-[100] bg-slate-950/90 backdrop-blur-md rounded-2xl p-3 border border-white/10 flex items-center justify-between shadow-xl">
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="w-8 h-8 bg-red-500 rounded-lg flex items-center justify-center animate-pulse shrink-0">
                     <Play className="w-4 h-4 text-white fill-current" />
@@ -1122,7 +1208,7 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
               </div>
             )}
 
-            <div className="absolute right-3 bottom-4 flex flex-col gap-2.5 z-[120]">
+            <div className="absolute right-3 bottom-[min(48vh,22rem)] sm:bottom-4 flex flex-col gap-2.5 z-[120]">
               <div className="flex flex-col bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
                 <button type="button" onClick={() => setZoom(z => Math.min(22, z + 1))} className="p-3 hover:bg-slate-50 border-b border-slate-100 text-slate-900 active:scale-95" aria-label="Zoom in"><Plus className="w-5 h-5" /></button>
                 <button type="button" onClick={() => setZoom(z => Math.max(8, z - 1))} className="p-3 hover:bg-slate-50 text-slate-900 active:scale-95" aria-label="Zoom out"><Minus className="w-5 h-5" /></button>
@@ -1155,6 +1241,23 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                 <Play className={`w-4 h-4 fill-current ml-0.5 ${isSimMode ? 'animate-pulse' : ''}`} />
               </button>
             </div>
+
+            {!activeOrder ? (
+              <div className="absolute inset-x-0 bottom-0 z-[130] px-0 pointer-events-none">
+                <DriverFeedPanel
+                  isOnline={isOnline}
+                  offers={offerQueue}
+                  loading={offersLoading}
+                  error={offersError}
+                  onRetry={refreshOffers}
+                  onGoOnline={handleOnlineToggle}
+                  onAccept={handleFeedAccept}
+                  onDecline={handleFeedDecline}
+                  onOpenOffer={() => setIsModalMinimized(false)}
+                  busyOrderId={feedBusyId}
+                />
+              </div>
+            ) : null}
 
            </div>
          ) : currentTab === 'pocket' ? (

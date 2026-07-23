@@ -37,12 +37,29 @@ export const authMiddleware = (req, res, next) => {
             return;
         }
         if (decoded.role === 'DELIVERY_PARTNER') {
-            Driver.findById(decoded.userId).select('isActive').lean().then((doc) => {
-                if (!doc || doc.isActive === false) {
-                    return sendError(res, 401, 'Delivery account is inactive');
-                }
-                next();
-            }).catch(() => sendError(res, 401, 'Authentication failed'));
+            const isOnboardingScope = decoded.scope === 'onboarding';
+            req.user.scope = decoded.scope || 'full';
+            req.user.authorizedServices = Array.isArray(decoded.authorizedServices)
+                ? decoded.authorizedServices
+                : undefined;
+            Driver.findById(decoded.userId)
+                .select('isActive isDeleted accountStatus authorizedServices status')
+                .lean()
+                .then((doc) => {
+                    if (!doc || doc.isDeleted === true || doc.accountStatus === 'deleted') {
+                        return sendError(res, 401, 'Delivery account is inactive');
+                    }
+                    if (isOnboardingScope) {
+                        req.user.authorizedServices = doc.authorizedServices || [];
+                        return next();
+                    }
+                    if (doc.isActive === false) {
+                        return sendError(res, 401, 'Delivery account is inactive');
+                    }
+                    req.user.authorizedServices = doc.authorizedServices || [];
+                    next();
+                })
+                .catch(() => sendError(res, 401, 'Authentication failed'));
             return;
         }
         return next();

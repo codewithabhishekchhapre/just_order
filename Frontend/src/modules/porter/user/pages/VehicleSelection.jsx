@@ -7,35 +7,56 @@ import VehicleCard from "../components/VehicleCard";
 import { PrimaryButton, StickyBar, SectionLabel } from "../components/ui";
 import { useBooking } from "../context/BookingContext";
 import { getPorterFareEstimatePath } from "../utils/routes";
-import { DELIVERY_VEHICLES, estimateDeliveryCost, recommendVehicle } from "../utils/mock/vehicles";
+import {
+  DELIVERY_VEHICLES,
+  estimateDeliveryCost,
+  recommendVehicle,
+} from "../utils/mock/vehicles";
 
 export default function VehicleSelection() {
   const navigate = useNavigate();
-  const { parcel, vehicleId, setVehicleId, distanceKm, durationMin } = useBooking();
+  const { parcel, vehicleId, setVehicleId, distanceKm, durationMin } =
+    useBooking();
   const recommended = recommendVehicle(parcel.weightKg * parcel.quantity);
 
   useEffect(() => {
-    if (!vehicleId || DELIVERY_VEHICLES.find((v) => v.id === vehicleId)?.maxWeightKg < parcel.weightKg * parcel.quantity) {
+    if (
+      !vehicleId ||
+      DELIVERY_VEHICLES.find((v) => v.id === vehicleId)?.maxWeightKg <
+        parcel.weightKg * parcel.quantity
+    ) {
       setVehicleId(recommended.id);
     }
-  }, [parcel.weightKg, parcel.quantity, recommended.id, setVehicleId, vehicleId]);
+  }, [
+    parcel.weightKg,
+    parcel.quantity,
+    recommended.id,
+    setVehicleId,
+    vehicleId,
+  ]);
 
   const totalWeight = parcel.weightKg * parcel.quantity;
 
   return (
-    <Screen title="Delivery vehicle" subtitle={`${distanceKm} km · ~${durationMin} min transit`}>
+    <Screen
+      title="Delivery vehicle"
+      subtitle={`${distanceKm} km · ~${durationMin} min transit`}
+    >
       <MapPreview height={160} showRoute animateCar className="mb-4" />
 
       <div className="mb-4 flex items-center gap-2 rounded-2xl bg-[#FFF1F1] p-3">
         <Sparkles className="h-4 w-4 text-[#FF6A00]" />
         <p className="text-[12px] font-semibold text-gray-800">
-          Recommended for {totalWeight} kg: <span className="font-bold text-[#FF6A00]">{recommended.name}</span>
+          Recommended for {totalWeight} kg:{" "}
+          <span className="font-bold text-[#FF6A00]">{recommended.name}</span>
         </p>
       </div>
 
       <SectionLabel>Select vehicle</SectionLabel>
       <div className="space-y-2">
-        {DELIVERY_VEHICLES.filter(v => totalWeight >= v.minWeightKg && totalWeight <= v.maxWeightKg).map((v) => {
+        {DELIVERY_VEHICLES.filter(
+          (v) => totalWeight >= v.minWeightKg && totalWeight <= v.maxWeightKg,
+        ).map((v) => {
           const fare = estimateDeliveryCost(v.id, distanceKm, durationMin);
           return (
             <VehicleCard

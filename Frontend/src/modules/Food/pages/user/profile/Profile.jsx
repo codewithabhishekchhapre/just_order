@@ -1,5 +1,9 @@
 import { useState, useEffect } from "react";
-import { Link, useLocation as useRouterLocation, useNavigate } from "react-router-dom";
+import {
+  Link,
+  useLocation as useRouterLocation,
+  useNavigate,
+} from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   ArrowLeft,
@@ -56,9 +60,9 @@ import { firebaseAuth } from "@food/firebase";
 import { clearModuleAuth } from "@food/utils/auth";
 import { toast } from "sonner";
 import { useTheme } from "next-themes";
-const debugLog = (...args) => { };
-const debugWarn = (...args) => { };
-const debugError = (...args) => { };
+const debugLog = (...args) => {};
+const debugWarn = (...args) => {};
+const debugError = (...args) => {};
 const USER_SESSION_PREFERENCE_KEYS = ["userVegMode", "food-under-250-filters"];
 
 import { registerWebPushForCurrentModule } from "@food/utils/firebaseMessaging";
@@ -138,16 +142,19 @@ export default function Profile() {
   useEffect(() => {
     let mounted = true;
     setLoadingZones(true);
-    zoneAPI.getPublicZones()
-      .then(res => {
+    zoneAPI
+      .getPublicZones()
+      .then((res) => {
         const list = res?.data?.data?.zones || res?.data?.zones || [];
         if (mounted) setZones(list);
       })
-      .catch(err => console.error("Error loading zones:", err))
+      .catch((err) => console.error("Error loading zones:", err))
       .finally(() => {
         if (mounted) setLoadingZones(false);
       });
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   const fetchMyRoleRequests = async () => {
@@ -168,7 +175,7 @@ export default function Profile() {
   }, []);
 
   const handleBecomeRoleClick = (role, openFormCallback) => {
-    const existing = myRoleRequests.find(r => r.role === role);
+    const existing = myRoleRequests.find((r) => r.role === role);
     if (existing) {
       setSelectedStatusRequest(existing);
       setStatusModalOpen(true);
@@ -181,7 +188,7 @@ export default function Profile() {
   const handleEditRequest = (request) => {
     setEditingRequestId(request._id || request.id);
     setStatusModalOpen(false);
-    
+
     const details = request.details || {};
     if (request.role === "RESTAURANT") {
       setRestaurantForm({
@@ -236,9 +243,11 @@ export default function Profile() {
 
   const handleDeleteRequest = async (request) => {
     try {
-      const confirmDelete = window.confirm("Are you sure you want to delete this role request?");
+      const confirmDelete = window.confirm(
+        "Are you sure you want to delete this role request?",
+      );
       if (!confirmDelete) return;
-      
+
       const reqId = request._id || request.id;
       const res = await userAPI.deleteRoleRequest(reqId);
       if (res?.data?.success || res?.success) {
@@ -250,20 +259,22 @@ export default function Profile() {
       }
     } catch (err) {
       console.error("Error deleting request:", err);
-      toast.error(err?.response?.data?.message || "Failed to delete role request.");
+      toast.error(
+        err?.response?.data?.message || "Failed to delete role request.",
+      );
     }
   };
 
   useEffect(() => {
     if (userProfile) {
-      setRestaurantForm(prev => ({
+      setRestaurantForm((prev) => ({
         ...prev,
         ownerPhone: userProfile.phone || "",
         primaryContactNumber: userProfile.phone || "",
         ownerName: userProfile.name || prev.ownerName,
         ownerEmail: userProfile.email || prev.ownerEmail,
       }));
-      setSellerForm(prev => ({
+      setSellerForm((prev) => ({
         ...prev,
         phone: userProfile.phone || "",
         alternatePhone: userProfile.alternatePhone || "",
@@ -271,7 +282,7 @@ export default function Profile() {
         email: userProfile.email || prev.email,
         supportEmail: userProfile.email || prev.supportEmail,
       }));
-      setDeliveryForm(prev => ({
+      setDeliveryForm((prev) => ({
         ...prev,
         name: userProfile.name || prev.name,
         email: userProfile.email || prev.email,
@@ -282,11 +293,21 @@ export default function Profile() {
 
   const handleBecomeRestaurantSubmit = async (e) => {
     e.preventDefault();
-    if (!restaurantForm.restaurantName || !restaurantForm.ownerName || !restaurantForm.ownerEmail || !restaurantForm.ownerPhone || !restaurantForm.zoneId || !restaurantForm.addressLine1 || !restaurantForm.city || !restaurantForm.state || !restaurantForm.pincode) {
+    if (
+      !restaurantForm.restaurantName ||
+      !restaurantForm.ownerName ||
+      !restaurantForm.ownerEmail ||
+      !restaurantForm.ownerPhone ||
+      !restaurantForm.zoneId ||
+      !restaurantForm.addressLine1 ||
+      !restaurantForm.city ||
+      !restaurantForm.state ||
+      !restaurantForm.pincode
+    ) {
       toast.error("Please fill in all required fields.");
       return;
     }
-    
+
     setSubmittingRole(true);
     try {
       const details = {
@@ -306,15 +327,19 @@ export default function Profile() {
           state: restaurantForm.state,
           pincode: restaurantForm.pincode,
           landmark: restaurantForm.landmark,
-        }
+        },
       };
-      
+
       if (editingRequestId) {
         await userAPI.updateRoleRequest(editingRequestId, details);
-        toast.success("Your restaurant onboard request was updated successfully!");
+        toast.success(
+          "Your restaurant onboard request was updated successfully!",
+        );
       } else {
         await userAPI.submitRoleRequest("RESTAURANT", details);
-        toast.success("Your restaurant onboard request was submitted successfully for approval!");
+        toast.success(
+          "Your restaurant onboard request was submitted successfully for approval!",
+        );
       }
       setEditingRequestId(null);
       setBecomeRestaurantOpen(false);
@@ -328,11 +353,21 @@ export default function Profile() {
 
   const handleBecomeSellerSubmit = async (e) => {
     e.preventDefault();
-    if (!sellerForm.name || !sellerForm.shopName || !sellerForm.email || !sellerForm.phone || !sellerForm.zoneId || !sellerForm.address || !sellerForm.supportEmail || !sellerForm.openingTime || !sellerForm.closingTime) {
+    if (
+      !sellerForm.name ||
+      !sellerForm.shopName ||
+      !sellerForm.email ||
+      !sellerForm.phone ||
+      !sellerForm.zoneId ||
+      !sellerForm.address ||
+      !sellerForm.supportEmail ||
+      !sellerForm.openingTime ||
+      !sellerForm.closingTime
+    ) {
       toast.error("Please fill in all required fields.");
       return;
     }
-    
+
     setSubmittingRole(true);
     try {
       const details = {
@@ -347,13 +382,15 @@ export default function Profile() {
         supportEmail: sellerForm.supportEmail,
         openingHours: `${sellerForm.openingTime} - ${sellerForm.closingTime}`,
       };
-      
+
       if (editingRequestId) {
         await userAPI.updateRoleRequest(editingRequestId, details);
         toast.success("Your seller request was updated successfully!");
       } else {
         await userAPI.submitRoleRequest("SELLER", details);
-        toast.success("Your seller request was submitted successfully for approval!");
+        toast.success(
+          "Your seller request was submitted successfully for approval!",
+        );
       }
       setEditingRequestId(null);
       setBecomeSellerOpen(false);
@@ -373,10 +410,16 @@ export default function Profile() {
     const isVnRequired = !isBicycle;
     const isDlRequired = !isBicycle && !isElectricBike;
 
-    if (!deliveryForm.name || !deliveryForm.address || !deliveryForm.city || !deliveryForm.state || 
-        (isVnRequired && !deliveryForm.vehicleNumber) || 
-        (isDlRequired && !deliveryForm.drivingLicenseNumber) || 
-        !deliveryForm.panNumber || !aadharClean) {
+    if (
+      !deliveryForm.name ||
+      !deliveryForm.address ||
+      !deliveryForm.city ||
+      !deliveryForm.state ||
+      (isVnRequired && !deliveryForm.vehicleNumber) ||
+      (isDlRequired && !deliveryForm.drivingLicenseNumber) ||
+      !deliveryForm.panNumber ||
+      !aadharClean
+    ) {
       toast.error("Please fill in all required fields.");
       return;
     }
@@ -384,7 +427,7 @@ export default function Profile() {
       toast.error("Aadhaar Number must be exactly 12 digits.");
       return;
     }
-    
+
     setSubmittingRole(true);
     try {
       const details = {
@@ -400,13 +443,17 @@ export default function Profile() {
         panNumber: deliveryForm.panNumber,
         aadharNumber: aadharClean,
       };
-      
+
       if (editingRequestId) {
         await userAPI.updateRoleRequest(editingRequestId, details);
-        toast.success("Your delivery partner request was updated successfully!");
+        toast.success(
+          "Your delivery partner request was updated successfully!",
+        );
       } else {
         await userAPI.submitRoleRequest("DELIVERY_BOY", details);
-        toast.success("Your delivery partner request was submitted successfully for approval!");
+        toast.success(
+          "Your delivery partner request was submitted successfully for approval!",
+        );
       }
       setEditingRequestId(null);
       setBecomeDeliveryOpen(false);
@@ -424,7 +471,11 @@ export default function Profile() {
     routerLocation.pathname.startsWith("/porter") ||
     (isSharedProfile && profileSource === "porter");
   const sharedSourceQuery = profileSource ? `?from=${profileSource}` : "";
-  const backPath = isPorterProfile ? "/porter" : isQuickProfile ? "/quick" : "/food/user";
+  const backPath = isPorterProfile
+    ? "/porter"
+    : isQuickProfile
+      ? "/quick"
+      : "/food/user";
   const walletPath = isPorterProfile
     ? "/food/user/wallet?from=porter"
     : isQuickProfile
@@ -433,10 +484,10 @@ export default function Profile() {
   const couponPath = isPorterProfile
     ? "/porter/promo"
     : isSharedProfile
-    ? `/profile/coupons${sharedSourceQuery}`
-    : isQuickProfile
-      ? "/quick/offers"
-      : "/user/profile/coupons";
+      ? `/profile/coupons${sharedSourceQuery}`
+      : isQuickProfile
+        ? "/quick/offers"
+        : "/user/profile/coupons";
   const cartPath = isQuickProfile ? "/quick/cart" : "/cart";
   const showCartLink = !isPorterProfile;
   const profileEditPath = isSharedProfile
@@ -457,14 +508,14 @@ export default function Profile() {
   const defaultAddress = getDefaultAddress?.();
   const savedAddressSummary = defaultAddress
     ? [
-      defaultAddress.street,
-      defaultAddress.additionalDetails,
-      defaultAddress.city,
-      defaultAddress.state,
-      defaultAddress.zipCode,
-    ]
-      .filter(Boolean)
-      .join(", ")
+        defaultAddress.street,
+        defaultAddress.additionalDetails,
+        defaultAddress.city,
+        defaultAddress.state,
+        defaultAddress.zipCode,
+      ]
+        .filter(Boolean)
+        .join(", ")
     : "No address saved. Tap to save Home, Work, or Other.";
 
   // Popup states
@@ -488,7 +539,9 @@ export default function Profile() {
   };
 
   // Settings states
-  const [appearance, setAppearance] = useState(() => theme || localStorage.getItem("appTheme") || "light");
+  const [appearance, setAppearance] = useState(
+    () => theme || localStorage.getItem("appTheme") || "light",
+  );
 
   useEffect(() => {
     const normalizedTheme = theme === "dark" ? "dark" : "light";
@@ -499,7 +552,11 @@ export default function Profile() {
     const normalizedAppearance = appearance === "dark" ? "dark" : "light";
     setTheme(normalizedAppearance);
     localStorage.setItem("appTheme", normalizedAppearance);
-    window.dispatchEvent(new CustomEvent("app-theme-changed", { detail: { theme: normalizedAppearance } }));
+    window.dispatchEvent(
+      new CustomEvent("app-theme-changed", {
+        detail: { theme: normalizedAppearance },
+      }),
+    );
   }, [appearance, setTheme]);
 
   // Get first letter of name for avatar
@@ -642,7 +699,7 @@ export default function Profile() {
         const reward = res?.data?.data?.stats?.rewardAmount;
         if (mounted) setReferralReward(Number(reward) || 0);
       })
-      .catch(() => { });
+      .catch(() => {});
     return () => {
       mounted = false;
     };
@@ -657,7 +714,7 @@ export default function Profile() {
         const bal = Number(w?.balance);
         if (mounted) setWalletBalance(Number.isFinite(bal) ? bal : 0);
       })
-      .catch(() => { });
+      .catch(() => {});
     return () => {
       mounted = false;
     };
@@ -671,7 +728,8 @@ export default function Profile() {
 
   const handleShareReferral = async () => {
     if (!referralLink) return;
-    const rewardText = referralReward > 0 ? `\u20B9${referralReward}` : "rewards";
+    const rewardText =
+      referralReward > 0 ? `\u20B9${referralReward}` : "rewards";
     const shareText = `Join ${companyName} and earn ${rewardText}.`;
     try {
       if (navigator.share) {
@@ -713,14 +771,18 @@ export default function Profile() {
               for (const handlerName of handlerNames) {
                 try {
                   const t = await Promise.race([
-                    window.flutter_inappwebview.callHandler(handlerName, { module: "user" }),
-                    new Promise((resolve) => setTimeout(() => resolve(null), 800))
+                    window.flutter_inappwebview.callHandler(handlerName, {
+                      module: "user",
+                    }),
+                    new Promise((resolve) =>
+                      setTimeout(() => resolve(null), 800),
+                    ),
                   ]);
                   if (t && typeof t === "string" && t.length > 20) {
                     fcmToken = t.trim();
                     break;
                   }
-                } catch (e) { }
+                } catch (e) {}
               }
             } else {
               fcmToken =
@@ -744,10 +806,10 @@ export default function Profile() {
         const { signOut } = await import("firebase/auth");
         // Firebase Auth is lazy-initialized now; only attempt sign out if it was actually used
         if (firebaseAuth) {
-           const currentUser = firebaseAuth.currentUser;
-           if (currentUser) {
-             await signOut(firebaseAuth);
-           }
+          const currentUser = firebaseAuth.currentUser;
+          if (currentUser) {
+            await signOut(firebaseAuth);
+          }
         }
       } catch (firebaseError) {
         // Continue even if Firebase logout fails
@@ -766,7 +828,9 @@ export default function Profile() {
       localStorage.removeItem("user_user");
       localStorage.removeItem("user");
       localStorage.removeItem("cart");
-      USER_SESSION_PREFERENCE_KEYS.forEach((key) => localStorage.removeItem(key));
+      USER_SESSION_PREFERENCE_KEYS.forEach((key) =>
+        localStorage.removeItem(key),
+      );
 
       // Dispatch auth change event to notify other components
       window.dispatchEvent(new Event("userAuthChanged"));
@@ -791,7 +855,9 @@ export default function Profile() {
       localStorage.removeItem("user_user");
       localStorage.removeItem("user");
       localStorage.removeItem("cart");
-      USER_SESSION_PREFERENCE_KEYS.forEach((key) => localStorage.removeItem(key));
+      USER_SESSION_PREFERENCE_KEYS.forEach((key) =>
+        localStorage.removeItem(key),
+      );
       window.dispatchEvent(new Event("userAuthChanged"));
 
       // Still return to the shared login screen.
@@ -808,7 +874,7 @@ export default function Profile() {
     try {
       // Call soft delete API on backend
       await userAPI.deleteAccount();
-      
+
       // Cleanup locally
       clearModuleAuth("user");
       localStorage.removeItem("accessToken");
@@ -816,7 +882,9 @@ export default function Profile() {
       localStorage.removeItem("user_user");
       localStorage.removeItem("user");
       localStorage.removeItem("cart");
-      USER_SESSION_PREFERENCE_KEYS.forEach((key) => localStorage.removeItem(key));
+      USER_SESSION_PREFERENCE_KEYS.forEach((key) =>
+        localStorage.removeItem(key),
+      );
       window.dispatchEvent(new Event("userAuthChanged"));
 
       toast.success("Account deleted successfully");
@@ -825,7 +893,10 @@ export default function Profile() {
       navigate("/user/auth/login", { replace: true });
     } catch (error) {
       console.error("Error deleting account:", error);
-      toast.error(error?.response?.data?.message || "Failed to delete account. Please try again.");
+      toast.error(
+        error?.response?.data?.message ||
+          "Failed to delete account. Please try again.",
+      );
     } finally {
       setIsDeleting(false);
     }
@@ -858,7 +929,8 @@ export default function Profile() {
             <div className="flex items-start gap-4 mb-4">
               <motion.div
                 whileHover={{ scale: 1.1, rotate: 5 }}
-                transition={{ duration: 0.3, type: "spring", stiffness: 300 }}>
+                transition={{ duration: 0.3, type: "spring", stiffness: 300 }}
+              >
                 <Avatar className="h-16 w-16 bg-primary-orange/10 border-0">
                   {userProfile?.profileImage && (
                     <AvatarImage
@@ -886,7 +958,8 @@ export default function Profile() {
                 )}
                 {userProfile?.phone && (
                   <p
-                    className={`text-sm ${hasValidEmail ? "text-gray-600 dark:text-gray-400" : "text-black dark:text-white"} mb-3`}>
+                    className={`text-sm ${hasValidEmail ? "text-gray-600 dark:text-gray-400" : "text-black dark:text-white"} mb-3`}
+                  >
                     {userProfile.phone}
                   </p>
                 )}
@@ -909,14 +982,16 @@ export default function Profile() {
           <Link to={profileEditPath} className="block">
             <motion.div
               whileHover={{ x: 4, scale: 1.01 }}
-              transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
+              transition={{ duration: 0.2, type: "spring", stiffness: 300 }}
+            >
               <Card className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800 cursor-pointer">
                 <CardContent className="p-4 flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <motion.div
                       className="bg-gray-100 dark:bg-gray-800 rounded-full p-2"
                       whileHover={{ rotate: 15, scale: 1.1 }}
-                      transition={{ duration: 0.3 }}>
+                      transition={{ duration: 0.3 }}
+                    >
                       <User className="h-5 w-5 text-gray-700 dark:text-gray-300" />
                     </motion.div>
                     <span className="text-base font-medium text-gray-900 dark:text-white">
@@ -925,17 +1000,20 @@ export default function Profile() {
                   </div>
                   <div className="flex items-center gap-2">
                     <motion.span
-                      className={`text-xs font-medium px-2 py-1 rounded ${isComplete
+                      className={`text-xs font-medium px-2 py-1 rounded ${
+                        isComplete
                           ? "bg-primary-orange/10 text-primary-orange border border-primary-orange/30"
                           : "bg-primary-orange/5 text-primary-orange"
-                        }`}
+                      }`}
                       whileHover={{ scale: 1.1 }}
-                      transition={{ duration: 0.2 }}>
+                      transition={{ duration: 0.2 }}
+                    >
                       {profileCompletion}% completed
                     </motion.span>
                     <motion.div
                       whileHover={{ x: 4 }}
-                      transition={{ duration: 0.2 }}>
+                      transition={{ duration: 0.2 }}
+                    >
                       <ChevronRight className="h-5 w-5 text-gray-400 dark:text-gray-500" />
                     </motion.div>
                   </div>
@@ -947,14 +1025,16 @@ export default function Profile() {
           <Link to={walletPath} className="block">
             <motion.div
               whileHover={{ x: 4, scale: 1.01 }}
-              transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
+              transition={{ duration: 0.2, type: "spring", stiffness: 300 }}
+            >
               <Card className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800 cursor-pointer">
                 <CardContent className="p-4 flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <motion.div
                       className="bg-gray-100 dark:bg-gray-800 rounded-full p-2"
                       whileHover={{ rotate: 15, scale: 1.1 }}
-                      transition={{ duration: 0.3 }}>
+                      transition={{ duration: 0.3 }}
+                    >
                       <Wallet className="h-5 w-5 text-gray-700 dark:text-gray-300" />
                     </motion.div>
                     <span className="text-base font-medium text-gray-900 dark:text-white">
@@ -963,11 +1043,13 @@ export default function Profile() {
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-base font-semibold text-primary-orange">
-                      {"\u20B9"}{Number(walletBalance || 0).toFixed(0)}
+                      {"\u20B9"}
+                      {Number(walletBalance || 0).toFixed(0)}
                     </span>
                     <motion.div
                       whileHover={{ x: 4 }}
-                      transition={{ duration: 0.2 }}>
+                      transition={{ duration: 0.2 }}
+                    >
                       <ChevronRight className="h-5 w-5 text-gray-400 dark:text-gray-500" />
                     </motion.div>
                   </div>
@@ -979,23 +1061,30 @@ export default function Profile() {
           <Link to={couponPath} className="block">
             <motion.div
               whileHover={{ x: 4, scale: 1.01 }}
-              transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
+              transition={{ duration: 0.2, type: "spring", stiffness: 300 }}
+            >
               <Card className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800 cursor-pointer">
                 <CardContent className="p-4 flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <motion.div
                       className="bg-gray-100 dark:bg-gray-800 rounded-full p-2"
                       whileHover={{ rotate: 15, scale: 1.1 }}
-                      transition={{ duration: 0.3 }}>
+                      transition={{ duration: 0.3 }}
+                    >
                       <Tag className="h-5 w-5 text-gray-700 dark:text-gray-300" />
                     </motion.div>
                     <span className="text-base font-medium text-gray-900 dark:text-white">
-                      {isPorterProfile ? "Delivery offers" : isQuickProfile ? "Offers & coupons" : "Your coupons"}
+                      {isPorterProfile
+                        ? "Delivery offers"
+                        : isQuickProfile
+                          ? "Offers & coupons"
+                          : "Your coupons"}
                     </span>
                   </div>
                   <motion.div
                     whileHover={{ x: 4 }}
-                    transition={{ duration: 0.2 }}>
+                    transition={{ duration: 0.2 }}
+                  >
                     <ChevronRight className="h-5 w-5 text-gray-400 dark:text-gray-500" />
                   </motion.div>
                 </CardContent>
@@ -1004,93 +1093,103 @@ export default function Profile() {
           </Link>
 
           {showCartLink && (
-          <Link to={cartPath} className="block">
-            <motion.div
-              whileHover={{ x: 4, scale: 1.01 }}
-              transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
-              <Card className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800 cursor-pointer">
-                <CardContent className="p-4 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
+            <Link to={cartPath} className="block">
+              <motion.div
+                whileHover={{ x: 4, scale: 1.01 }}
+                transition={{ duration: 0.2, type: "spring", stiffness: 300 }}
+              >
+                <Card className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800 cursor-pointer">
+                  <CardContent className="p-4 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <motion.div
+                        className="bg-gray-100 dark:bg-gray-800 rounded-full p-2"
+                        whileHover={{ rotate: 15, scale: 1.1 }}
+                        transition={{ duration: 0.3 }}
+                      >
+                        <ShoppingCart className="h-5 w-5 text-gray-700 dark:text-gray-300" />
+                      </motion.div>
+                      <span className="text-base font-medium text-gray-900 dark:text-white">
+                        Your cart
+                      </span>
+                    </div>
                     <motion.div
-                      className="bg-gray-100 dark:bg-gray-800 rounded-full p-2"
-                      whileHover={{ rotate: 15, scale: 1.1 }}
-                      transition={{ duration: 0.3 }}>
-                      <ShoppingCart className="h-5 w-5 text-gray-700 dark:text-gray-300" />
+                      whileHover={{ x: 4 }}
+                      transition={{ duration: 0.2 }}
+                    >
+                      <ChevronRight className="h-5 w-5 text-gray-400 dark:text-gray-500" />
                     </motion.div>
-                    <span className="text-base font-medium text-gray-900 dark:text-white">
-                      Your cart
-                    </span>
-                  </div>
-                  <motion.div
-                    whileHover={{ x: 4 }}
-                    transition={{ duration: 0.2 }}>
-                    <ChevronRight className="h-5 w-5 text-gray-400 dark:text-gray-500" />
-                  </motion.div>
-                </CardContent>
-              </Card>
-            </motion.div>
-          </Link>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            </Link>
           )}
 
           <Link to="/user/profile/refer-earn" className="block">
             <motion.div
               whileHover={{ x: 4, scale: 1.01 }}
-              transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
-            <Card className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-3">
-                    <motion.div
-                      className="bg-gray-100 dark:bg-gray-800 rounded-full p-2"
-                      whileHover={{ rotate: 15, scale: 1.1 }}
-                      transition={{ duration: 0.3 }}>
-                      <Tag className="h-5 w-5 text-gray-700 dark:text-gray-300" />
-                    </motion.div>
-                    <span className="text-base font-medium text-gray-900 dark:text-white">
-                      Refer & Earn
-                    </span>
+              transition={{ duration: 0.2, type: "spring", stiffness: 300 }}
+            >
+              <Card className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-3">
+                      <motion.div
+                        className="bg-gray-100 dark:bg-gray-800 rounded-full p-2"
+                        whileHover={{ rotate: 15, scale: 1.1 }}
+                        transition={{ duration: 0.3 }}
+                      >
+                        <Tag className="h-5 w-5 text-gray-700 dark:text-gray-300" />
+                      </motion.div>
+                      <span className="text-base font-medium text-gray-900 dark:text-white">
+                        Refer & Earn
+                      </span>
+                    </div>
+                    {referralReward > 0 && (
+                      <span className="text-xs font-semibold px-2 py-1 rounded bg-primary-orange/10 text-primary-orange">
+                        Earn {"\u20B9"}
+                        {referralReward}
+                      </span>
+                    )}
                   </div>
-                  {referralReward > 0 && (
-                    <span className="text-xs font-semibold px-2 py-1 rounded bg-primary-orange/10 text-primary-orange">
-                      Earn {"\u20B9"}{referralReward}
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center justify-between">
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    Invite a friend. Reward is added to your wallet when they
-                    sign up.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      handleShareReferral();
-                    }}
-                    className="inline-flex items-center gap-1 text-xs text-[#FF6A00] font-medium ml-2 px-2 py-1 rounded-md"
-                    disabled={!referralLink}>
-                    <Share2 className="h-3.5 w-3.5" />
-                    Refer
-                  </button>
-                </div>
-              </CardContent>
-            </Card>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      Invite a friend. Reward is added to your wallet when they
+                      sign up.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleShareReferral();
+                      }}
+                      className="inline-flex items-center gap-1 text-xs text-[#FF6A00] font-medium ml-2 px-2 py-1 rounded-md"
+                      disabled={!referralLink}
+                    >
+                      <Share2 className="h-3.5 w-3.5" />
+                      Refer
+                    </button>
+                  </div>
+                </CardContent>
+              </Card>
             </motion.div>
           </Link>
 
           <motion.div
             whileHover={{ x: 4, scale: 1.01 }}
-            transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
+            transition={{ duration: 0.2, type: "spring", stiffness: 300 }}
+          >
             <Card
               className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800 cursor-pointer"
-              onClick={handleAddressesClick}>
+              onClick={handleAddressesClick}
+            >
               <CardContent className="p-4 flex items-center justify-between">
                 <div className="flex items-center gap-3 min-w-0">
                   <motion.div
                     className="bg-gray-100 dark:bg-gray-800 rounded-full p-2"
                     whileHover={{ rotate: 15, scale: 1.1 }}
-                    transition={{ duration: 0.3 }}>
+                    transition={{ duration: 0.3 }}
+                  >
                     <MapPin className="h-5 w-5 text-gray-700 dark:text-gray-300" />
                   </motion.div>
                   <div className="min-w-0">
@@ -1108,7 +1207,8 @@ export default function Profile() {
                   </span>
                   <motion.div
                     whileHover={{ x: 4 }}
-                    transition={{ duration: 0.2 }}>
+                    transition={{ duration: 0.2 }}
+                  >
                     <ChevronRight className="h-5 w-5 text-gray-400 dark:text-gray-500" />
                   </motion.div>
                 </div>
@@ -1118,16 +1218,19 @@ export default function Profile() {
 
           <motion.div
             whileHover={{ x: 4, scale: 1.01 }}
-            transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
+            transition={{ duration: 0.2, type: "spring", stiffness: 300 }}
+          >
             <Card
               className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800 cursor-pointer"
-              onClick={() => setVegModeOpen(true)}>
+              onClick={() => setVegModeOpen(true)}
+            >
               <CardContent className="p-4  flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <motion.div
                     className="bg-gray-100 dark:bg-gray-800 rounded-full p-2"
                     whileHover={{ rotate: 15, scale: 1.1 }}
-                    transition={{ duration: 0.3 }}>
+                    transition={{ duration: 0.3 }}
+                  >
                     <Leaf className="h-5 w-5 text-gray-700 dark:text-gray-300" />
                   </motion.div>
                   <span className="text-base font-medium text-gray-900 dark:text-white">
@@ -1138,12 +1241,14 @@ export default function Profile() {
                   <motion.span
                     className="text-base font-medium text-gray-900 dark:text-white"
                     whileHover={{ scale: 1.1 }}
-                    transition={{ duration: 0.2 }}>
+                    transition={{ duration: 0.2 }}
+                  >
                     {vegMode ? "ON" : "OFF"}
                   </motion.span>
                   <motion.div
                     whileHover={{ x: 4 }}
-                    transition={{ duration: 0.2 }}>
+                    transition={{ duration: 0.2 }}
+                  >
                     <ChevronRight className="h-5 w-5 text-gray-400" />
                   </motion.div>
                 </div>
@@ -1153,16 +1258,19 @@ export default function Profile() {
 
           <motion.div
             whileHover={{ x: 4, scale: 1.01 }}
-            transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
+            transition={{ duration: 0.2, type: "spring", stiffness: 300 }}
+          >
             <Card
               className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800 cursor-pointer"
-              onClick={() => setAppearanceOpen(true)}>
+              onClick={() => setAppearanceOpen(true)}
+            >
               <CardContent className="p-4  flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <motion.div
                     className="bg-gray-100 dark:bg-gray-800 rounded-full p-2"
                     whileHover={{ rotate: 15, scale: 1.1 }}
-                    transition={{ duration: 0.3 }}>
+                    transition={{ duration: 0.3 }}
+                  >
                     <Palette className="h-5 w-5 text-gray-700 dark:text-gray-300" />
                   </motion.div>
                   <span className="text-base font-medium text-gray-900 dark:text-white">
@@ -1173,12 +1281,14 @@ export default function Profile() {
                   <motion.span
                     className="text-base font-medium text-gray-900 dark:text-white capitalize"
                     whileHover={{ scale: 1.1 }}
-                    transition={{ duration: 0.2 }}>
+                    transition={{ duration: 0.2 }}
+                  >
                     {appearance}
                   </motion.span>
                   <motion.div
                     whileHover={{ x: 4 }}
-                    transition={{ duration: 0.2 }}>
+                    transition={{ duration: 0.2 }}
+                  >
                     <ChevronRight className="h-5 w-5 text-gray-400" />
                   </motion.div>
                 </div>
@@ -1199,14 +1309,16 @@ export default function Profile() {
             <Link to="/food/user/profile/favorites" className="block">
               <motion.div
                 whileHover={{ x: 4, scale: 1.01 }}
-                transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
+                transition={{ duration: 0.2, type: "spring", stiffness: 300 }}
+              >
                 <Card className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800 cursor-pointer">
                   <CardContent className="p-4  flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <motion.div
                         className="bg-gray-100 dark:bg-gray-800 rounded-full p-2"
                         whileHover={{ rotate: 15, scale: 1.1 }}
-                        transition={{ duration: 0.3 }}>
+                        transition={{ duration: 0.3 }}
+                      >
                         <Bookmark className="h-5 w-5 text-gray-700 dark:text-gray-300" />
                       </motion.div>
                       <span className="text-base font-medium text-gray-900 dark:text-white">
@@ -1215,7 +1327,8 @@ export default function Profile() {
                     </div>
                     <motion.div
                       whileHover={{ x: 4 }}
-                      transition={{ duration: 0.2 }}>
+                      transition={{ duration: 0.2 }}
+                    >
                       <ChevronRight className="h-5 w-5 text-gray-400 dark:text-gray-500" />
                     </motion.div>
                   </CardContent>
@@ -1226,14 +1339,16 @@ export default function Profile() {
             <Link to="/user/orders" className="block">
               <motion.div
                 whileHover={{ x: 4, scale: 1.01 }}
-                transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
+                transition={{ duration: 0.2, type: "spring", stiffness: 300 }}
+              >
                 <Card className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800 cursor-pointer">
                   <CardContent className="p-4 flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <motion.div
                         className="bg-gray-100 dark:bg-gray-800 rounded-full p-2"
                         whileHover={{ rotate: 15, scale: 1.1 }}
-                        transition={{ duration: 0.3 }}>
+                        transition={{ duration: 0.3 }}
+                      >
                         <Building2 className="h-5 w-5 text-gray-700 dark:text-gray-300" />
                       </motion.div>
                       <span className="text-base font-medium text-gray-900 dark:text-white">
@@ -1242,7 +1357,8 @@ export default function Profile() {
                     </div>
                     <motion.div
                       whileHover={{ x: 4 }}
-                      transition={{ duration: 0.2 }}>
+                      transition={{ duration: 0.2 }}
+                    >
                       <ChevronRight className="h-5 w-5 text-gray-400 dark:text-gray-500" />
                     </motion.div>
                   </CardContent>
@@ -1264,14 +1380,16 @@ export default function Profile() {
             <Link to="/food/user/bookings" className="block">
               <motion.div
                 whileHover={{ x: 4, scale: 1.01 }}
-                transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
+                transition={{ duration: 0.2, type: "spring", stiffness: 300 }}
+              >
                 <Card className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800 cursor-pointer">
                   <CardContent className="p-4 flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <motion.div
                         className="bg-gray-100 dark:bg-gray-800 rounded-full p-2"
                         whileHover={{ rotate: 15, scale: 1.1 }}
-                        transition={{ duration: 0.3 }}>
+                        transition={{ duration: 0.3 }}
+                      >
                         <Calendar className="h-5 w-5 text-gray-700 dark:text-gray-300" />
                       </motion.div>
                       <span className="text-base font-medium text-gray-900 dark:text-white">
@@ -1280,7 +1398,8 @@ export default function Profile() {
                     </div>
                     <motion.div
                       whileHover={{ x: 4 }}
-                      transition={{ duration: 0.2 }}>
+                      transition={{ duration: 0.2 }}
+                    >
                       <ChevronRight className="h-5 w-5 text-gray-400 dark:text-gray-500" />
                     </motion.div>
                   </CardContent>
@@ -1300,16 +1419,28 @@ export default function Profile() {
           </div>
           <div className="space-y-2">
             <Link to="/porter/shipments" className="block">
-              <motion.div whileHover={{ x: 4, scale: 1.01 }} transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
+              <motion.div
+                whileHover={{ x: 4, scale: 1.01 }}
+                transition={{ duration: 0.2, type: "spring", stiffness: 300 }}
+              >
                 <Card className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800 cursor-pointer">
                   <CardContent className="p-4 flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <motion.div className="bg-gray-100 dark:bg-gray-800 rounded-full p-2" whileHover={{ rotate: 15, scale: 1.1 }} transition={{ duration: 0.3 }}>
+                      <motion.div
+                        className="bg-gray-100 dark:bg-gray-800 rounded-full p-2"
+                        whileHover={{ rotate: 15, scale: 1.1 }}
+                        transition={{ duration: 0.3 }}
+                      >
                         <Package className="h-5 w-5 text-gray-700 dark:text-gray-300" />
                       </motion.div>
-                      <span className="text-base font-medium text-gray-900 dark:text-white">My shipments</span>
+                      <span className="text-base font-medium text-gray-900 dark:text-white">
+                        My shipments
+                      </span>
                     </div>
-                    <motion.div whileHover={{ x: 4 }} transition={{ duration: 0.2 }}>
+                    <motion.div
+                      whileHover={{ x: 4 }}
+                      transition={{ duration: 0.2 }}
+                    >
                       <ChevronRight className="h-5 w-5 text-gray-400 dark:text-gray-500" />
                     </motion.div>
                   </CardContent>
@@ -1317,19 +1448,29 @@ export default function Profile() {
               </motion.div>
             </Link>
 
-
-
             <Link to="/porter/schedule" className="block">
-              <motion.div whileHover={{ x: 4, scale: 1.01 }} transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
+              <motion.div
+                whileHover={{ x: 4, scale: 1.01 }}
+                transition={{ duration: 0.2, type: "spring", stiffness: 300 }}
+              >
                 <Card className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800 cursor-pointer">
                   <CardContent className="p-4 flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <motion.div className="bg-gray-100 dark:bg-gray-800 rounded-full p-2" whileHover={{ rotate: 15, scale: 1.1 }} transition={{ duration: 0.3 }}>
+                      <motion.div
+                        className="bg-gray-100 dark:bg-gray-800 rounded-full p-2"
+                        whileHover={{ rotate: 15, scale: 1.1 }}
+                        transition={{ duration: 0.3 }}
+                      >
                         <Calendar className="h-5 w-5 text-gray-700 dark:text-gray-300" />
                       </motion.div>
-                      <span className="text-base font-medium text-gray-900 dark:text-white">Schedule pickup</span>
+                      <span className="text-base font-medium text-gray-900 dark:text-white">
+                        Schedule pickup
+                      </span>
                     </div>
-                    <motion.div whileHover={{ x: 4 }} transition={{ duration: 0.2 }}>
+                    <motion.div
+                      whileHover={{ x: 4 }}
+                      transition={{ duration: 0.2 }}
+                    >
                       <ChevronRight className="h-5 w-5 text-gray-400 dark:text-gray-500" />
                     </motion.div>
                   </CardContent>
@@ -1338,16 +1479,28 @@ export default function Profile() {
             </Link>
 
             <Link to="/porter/promo" className="block">
-              <motion.div whileHover={{ x: 4, scale: 1.01 }} transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
+              <motion.div
+                whileHover={{ x: 4, scale: 1.01 }}
+                transition={{ duration: 0.2, type: "spring", stiffness: 300 }}
+              >
                 <Card className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800 cursor-pointer">
                   <CardContent className="p-4 flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <motion.div className="bg-gray-100 dark:bg-gray-800 rounded-full p-2" whileHover={{ rotate: 15, scale: 1.1 }} transition={{ duration: 0.3 }}>
+                      <motion.div
+                        className="bg-gray-100 dark:bg-gray-800 rounded-full p-2"
+                        whileHover={{ rotate: 15, scale: 1.1 }}
+                        transition={{ duration: 0.3 }}
+                      >
                         <Percent className="h-5 w-5 text-gray-700 dark:text-gray-300" />
                       </motion.div>
-                      <span className="text-base font-medium text-gray-900 dark:text-white">Delivery offers</span>
+                      <span className="text-base font-medium text-gray-900 dark:text-white">
+                        Delivery offers
+                      </span>
                     </div>
-                    <motion.div whileHover={{ x: 4 }} transition={{ duration: 0.2 }}>
+                    <motion.div
+                      whileHover={{ x: 4 }}
+                      transition={{ duration: 0.2 }}
+                    >
                       <ChevronRight className="h-5 w-5 text-gray-400 dark:text-gray-500" />
                     </motion.div>
                   </CardContent>
@@ -1356,16 +1509,28 @@ export default function Profile() {
             </Link>
 
             <Link to="/porter/sos" className="block">
-              <motion.div whileHover={{ x: 4, scale: 1.01 }} transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
+              <motion.div
+                whileHover={{ x: 4, scale: 1.01 }}
+                transition={{ duration: 0.2, type: "spring", stiffness: 300 }}
+              >
                 <Card className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800 cursor-pointer">
                   <CardContent className="p-4 flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <motion.div className="bg-gray-100 dark:bg-gray-800 rounded-full p-2" whileHover={{ rotate: 15, scale: 1.1 }} transition={{ duration: 0.3 }}>
+                      <motion.div
+                        className="bg-gray-100 dark:bg-gray-800 rounded-full p-2"
+                        whileHover={{ rotate: 15, scale: 1.1 }}
+                        transition={{ duration: 0.3 }}
+                      >
                         <Shield className="h-5 w-5 text-gray-700 dark:text-gray-300" />
                       </motion.div>
-                      <span className="text-base font-medium text-gray-900 dark:text-white">Safety & SOS</span>
+                      <span className="text-base font-medium text-gray-900 dark:text-white">
+                        Safety & SOS
+                      </span>
                     </div>
-                    <motion.div whileHover={{ x: 4 }} transition={{ duration: 0.2 }}>
+                    <motion.div
+                      whileHover={{ x: 4 }}
+                      transition={{ duration: 0.2 }}
+                    >
                       <ChevronRight className="h-5 w-5 text-gray-400 dark:text-gray-500" />
                     </motion.div>
                   </CardContent>
@@ -1374,16 +1539,28 @@ export default function Profile() {
             </Link>
 
             <Link to="/porter/emergency-contacts" className="block">
-              <motion.div whileHover={{ x: 4, scale: 1.01 }} transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
+              <motion.div
+                whileHover={{ x: 4, scale: 1.01 }}
+                transition={{ duration: 0.2, type: "spring", stiffness: 300 }}
+              >
                 <Card className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800 cursor-pointer">
                   <CardContent className="p-4 flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <motion.div className="bg-gray-100 dark:bg-gray-800 rounded-full p-2" whileHover={{ rotate: 15, scale: 1.1 }} transition={{ duration: 0.3 }}>
+                      <motion.div
+                        className="bg-gray-100 dark:bg-gray-800 rounded-full p-2"
+                        whileHover={{ rotate: 15, scale: 1.1 }}
+                        transition={{ duration: 0.3 }}
+                      >
                         <Truck className="h-5 w-5 text-gray-700 dark:text-gray-300" />
                       </motion.div>
-                      <span className="text-base font-medium text-gray-900 dark:text-white">Emergency contacts</span>
+                      <span className="text-base font-medium text-gray-900 dark:text-white">
+                        Emergency contacts
+                      </span>
                     </div>
-                    <motion.div whileHover={{ x: 4 }} transition={{ duration: 0.2 }}>
+                    <motion.div
+                      whileHover={{ x: 4 }}
+                      transition={{ duration: 0.2 }}
+                    >
                       <ChevronRight className="h-5 w-5 text-gray-400 dark:text-gray-500" />
                     </motion.div>
                   </CardContent>
@@ -1405,21 +1582,26 @@ export default function Profile() {
             <Link to="/quick/orders" className="block">
               <motion.div
                 whileHover={{ x: 4, scale: 1.01 }}
-                transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
+                transition={{ duration: 0.2, type: "spring", stiffness: 300 }}
+              >
                 <Card className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800 cursor-pointer">
                   <CardContent className="p-4 flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <motion.div
                         className="bg-gray-100 dark:bg-gray-800 rounded-full p-2"
                         whileHover={{ rotate: 15, scale: 1.1 }}
-                        transition={{ duration: 0.3 }}>
+                        transition={{ duration: 0.3 }}
+                      >
                         <Building2 className="h-5 w-5 text-gray-700 dark:text-gray-300" />
                       </motion.div>
                       <span className="text-base font-medium text-gray-900 dark:text-white">
                         Quick orders
                       </span>
                     </div>
-                    <motion.div whileHover={{ x: 4 }} transition={{ duration: 0.2 }}>
+                    <motion.div
+                      whileHover={{ x: 4 }}
+                      transition={{ duration: 0.2 }}
+                    >
                       <ChevronRight className="h-5 w-5 text-gray-400 dark:text-gray-500" />
                     </motion.div>
                   </CardContent>
@@ -1430,21 +1612,26 @@ export default function Profile() {
             <Link to="/quick/transactions" className="block">
               <motion.div
                 whileHover={{ x: 4, scale: 1.01 }}
-                transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
+                transition={{ duration: 0.2, type: "spring", stiffness: 300 }}
+              >
                 <Card className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800 cursor-pointer">
                   <CardContent className="p-4 flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <motion.div
                         className="bg-gray-100 dark:bg-gray-800 rounded-full p-2"
                         whileHover={{ rotate: 15, scale: 1.1 }}
-                        transition={{ duration: 0.3 }}>
+                        transition={{ duration: 0.3 }}
+                      >
                         <Percent className="h-5 w-5 text-gray-700 dark:text-gray-300" />
                       </motion.div>
                       <span className="text-base font-medium text-gray-900 dark:text-white">
                         Order transactions
                       </span>
                     </div>
-                    <motion.div whileHover={{ x: 4 }} transition={{ duration: 0.2 }}>
+                    <motion.div
+                      whileHover={{ x: 4 }}
+                      transition={{ duration: 0.2 }}
+                    >
                       <ChevronRight className="h-5 w-5 text-gray-400 dark:text-gray-500" />
                     </motion.div>
                   </CardContent>
@@ -1455,21 +1642,26 @@ export default function Profile() {
             <Link to="/quick/wishlist" className="block">
               <motion.div
                 whileHover={{ x: 4, scale: 1.01 }}
-                transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
+                transition={{ duration: 0.2, type: "spring", stiffness: 300 }}
+              >
                 <Card className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800 cursor-pointer">
                   <CardContent className="p-4 flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <motion.div
                         className="bg-gray-100 dark:bg-gray-800 rounded-full p-2"
                         whileHover={{ rotate: 15, scale: 1.1 }}
-                        transition={{ duration: 0.3 }}>
+                        transition={{ duration: 0.3 }}
+                      >
                         <Bookmark className="h-5 w-5 text-gray-700 dark:text-gray-300" />
                       </motion.div>
                       <span className="text-base font-medium text-gray-900 dark:text-white">
                         Quick wishlist
                       </span>
                     </div>
-                    <motion.div whileHover={{ x: 4 }} transition={{ duration: 0.2 }}>
+                    <motion.div
+                      whileHover={{ x: 4 }}
+                      transition={{ duration: 0.2 }}
+                    >
                       <ChevronRight className="h-5 w-5 text-gray-400 dark:text-gray-500" />
                     </motion.div>
                   </CardContent>
@@ -1489,16 +1681,20 @@ export default function Profile() {
           </div>
           <div className="space-y-2">
             <motion.div
-              onClick={() => handleBecomeRoleClick("SELLER", () => setBecomeSellerOpen(true))}
+              onClick={() =>
+                handleBecomeRoleClick("SELLER", () => setBecomeSellerOpen(true))
+              }
               whileHover={{ x: 4, scale: 1.01 }}
-              transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
+              transition={{ duration: 0.2, type: "spring", stiffness: 300 }}
+            >
               <Card className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800 cursor-pointer">
                 <CardContent className="p-4 flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <motion.div
                       className="bg-gray-100 dark:bg-gray-800 rounded-full p-2"
                       whileHover={{ rotate: 15, scale: 1.1 }}
-                      transition={{ duration: 0.3 }}>
+                      transition={{ duration: 0.3 }}
+                    >
                       <Store className="h-5 w-5 text-gray-700 dark:text-gray-300" />
                     </motion.div>
                     <span className="text-base font-medium text-gray-900 dark:text-white">
@@ -1507,7 +1703,8 @@ export default function Profile() {
                   </div>
                   <motion.div
                     whileHover={{ x: 4 }}
-                    transition={{ duration: 0.2 }}>
+                    transition={{ duration: 0.2 }}
+                  >
                     <ChevronRight className="h-5 w-5 text-gray-400 dark:text-gray-500" />
                   </motion.div>
                 </CardContent>
@@ -1515,16 +1712,22 @@ export default function Profile() {
             </motion.div>
 
             <motion.div
-              onClick={() => handleBecomeRoleClick("DELIVERY_BOY", () => setBecomeDeliveryOpen(true))}
+              onClick={() =>
+                handleBecomeRoleClick("DELIVERY_BOY", () =>
+                  setBecomeDeliveryOpen(true),
+                )
+              }
               whileHover={{ x: 4, scale: 1.01 }}
-              transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
+              transition={{ duration: 0.2, type: "spring", stiffness: 300 }}
+            >
               <Card className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800 cursor-pointer">
                 <CardContent className="p-4 flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <motion.div
                       className="bg-gray-100 dark:bg-gray-800 rounded-full p-2"
                       whileHover={{ rotate: 15, scale: 1.1 }}
-                      transition={{ duration: 0.3 }}>
+                      transition={{ duration: 0.3 }}
+                    >
                       <Truck className="h-5 w-5 text-gray-700 dark:text-gray-300" />
                     </motion.div>
                     <span className="text-base font-medium text-gray-900 dark:text-white">
@@ -1533,7 +1736,8 @@ export default function Profile() {
                   </div>
                   <motion.div
                     whileHover={{ x: 4 }}
-                    transition={{ duration: 0.2 }}>
+                    transition={{ duration: 0.2 }}
+                  >
                     <ChevronRight className="h-5 w-5 text-gray-400 dark:text-gray-500" />
                   </motion.div>
                 </CardContent>
@@ -1541,16 +1745,22 @@ export default function Profile() {
             </motion.div>
 
             <motion.div
-              onClick={() => handleBecomeRoleClick("RESTAURANT", () => setBecomeRestaurantOpen(true))}
+              onClick={() =>
+                handleBecomeRoleClick("RESTAURANT", () =>
+                  setBecomeRestaurantOpen(true),
+                )
+              }
               whileHover={{ x: 4, scale: 1.01 }}
-              transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
+              transition={{ duration: 0.2, type: "spring", stiffness: 300 }}
+            >
               <Card className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800 cursor-pointer">
                 <CardContent className="p-4 flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <motion.div
                       className="bg-gray-100 dark:bg-gray-800 rounded-full p-2"
                       whileHover={{ rotate: 15, scale: 1.1 }}
-                      transition={{ duration: 0.3 }}>
+                      transition={{ duration: 0.3 }}
+                    >
                       <ChefHat className="h-5 w-5 text-gray-700 dark:text-gray-300" />
                     </motion.div>
                     <span className="text-base font-medium text-gray-900 dark:text-white">
@@ -1559,7 +1769,8 @@ export default function Profile() {
                   </div>
                   <motion.div
                     whileHover={{ x: 4 }}
-                    transition={{ duration: 0.2 }}>
+                    transition={{ duration: 0.2 }}
+                  >
                     <ChevronRight className="h-5 w-5 text-gray-400 dark:text-gray-500" />
                   </motion.div>
                 </CardContent>
@@ -1569,14 +1780,16 @@ export default function Profile() {
             <Link to={supportPath} className="block">
               <motion.div
                 whileHover={{ x: 4, scale: 1.01 }}
-                transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
+                transition={{ duration: 0.2, type: "spring", stiffness: 300 }}
+              >
                 <Card className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800 cursor-pointer">
                   <CardContent className="p-4 flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <motion.div
                         className="bg-gray-100 dark:bg-gray-800 rounded-full p-2"
                         whileHover={{ rotate: 15, scale: 1.1 }}
-                        transition={{ duration: 0.3 }}>
+                        transition={{ duration: 0.3 }}
+                      >
                         <SettingsIcon className="h-5 w-5 text-gray-700 dark:text-gray-300" />
                       </motion.div>
                       <span className="text-base font-medium text-gray-900 dark:text-white">
@@ -1585,7 +1798,8 @@ export default function Profile() {
                     </div>
                     <motion.div
                       whileHover={{ x: 4 }}
-                      transition={{ duration: 0.2 }}>
+                      transition={{ duration: 0.2 }}
+                    >
                       <ChevronRight className="h-5 w-5 text-gray-400 dark:text-gray-500" />
                     </motion.div>
                   </CardContent>
@@ -1596,14 +1810,16 @@ export default function Profile() {
             <Link to={aboutPath} className="block">
               <motion.div
                 whileHover={{ x: 4, scale: 1.01 }}
-                transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
+                transition={{ duration: 0.2, type: "spring", stiffness: 300 }}
+              >
                 <Card className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800 cursor-pointer">
                   <CardContent className="p-4 flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <motion.div
                         className="bg-gray-100 dark:bg-gray-800 rounded-full p-2"
                         whileHover={{ rotate: 15, scale: 1.1 }}
-                        transition={{ duration: 0.3 }}>
+                        transition={{ duration: 0.3 }}
+                      >
                         <Info className="h-5 w-5 text-gray-700 dark:text-gray-300" />
                       </motion.div>
                       <span className="text-base font-medium text-gray-900 dark:text-white">
@@ -1612,7 +1828,8 @@ export default function Profile() {
                     </div>
                     <motion.div
                       whileHover={{ x: 4 }}
-                      transition={{ duration: 0.2 }}>
+                      transition={{ duration: 0.2 }}
+                    >
                       <ChevronRight className="h-5 w-5 text-gray-400 dark:text-gray-500" />
                     </motion.div>
                   </CardContent>
@@ -1623,14 +1840,16 @@ export default function Profile() {
             <Link to="/user/profile/report-safety-emergency" className="block">
               <motion.div
                 whileHover={{ x: 4, scale: 1.01 }}
-                transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
+                transition={{ duration: 0.2, type: "spring", stiffness: 300 }}
+              >
                 <Card className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800 cursor-pointer">
                   <CardContent className="p-4 flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <motion.div
                         className="bg-gray-100 dark:bg-gray-800 rounded-full p-2"
                         whileHover={{ rotate: 15, scale: 1.1 }}
-                        transition={{ duration: 0.3 }}>
+                        transition={{ duration: 0.3 }}
+                      >
                         <AlertTriangle className="h-5 w-5 text-gray-700 dark:text-gray-300" />
                       </motion.div>
                       <span className="text-base font-medium text-gray-900 dark:text-white">
@@ -1639,7 +1858,8 @@ export default function Profile() {
                     </div>
                     <motion.div
                       whileHover={{ x: 4 }}
-                      transition={{ duration: 0.2 }}>
+                      transition={{ duration: 0.2 }}
+                    >
                       <ChevronRight className="h-5 w-5 text-gray-400 dark:text-gray-500" />
                     </motion.div>
                   </CardContent>
@@ -1649,16 +1869,19 @@ export default function Profile() {
 
             <motion.div
               whileHover={{ x: 4, scale: 1.01 }}
-              transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
+              transition={{ duration: 0.2, type: "spring", stiffness: 300 }}
+            >
               <Card
                 className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                onClick={handleLogoutClick}>
+                onClick={handleLogoutClick}
+              >
                 <CardContent className="p-4 flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <motion.div
                       className="bg-gray-100 dark:bg-gray-800 rounded-full p-2"
                       whileHover={{ rotate: 15, scale: 1.1 }}
-                      transition={{ duration: 0.3 }}>
+                      transition={{ duration: 0.3 }}
+                    >
                       <Power
                         className={`h-5 w-5 text-gray-700 dark:text-gray-300 ${isLoggingOut ? "animate-pulse" : ""}`}
                       />
@@ -1669,7 +1892,8 @@ export default function Profile() {
                   </div>
                   <motion.div
                     whileHover={{ x: 4 }}
-                    transition={{ duration: 0.2 }}>
+                    transition={{ duration: 0.2 }}
+                  >
                     <ChevronRight className="h-5 w-5 text-gray-400 dark:text-gray-500" />
                   </motion.div>
                 </CardContent>
@@ -1679,16 +1903,19 @@ export default function Profile() {
             {userProfile?.role !== "ADMIN" && (
               <motion.div
                 whileHover={{ x: 4, scale: 1.01 }}
-                transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
+                transition={{ duration: 0.2, type: "spring", stiffness: 300 }}
+              >
                 <Card
                   className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                  onClick={() => setDeleteConfirmOpen(true)}>
+                  onClick={() => setDeleteConfirmOpen(true)}
+                >
                   <CardContent className="p-4 flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <motion.div
                         className="bg-rose-50 dark:bg-rose-950/30 rounded-full p-2"
                         whileHover={{ rotate: 15, scale: 1.1 }}
-                        transition={{ duration: 0.3 }}>
+                        transition={{ duration: 0.3 }}
+                      >
                         <AlertTriangle
                           className={`h-5 w-5 text-rose-600 dark:text-rose-400 ${isDeleting ? "animate-pulse" : ""}`}
                         />
@@ -1699,7 +1926,8 @@ export default function Profile() {
                     </div>
                     <motion.div
                       whileHover={{ x: 4 }}
-                      transition={{ duration: 0.2 }}>
+                      transition={{ duration: 0.2 }}
+                    >
                       <ChevronRight className="h-5 w-5 text-rose-400 dark:text-rose-500" />
                     </motion.div>
                   </CardContent>
@@ -1727,16 +1955,20 @@ export default function Profile() {
                 handleVegModeUpdate(true);
                 setVegModeOpen(false);
               }}
-              className={`w-full p-3 rounded-xl border-2 transition-all flex items-center justify-between ${vegMode
+              className={`w-full p-3 rounded-xl border-2 transition-all flex items-center justify-between ${
+                vegMode
                   ? "border-green-600 bg-green-50"
                   : "border-gray-200 bg-white hover:border-gray-300"
-                }`}>
+              }`}
+            >
               <div className="flex items-center gap-3">
                 <div
-                  className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${vegMode
+                  className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                    vegMode
                       ? "border-green-600 bg-green-600"
                       : "border-gray-300"
-                    }`}>
+                  }`}
+                >
                   {vegMode && <Check className="h-3 w-3 text-white" />}
                 </div>
                 <div className="text-left">
@@ -1757,14 +1989,18 @@ export default function Profile() {
                 handleVegModeUpdate(false);
                 setVegModeOpen(false);
               }}
-              className={`w-full p-3 rounded-xl border-2 transition-all flex items-center justify-between ${!vegMode
+              className={`w-full p-3 rounded-xl border-2 transition-all flex items-center justify-between ${
+                !vegMode
                   ? "border-red-600 bg-red-50"
                   : "border-gray-200 bg-white hover:border-gray-300"
-                }`}>
+              }`}
+            >
               <div className="flex items-center gap-3">
                 <div
-                  className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${!vegMode ? "border-red-600 bg-red-600" : "border-gray-300"
-                    }`}>
+                  className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                    !vegMode ? "border-red-600 bg-red-600" : "border-gray-300"
+                  }`}
+                >
                   {!vegMode && <Check className="h-3 w-3 text-white" />}
                 </div>
                 <div className="text-left">
@@ -1796,23 +2032,37 @@ export default function Profile() {
             {selectedStatusRequest && (
               <div className="p-4 rounded-xl border border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/50 space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Role</span>
+                  <span className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
+                    Role
+                  </span>
                   <span className="text-sm font-semibold text-gray-850 dark:text-gray-200">
-                    {selectedStatusRequest.role === "RESTAURANT" && "Restaurant"}
+                    {selectedStatusRequest.role === "RESTAURANT" &&
+                      "Restaurant"}
                     {selectedStatusRequest.role === "SELLER" && "Seller"}
-                    {selectedStatusRequest.role === "DELIVERY_BOY" && "Delivery Partner"}
+                    {selectedStatusRequest.role === "DELIVERY_BOY" &&
+                      "Delivery Partner"}
                   </span>
                 </div>
-                
+
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Status</span>
-                  <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
-                    selectedStatusRequest.status === "PENDING" ? "bg-amber-100 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-900/30" : ""
-                  } ${
-                    selectedStatusRequest.status === "APPROVED" ? "bg-emerald-100 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900/30" : ""
-                  } ${
-                    selectedStatusRequest.status === "REJECTED" ? "bg-rose-100 dark:bg-rose-950/20 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-900/30" : ""
-                  }`}>
+                  <span className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
+                    Status
+                  </span>
+                  <span
+                    className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                      selectedStatusRequest.status === "PENDING"
+                        ? "bg-amber-100 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-900/30"
+                        : ""
+                    } ${
+                      selectedStatusRequest.status === "APPROVED"
+                        ? "bg-emerald-100 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900/30"
+                        : ""
+                    } ${
+                      selectedStatusRequest.status === "REJECTED"
+                        ? "bg-rose-100 dark:bg-rose-950/20 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-900/30"
+                        : ""
+                    }`}
+                  >
                     {selectedStatusRequest.status === "PENDING" && "Pending"}
                     {selectedStatusRequest.status === "APPROVED" && "Approved"}
                     {selectedStatusRequest.status === "REJECTED" && "Rejected"}
@@ -1821,17 +2071,20 @@ export default function Profile() {
 
                 {selectedStatusRequest.status === "PENDING" && (
                   <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">
-                    Your request is under review by our administration. You can edit the details or delete the request.
+                    Your request is under review by our administration. You can
+                    edit the details or delete the request.
                   </p>
                 )}
                 {selectedStatusRequest.status === "APPROVED" && (
                   <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">
-                    Congratulations! Your onboarding request has been approved and activated.
+                    Congratulations! Your onboarding request has been approved
+                    and activated.
                   </p>
                 )}
                 {selectedStatusRequest.status === "REJECTED" && (
                   <p className="text-xs text-rose-600 dark:text-rose-400 font-medium">
-                    Your request was rejected. You can delete this request to submit a new onboard application.
+                    Your request was rejected. You can delete this request to
+                    submit a new onboard application.
                   </p>
                 )}
               </div>
@@ -1846,8 +2099,10 @@ export default function Profile() {
                   Edit Request
                 </Button>
               )}
-              
-              {["PENDING", "REJECTED"].includes(selectedStatusRequest?.status) && (
+
+              {["PENDING", "REJECTED"].includes(
+                selectedStatusRequest?.status,
+              ) && (
                 <Button
                   onClick={() => handleDeleteRequest(selectedStatusRequest)}
                   variant="outline"
@@ -1913,7 +2168,9 @@ export default function Profile() {
               Delete Account?
             </h3>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              Are you sure you want to delete your account? This action is irreversible. All your profile settings, transactions, and balance will be disabled.
+              Are you sure you want to delete your account? This action is
+              irreversible. All your profile settings, transactions, and balance
+              will be disabled.
             </p>
             <div className="mt-5 flex items-center gap-3">
               <Button
@@ -1958,15 +2215,19 @@ export default function Profile() {
                 setAppearance("light");
                 setAppearanceOpen(false);
               }}
-              className={`w-full p-3 rounded-xl border-2 transition-all flex items-center gap-3 ${appearance === "light"
+              className={`w-full p-3 rounded-xl border-2 transition-all flex items-center gap-3 ${
+                appearance === "light"
                   ? "border-blue-600 bg-blue-50 dark:border-blue-500 dark:bg-blue-900/20"
                   : "border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-gray-300 dark:hover:border-gray-600"
-                }`}>
+              }`}
+            >
               <div
-                className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${appearance === "light"
+                className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
+                  appearance === "light"
                     ? "border-blue-600 bg-blue-600 dark:border-blue-500 dark:bg-blue-500"
                     : "border-gray-300 dark:border-gray-600"
-                  }`}>
+                }`}
+              >
                 {appearance === "light" && (
                   <Check className="h-3 w-3 text-white" />
                 )}
@@ -1986,15 +2247,19 @@ export default function Profile() {
                 setAppearance("dark");
                 setAppearanceOpen(false);
               }}
-              className={`w-full p-3 rounded-xl border-2 transition-all flex items-center gap-3 ${appearance === "dark"
+              className={`w-full p-3 rounded-xl border-2 transition-all flex items-center gap-3 ${
+                appearance === "dark"
                   ? "border-blue-600 dark:border-blue-500 bg-blue-50 dark:bg-blue-900/20"
                   : "border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-gray-300 dark:hover:border-gray-600"
-                }`}>
+              }`}
+            >
               <div
-                className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${appearance === "dark"
+                className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
+                  appearance === "dark"
                     ? "border-blue-600 bg-blue-600 dark:border-blue-500 dark:bg-blue-500"
                     : "border-gray-300 dark:border-gray-600"
-                  }`}>
+                }`}
+              >
                 {appearance === "dark" && (
                   <Check className="h-3 w-3 text-white" />
                 )}
@@ -2014,7 +2279,10 @@ export default function Profile() {
       </Dialog>
 
       {/* Become as a Restaurant Dialog */}
-      <Dialog open={becomeRestaurantOpen} onOpenChange={setBecomeRestaurantOpen}>
+      <Dialog
+        open={becomeRestaurantOpen}
+        onOpenChange={setBecomeRestaurantOpen}
+      >
         <DialogContent className="max-w-md md:max-w-lg w-[calc(100%-2rem)] max-h-[85vh] overflow-y-auto rounded-2xl p-0 bg-white dark:bg-[#1a1a1a] border-gray-200 dark:border-gray-800">
           <DialogHeader className="p-5 pb-3 border-b border-gray-100 dark:border-zinc-800">
             <DialogTitle className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
@@ -2025,15 +2293,43 @@ export default function Profile() {
               Submit your basic details to register a restaurant
             </DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleBecomeRestaurantSubmit} className="p-5 space-y-4">
+          <form
+            onSubmit={handleBecomeRestaurantSubmit}
+            className="p-5 space-y-4"
+          >
             <div>
-              <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Restaurant Name <span className="text-red-500">*</span></label>
-              <input required type="text" className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all" placeholder="Restaurant name" value={restaurantForm.restaurantName} onChange={e => setRestaurantForm({...restaurantForm, restaurantName: e.target.value})} />
+              <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                Restaurant Name <span className="text-red-500">*</span>
+              </label>
+              <input
+                required
+                type="text"
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all"
+                placeholder="Restaurant name"
+                value={restaurantForm.restaurantName}
+                onChange={(e) =>
+                  setRestaurantForm({
+                    ...restaurantForm,
+                    restaurantName: e.target.value,
+                  })
+                }
+              />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Type <span className="text-red-500">*</span></label>
-              <select className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all" value={restaurantForm.pureVegRestaurant} onChange={e => setRestaurantForm({...restaurantForm, pureVegRestaurant: e.target.value})}>
+              <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                Type <span className="text-red-500">*</span>
+              </label>
+              <select
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all"
+                value={restaurantForm.pureVegRestaurant}
+                onChange={(e) =>
+                  setRestaurantForm({
+                    ...restaurantForm,
+                    pureVegRestaurant: e.target.value,
+                  })
+                }
+              >
                 <option value="false">Non-Vegetarian & Vegetarian</option>
                 <option value="true">Pure Vegetarian</option>
               </select>
@@ -2041,31 +2337,106 @@ export default function Profile() {
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Owner Name <span className="text-red-500">*</span></label>
-                <input required type="text" className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all" placeholder="Owner name" value={restaurantForm.ownerName} onChange={e => setRestaurantForm({...restaurantForm, ownerName: e.target.value.replace(/[^a-zA-Z\s]/g, "")})} />
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                  Owner Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  required
+                  type="text"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all"
+                  placeholder="Owner name"
+                  value={restaurantForm.ownerName}
+                  onChange={(e) =>
+                    setRestaurantForm({
+                      ...restaurantForm,
+                      ownerName: e.target.value.replace(/[^a-zA-Z\s]/g, ""),
+                    })
+                  }
+                />
               </div>
               <div>
-                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Owner Email <span className="text-red-500">*</span></label>
-                <input required type="email" className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all" placeholder="owner@email.com" value={restaurantForm.ownerEmail} onChange={e => setRestaurantForm({...restaurantForm, ownerEmail: e.target.value})} />
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                  Owner Email <span className="text-red-500">*</span>
+                </label>
+                <input
+                  required
+                  type="email"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all"
+                  placeholder="owner@email.com"
+                  value={restaurantForm.ownerEmail}
+                  onChange={(e) =>
+                    setRestaurantForm({
+                      ...restaurantForm,
+                      ownerEmail: e.target.value,
+                    })
+                  }
+                />
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Owner Phone <span className="text-red-500">*</span></label>
-                <input required type="text" className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all" placeholder="Owner phone" value={restaurantForm.ownerPhone} onChange={e => setRestaurantForm({...restaurantForm, ownerPhone: e.target.value.replace(/\D/g, "").slice(0, 10)})} />
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                  Owner Phone <span className="text-red-500">*</span>
+                </label>
+                <input
+                  required
+                  type="text"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all"
+                  placeholder="Owner phone"
+                  value={restaurantForm.ownerPhone}
+                  onChange={(e) =>
+                    setRestaurantForm({
+                      ...restaurantForm,
+                      ownerPhone: e.target.value
+                        .replace(/\D/g, "")
+                        .slice(0, 10),
+                    })
+                  }
+                />
               </div>
               <div>
-                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Primary Contact <span className="text-red-500">*</span></label>
-                <input required type="text" className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all" placeholder="Primary contact" value={restaurantForm.primaryContactNumber} onChange={e => setRestaurantForm({...restaurantForm, primaryContactNumber: e.target.value.replace(/\D/g, "").slice(0, 10)})} />
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                  Primary Contact <span className="text-red-500">*</span>
+                </label>
+                <input
+                  required
+                  type="text"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all"
+                  placeholder="Primary contact"
+                  value={restaurantForm.primaryContactNumber}
+                  onChange={(e) =>
+                    setRestaurantForm({
+                      ...restaurantForm,
+                      primaryContactNumber: e.target.value
+                        .replace(/\D/g, "")
+                        .slice(0, 10),
+                    })
+                  }
+                />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Service Zone <span className="text-red-500">*</span></label>
-              <select required className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all" value={restaurantForm.zoneId} onChange={e => setRestaurantForm({...restaurantForm, zoneId: e.target.value})} disabled={loadingZones}>
-                <option value="">{loadingZones ? "Loading zones..." : "Select Service Zone"}</option>
-                {zones.map(z => (
+              <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                Service Zone <span className="text-red-500">*</span>
+              </label>
+              <select
+                required
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all"
+                value={restaurantForm.zoneId}
+                onChange={(e) =>
+                  setRestaurantForm({
+                    ...restaurantForm,
+                    zoneId: e.target.value,
+                  })
+                }
+                disabled={loadingZones}
+              >
+                <option value="">
+                  {loadingZones ? "Loading zones..." : "Select Service Zone"}
+                </option>
+                {zones.map((z) => (
                   <option key={z._id || z.id} value={z._id || z.id}>
                     {z.name || z.zoneName || z.serviceLocation || "Zone"}
                   </option>
@@ -2074,52 +2445,165 @@ export default function Profile() {
             </div>
 
             <div className="border-t border-dashed border-gray-200 dark:border-zinc-800 pt-3">
-              <span className="text-xs font-bold text-gray-900 dark:text-white uppercase tracking-wider block mb-2">Location Details</span>
-              
+              <span className="text-xs font-bold text-gray-900 dark:text-white uppercase tracking-wider block mb-2">
+                Location Details
+              </span>
+
               <div className="space-y-3">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-500 mb-1">Address Line 1 <span className="text-red-500">*</span></label>
-                  <input required type="text" className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all" placeholder="Flat, House no., Building, Company" value={restaurantForm.addressLine1} onChange={e => setRestaurantForm({...restaurantForm, addressLine1: e.target.value})} />
+                  <label className="block text-xs font-semibold text-gray-500 mb-1">
+                    Address Line 1 <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    required
+                    type="text"
+                    className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all"
+                    placeholder="Flat, House no., Building, Company"
+                    value={restaurantForm.addressLine1}
+                    onChange={(e) =>
+                      setRestaurantForm({
+                        ...restaurantForm,
+                        addressLine1: e.target.value,
+                      })
+                    }
+                  />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-500 mb-1">Address Line 2 (Optional)</label>
-                  <input type="text" className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all" placeholder="Area, Street, Sector, Village" value={restaurantForm.addressLine2} onChange={e => setRestaurantForm({...restaurantForm, addressLine2: e.target.value})} />
+                  <label className="block text-xs font-semibold text-gray-500 mb-1">
+                    Address Line 2 (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all"
+                    placeholder="Area, Street, Sector, Village"
+                    value={restaurantForm.addressLine2}
+                    onChange={(e) =>
+                      setRestaurantForm({
+                        ...restaurantForm,
+                        addressLine2: e.target.value,
+                      })
+                    }
+                  />
                 </div>
-                
+
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-semibold text-gray-500 mb-1">Area / Locality</label>
-                    <input type="text" className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all" placeholder="Area" value={restaurantForm.area} onChange={e => setRestaurantForm({...restaurantForm, area: e.target.value})} />
+                    <label className="block text-xs font-semibold text-gray-500 mb-1">
+                      Area / Locality
+                    </label>
+                    <input
+                      type="text"
+                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all"
+                      placeholder="Area"
+                      value={restaurantForm.area}
+                      onChange={(e) =>
+                        setRestaurantForm({
+                          ...restaurantForm,
+                          area: e.target.value,
+                        })
+                      }
+                    />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-gray-500 mb-1">Landmark</label>
-                    <input type="text" className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all" placeholder="E.g. near hospital" value={restaurantForm.landmark} onChange={e => setRestaurantForm({...restaurantForm, landmark: e.target.value})} />
+                    <label className="block text-xs font-semibold text-gray-500 mb-1">
+                      Landmark
+                    </label>
+                    <input
+                      type="text"
+                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all"
+                      placeholder="E.g. near hospital"
+                      value={restaurantForm.landmark}
+                      onChange={(e) =>
+                        setRestaurantForm({
+                          ...restaurantForm,
+                          landmark: e.target.value,
+                        })
+                      }
+                    />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-3 gap-3">
                   <div>
-                    <label className="block text-xs font-semibold text-gray-500 mb-1">City <span className="text-red-500">*</span></label>
-                    <input required type="text" className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all" placeholder="City" value={restaurantForm.city} onChange={e => setRestaurantForm({...restaurantForm, city: e.target.value.replace(/[^a-zA-Z\s]/g, "")})} />
+                    <label className="block text-xs font-semibold text-gray-500 mb-1">
+                      City <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      required
+                      type="text"
+                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all"
+                      placeholder="City"
+                      value={restaurantForm.city}
+                      onChange={(e) =>
+                        setRestaurantForm({
+                          ...restaurantForm,
+                          city: e.target.value.replace(/[^a-zA-Z\s]/g, ""),
+                        })
+                      }
+                    />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-gray-500 mb-1">State <span className="text-red-500">*</span></label>
-                    <input required type="text" className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all" placeholder="State" value={restaurantForm.state} onChange={e => setRestaurantForm({...restaurantForm, state: e.target.value.replace(/[^a-zA-Z\s]/g, "")})} />
+                    <label className="block text-xs font-semibold text-gray-500 mb-1">
+                      State <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      required
+                      type="text"
+                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all"
+                      placeholder="State"
+                      value={restaurantForm.state}
+                      onChange={(e) =>
+                        setRestaurantForm({
+                          ...restaurantForm,
+                          state: e.target.value.replace(/[^a-zA-Z\s]/g, ""),
+                        })
+                      }
+                    />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-gray-500 mb-1">Pincode <span className="text-red-500">*</span></label>
-                    <input required type="text" className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all" placeholder="6 digits" value={restaurantForm.pincode} onChange={e => setRestaurantForm({...restaurantForm, pincode: e.target.value.replace(/\D/g, "").slice(0, 6)})} />
+                    <label className="block text-xs font-semibold text-gray-500 mb-1">
+                      Pincode <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      required
+                      type="text"
+                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all"
+                      placeholder="6 digits"
+                      value={restaurantForm.pincode}
+                      onChange={(e) =>
+                        setRestaurantForm({
+                          ...restaurantForm,
+                          pincode: e.target.value
+                            .replace(/\D/g, "")
+                            .slice(0, 6),
+                        })
+                      }
+                    />
                   </div>
                 </div>
               </div>
             </div>
 
             <div className="flex items-center gap-3 pt-3">
-              <Button type="button" variant="outline" className="flex-1 rounded-xl text-sm" onClick={() => setBecomeRestaurantOpen(false)} disabled={submittingRole}>
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1 rounded-xl text-sm"
+                onClick={() => setBecomeRestaurantOpen(false)}
+                disabled={submittingRole}
+              >
                 Cancel
               </Button>
-              <Button type="submit" className="flex-1 rounded-xl text-sm bg-primary-orange hover:bg-primary-orange/95 text-white" disabled={submittingRole}>
-                {submittingRole ? <Loader2 className="h-4 w-4 animate-spin" /> : "Submit Request"}
+              <Button
+                type="submit"
+                className="flex-1 rounded-xl text-sm bg-primary-orange hover:bg-primary-orange/95 text-white"
+                disabled={submittingRole}
+              >
+                {submittingRole ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  "Submit Request"
+                )}
               </Button>
             </div>
           </form>
@@ -2141,30 +2625,94 @@ export default function Profile() {
           <form onSubmit={handleBecomeSellerSubmit} className="p-5 space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Seller Name <span className="text-red-500">*</span></label>
-                <input required type="text" className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all" placeholder="Your name" value={sellerForm.name} onChange={e => setSellerForm({...sellerForm, name: e.target.value.replace(/[^a-zA-Z\s]/g, "")})} />
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                  Seller Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  required
+                  type="text"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all"
+                  placeholder="Your name"
+                  value={sellerForm.name}
+                  onChange={(e) =>
+                    setSellerForm({
+                      ...sellerForm,
+                      name: e.target.value.replace(/[^a-zA-Z\s]/g, ""),
+                    })
+                  }
+                />
               </div>
               <div>
-                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Shop Name <span className="text-red-500">*</span></label>
-                <input required type="text" className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all" placeholder="Shop name" value={sellerForm.shopName} onChange={e => setSellerForm({...sellerForm, shopName: e.target.value.replace(/[^a-zA-Z\s]/g, "")})} />
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                  Shop Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  required
+                  type="text"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all"
+                  placeholder="Shop name"
+                  value={sellerForm.shopName}
+                  onChange={(e) =>
+                    setSellerForm({
+                      ...sellerForm,
+                      shopName: e.target.value.replace(/[^a-zA-Z\s]/g, ""),
+                    })
+                  }
+                />
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Email <span className="text-red-500">*</span></label>
-                <input required type="email" className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all" placeholder="seller@email.com" value={sellerForm.email} onChange={e => setSellerForm({...sellerForm, email: e.target.value})} />
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                  Email <span className="text-red-500">*</span>
+                </label>
+                <input
+                  required
+                  type="email"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all"
+                  placeholder="seller@email.com"
+                  value={sellerForm.email}
+                  onChange={(e) =>
+                    setSellerForm({ ...sellerForm, email: e.target.value })
+                  }
+                />
               </div>
               <div>
-                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Primary Phone <span className="text-red-500">*</span></label>
-                <input required type="text" className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all" placeholder="Primary phone" value={sellerForm.phone} onChange={e => setSellerForm({...sellerForm, phone: e.target.value.replace(/\D/g, "").slice(0, 10)})} />
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                  Primary Phone <span className="text-red-500">*</span>
+                </label>
+                <input
+                  required
+                  type="text"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all"
+                  placeholder="Primary phone"
+                  value={sellerForm.phone}
+                  onChange={(e) =>
+                    setSellerForm({
+                      ...sellerForm,
+                      phone: e.target.value.replace(/\D/g, "").slice(0, 10),
+                    })
+                  }
+                />
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Business Type <span className="text-red-500">*</span></label>
-                <select className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all" value={sellerForm.businessType} onChange={e => setSellerForm({...sellerForm, businessType: e.target.value})}>
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                  Business Type <span className="text-red-500">*</span>
+                </label>
+                <select
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all"
+                  value={sellerForm.businessType}
+                  onChange={(e) =>
+                    setSellerForm({
+                      ...sellerForm,
+                      businessType: e.target.value,
+                    })
+                  }
+                >
                   <option value="Grocery">Grocery</option>
                   <option value="Bakery">Bakery</option>
                   <option value="Pharmacy">Pharmacy</option>
@@ -2174,17 +2722,45 @@ export default function Profile() {
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Alternate Phone <span className="text-red-500">*</span></label>
-                <input required type="text" className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all" placeholder="Alternate phone" value={sellerForm.alternatePhone} onChange={e => setSellerForm({...sellerForm, alternatePhone: e.target.value.replace(/\D/g, "").slice(0, 10)})} />
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                  Alternate Phone <span className="text-red-500">*</span>
+                </label>
+                <input
+                  required
+                  type="text"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all"
+                  placeholder="Alternate phone"
+                  value={sellerForm.alternatePhone}
+                  onChange={(e) =>
+                    setSellerForm({
+                      ...sellerForm,
+                      alternatePhone: e.target.value
+                        .replace(/\D/g, "")
+                        .slice(0, 10),
+                    })
+                  }
+                />
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Service Zone <span className="text-red-500">*</span></label>
-                <select required className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all" value={sellerForm.zoneId} onChange={e => setSellerForm({...sellerForm, zoneId: e.target.value})} disabled={loadingZones}>
-                  <option value="">{loadingZones ? "Loading zones..." : "Select Service Zone"}</option>
-                  {zones.map(z => (
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                  Service Zone <span className="text-red-500">*</span>
+                </label>
+                <select
+                  required
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all"
+                  value={sellerForm.zoneId}
+                  onChange={(e) =>
+                    setSellerForm({ ...sellerForm, zoneId: e.target.value })
+                  }
+                  disabled={loadingZones}
+                >
+                  <option value="">
+                    {loadingZones ? "Loading zones..." : "Select Service Zone"}
+                  </option>
+                  {zones.map((z) => (
                     <option key={z._id || z.id} value={z._id || z.id}>
                       {z.name || z.zoneName || z.serviceLocation || "Zone"}
                     </option>
@@ -2192,33 +2768,98 @@ export default function Profile() {
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Support Email <span className="text-red-500">*</span></label>
-                <input required type="email" className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all" placeholder="support@email.com" value={sellerForm.supportEmail} onChange={e => setSellerForm({...sellerForm, supportEmail: e.target.value})} />
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                  Support Email <span className="text-red-500">*</span>
+                </label>
+                <input
+                  required
+                  type="email"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all"
+                  placeholder="support@email.com"
+                  value={sellerForm.supportEmail}
+                  onChange={(e) =>
+                    setSellerForm({
+                      ...sellerForm,
+                      supportEmail: e.target.value,
+                    })
+                  }
+                />
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Opening Time <span className="text-red-500">*</span></label>
-                <input required type="time" className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all" value={sellerForm.openingTime} onChange={e => setSellerForm({...sellerForm, openingTime: e.target.value})} />
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                  Opening Time <span className="text-red-500">*</span>
+                </label>
+                <input
+                  required
+                  type="time"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all"
+                  value={sellerForm.openingTime}
+                  onChange={(e) =>
+                    setSellerForm({
+                      ...sellerForm,
+                      openingTime: e.target.value,
+                    })
+                  }
+                />
               </div>
               <div>
-                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Closing Time <span className="text-red-500">*</span></label>
-                <input required type="time" className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all" value={sellerForm.closingTime} onChange={e => setSellerForm({...sellerForm, closingTime: e.target.value})} />
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                  Closing Time <span className="text-red-500">*</span>
+                </label>
+                <input
+                  required
+                  type="time"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all"
+                  value={sellerForm.closingTime}
+                  onChange={(e) =>
+                    setSellerForm({
+                      ...sellerForm,
+                      closingTime: e.target.value,
+                    })
+                  }
+                />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Shop Address <span className="text-red-500">*</span></label>
-              <textarea required rows={2} className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all" placeholder="Complete shop address" value={sellerForm.address} onChange={e => setSellerForm({...sellerForm, address: e.target.value})} />
+              <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                Shop Address <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                required
+                rows={2}
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all"
+                placeholder="Complete shop address"
+                value={sellerForm.address}
+                onChange={(e) =>
+                  setSellerForm({ ...sellerForm, address: e.target.value })
+                }
+              />
             </div>
 
             <div className="flex items-center gap-3 pt-3">
-              <Button type="button" variant="outline" className="flex-1 rounded-xl text-sm" onClick={() => setBecomeSellerOpen(false)} disabled={submittingRole}>
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1 rounded-xl text-sm"
+                onClick={() => setBecomeSellerOpen(false)}
+                disabled={submittingRole}
+              >
                 Cancel
               </Button>
-              <Button type="submit" className="flex-1 rounded-xl text-sm bg-primary-orange hover:bg-primary-orange/95 text-white" disabled={submittingRole}>
-                {submittingRole ? <Loader2 className="h-4 w-4 animate-spin" /> : "Submit Request"}
+              <Button
+                type="submit"
+                className="flex-1 rounded-xl text-sm bg-primary-orange hover:bg-primary-orange/95 text-white"
+                disabled={submittingRole}
+              >
+                {submittingRole ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  "Submit Request"
+                )}
               </Button>
             </div>
           </form>
@@ -2240,35 +2881,110 @@ export default function Profile() {
           <form onSubmit={handleBecomeDeliverySubmit} className="p-5 space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Full Name <span className="text-red-500">*</span></label>
-                <input required type="text" className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all" placeholder="Your full name" value={deliveryForm.name} onChange={e => setDeliveryForm({...deliveryForm, name: e.target.value.replace(/[^a-zA-Z\s]/g, "")})} />
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                  Full Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  required
+                  type="text"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all"
+                  placeholder="Your full name"
+                  value={deliveryForm.name}
+                  onChange={(e) =>
+                    setDeliveryForm({
+                      ...deliveryForm,
+                      name: e.target.value.replace(/[^a-zA-Z\s]/g, ""),
+                    })
+                  }
+                />
               </div>
               <div>
-                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Email <span className="text-red-500">*</span></label>
-                <input required type="email" className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all" placeholder="delivery@email.com" value={deliveryForm.email} onChange={e => setDeliveryForm({...deliveryForm, email: e.target.value})} />
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                  Email <span className="text-red-500">*</span>
+                </label>
+                <input
+                  required
+                  type="email"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all"
+                  placeholder="delivery@email.com"
+                  value={deliveryForm.email}
+                  onChange={(e) =>
+                    setDeliveryForm({ ...deliveryForm, email: e.target.value })
+                  }
+                />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Address <span className="text-red-500">*</span></label>
-              <textarea required rows={2} className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all" placeholder="Complete home address" value={deliveryForm.address} onChange={e => setDeliveryForm({...deliveryForm, address: e.target.value})} />
+              <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                Address <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                required
+                rows={2}
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all"
+                placeholder="Complete home address"
+                value={deliveryForm.address}
+                onChange={(e) =>
+                  setDeliveryForm({ ...deliveryForm, address: e.target.value })
+                }
+              />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">City <span className="text-red-500">*</span></label>
-                <input required type="text" className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all" placeholder="City" value={deliveryForm.city} onChange={e => setDeliveryForm({...deliveryForm, city: e.target.value.replace(/[^a-zA-Z\s]/g, "")})} />
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                  City <span className="text-red-500">*</span>
+                </label>
+                <input
+                  required
+                  type="text"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all"
+                  placeholder="City"
+                  value={deliveryForm.city}
+                  onChange={(e) =>
+                    setDeliveryForm({
+                      ...deliveryForm,
+                      city: e.target.value.replace(/[^a-zA-Z\s]/g, ""),
+                    })
+                  }
+                />
               </div>
               <div>
-                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">State <span className="text-red-500">*</span></label>
-                <input required type="text" className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all" placeholder="State" value={deliveryForm.state} onChange={e => setDeliveryForm({...deliveryForm, state: e.target.value.replace(/[^a-zA-Z\s]/g, "")})} />
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                  State <span className="text-red-500">*</span>
+                </label>
+                <input
+                  required
+                  type="text"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all"
+                  placeholder="State"
+                  value={deliveryForm.state}
+                  onChange={(e) =>
+                    setDeliveryForm({
+                      ...deliveryForm,
+                      state: e.target.value.replace(/[^a-zA-Z\s]/g, ""),
+                    })
+                  }
+                />
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Vehicle Type <span className="text-red-500">*</span></label>
-                <select className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all" value={deliveryForm.vehicleType} onChange={e => setDeliveryForm({...deliveryForm, vehicleType: e.target.value})}>
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                  Vehicle Type <span className="text-red-500">*</span>
+                </label>
+                <select
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all"
+                  value={deliveryForm.vehicleType}
+                  onChange={(e) =>
+                    setDeliveryForm({
+                      ...deliveryForm,
+                      vehicleType: e.target.value,
+                    })
+                  }
+                >
                   <option value="bike">Bike</option>
                   <option value="scooter">Scooter</option>
                   <option value="bicycle">Bicycle</option>
@@ -2277,39 +2993,139 @@ export default function Profile() {
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Vehicle Name/Model</label>
-                <input type="text" className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all" placeholder="E.g. Splendor, Activa" value={deliveryForm.vehicleName} onChange={e => setDeliveryForm({...deliveryForm, vehicleName: e.target.value})} />
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                  Vehicle Name/Model
+                </label>
+                <input
+                  type="text"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all"
+                  placeholder="E.g. Splendor, Activa"
+                  value={deliveryForm.vehicleName}
+                  onChange={(e) =>
+                    setDeliveryForm({
+                      ...deliveryForm,
+                      vehicleName: e.target.value,
+                    })
+                  }
+                />
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Vehicle Number {deliveryForm.vehicleType !== "bicycle" && <span className="text-red-500">*</span>}</label>
-                <input required={deliveryForm.vehicleType !== "bicycle"} type="text" className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all" placeholder="E.g. MH12AB1234" value={deliveryForm.vehicleNumber} onChange={e => setDeliveryForm({...deliveryForm, vehicleNumber: e.target.value.toUpperCase()})} />
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                  Vehicle Number{" "}
+                  {deliveryForm.vehicleType !== "bicycle" && (
+                    <span className="text-red-500">*</span>
+                  )}
+                </label>
+                <input
+                  required={deliveryForm.vehicleType !== "bicycle"}
+                  type="text"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all"
+                  placeholder="E.g. MH12AB1234"
+                  value={deliveryForm.vehicleNumber}
+                  onChange={(e) =>
+                    setDeliveryForm({
+                      ...deliveryForm,
+                      vehicleNumber: e.target.value.toUpperCase(),
+                    })
+                  }
+                />
               </div>
               <div>
-                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Driving License No {deliveryForm.vehicleType !== "bicycle" && deliveryForm.vehicleType !== "electric_bike" && <span className="text-red-500">*</span>}</label>
-                <input required={deliveryForm.vehicleType !== "bicycle" && deliveryForm.vehicleType !== "electric_bike"} type="text" className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all" placeholder="E.g. MH1220110012345" value={deliveryForm.drivingLicenseNumber} onChange={e => setDeliveryForm({...deliveryForm, drivingLicenseNumber: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "")})} />
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                  Driving License No{" "}
+                  {deliveryForm.vehicleType !== "bicycle" &&
+                    deliveryForm.vehicleType !== "electric_bike" && (
+                      <span className="text-red-500">*</span>
+                    )}
+                </label>
+                <input
+                  required={
+                    deliveryForm.vehicleType !== "bicycle" &&
+                    deliveryForm.vehicleType !== "electric_bike"
+                  }
+                  type="text"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all"
+                  placeholder="E.g. MH1220110012345"
+                  value={deliveryForm.drivingLicenseNumber}
+                  onChange={(e) =>
+                    setDeliveryForm({
+                      ...deliveryForm,
+                      drivingLicenseNumber: e.target.value
+                        .toUpperCase()
+                        .replace(/[^A-Z0-9]/g, ""),
+                    })
+                  }
+                />
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">PAN Number <span className="text-red-500">*</span></label>
-                <input required type="text" className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all" placeholder="ABCDE1234F" value={deliveryForm.panNumber} onChange={e => setDeliveryForm({...deliveryForm, panNumber: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "")})} />
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                  PAN Number <span className="text-red-500">*</span>
+                </label>
+                <input
+                  required
+                  type="text"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all"
+                  placeholder="ABCDE1234F"
+                  value={deliveryForm.panNumber}
+                  onChange={(e) =>
+                    setDeliveryForm({
+                      ...deliveryForm,
+                      panNumber: e.target.value
+                        .toUpperCase()
+                        .replace(/[^A-Z0-9]/g, ""),
+                    })
+                  }
+                />
               </div>
               <div>
-                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Aadhaar Number <span className="text-red-500">*</span></label>
-                <input required type="text" className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all" placeholder="12 digits" value={deliveryForm.aadharNumber} onChange={e => setDeliveryForm({...deliveryForm, aadharNumber: e.target.value.replace(/\D/g, "").slice(0, 12).replace(/(\d{4})(?=\d)/g, "$1 ")})} />
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                  Aadhaar Number <span className="text-red-500">*</span>
+                </label>
+                <input
+                  required
+                  type="text"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm bg-white dark:bg-zinc-900 text-gray-950 dark:text-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-orange focus:border-primary-orange transition-all"
+                  placeholder="12 digits"
+                  value={deliveryForm.aadharNumber}
+                  onChange={(e) =>
+                    setDeliveryForm({
+                      ...deliveryForm,
+                      aadharNumber: e.target.value
+                        .replace(/\D/g, "")
+                        .slice(0, 12)
+                        .replace(/(\d{4})(?=\d)/g, "$1 "),
+                    })
+                  }
+                />
               </div>
             </div>
 
             <div className="flex items-center gap-3 pt-3">
-              <Button type="button" variant="outline" className="flex-1 rounded-xl text-sm" onClick={() => setBecomeDeliveryOpen(false)} disabled={submittingRole}>
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1 rounded-xl text-sm"
+                onClick={() => setBecomeDeliveryOpen(false)}
+                disabled={submittingRole}
+              >
                 Cancel
               </Button>
-              <Button type="submit" className="flex-1 rounded-xl text-sm bg-primary-orange hover:bg-primary-orange/95 text-white" disabled={submittingRole}>
-                {submittingRole ? <Loader2 className="h-4 w-4 animate-spin" /> : "Submit Request"}
+              <Button
+                type="submit"
+                className="flex-1 rounded-xl text-sm bg-primary-orange hover:bg-primary-orange/95 text-white"
+                disabled={submittingRole}
+              >
+                {submittingRole ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  "Submit Request"
+                )}
               </Button>
             </div>
           </form>

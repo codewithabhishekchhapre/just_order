@@ -46,6 +46,13 @@ export const porterAdminSidebarMenu = [
         path: "/admin/porter/users",
         permissionKey: "users",
       },
+      {
+        type: "link",
+        label: "Driver Onboarding",
+        icon: "ClipboardCheck",
+        path: "/admin/porter/drivers/requests",
+        permissionKey: "onboarding",
+      },
     ],
   },
   {

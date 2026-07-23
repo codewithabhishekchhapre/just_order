@@ -1,6 +1,12 @@
-import { useState } from "react"
-import { Upload, Calendar, Eye, EyeOff, Settings } from "lucide-react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@food/components/ui/dialog"
+import { useState } from "react";
+import { Upload, Calendar, Eye, EyeOff, Settings } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@food/components/ui/dialog";
 
 export default function AddDeliveryman() {
   const [formData, setFormData] = useState({
@@ -17,53 +23,59 @@ export default function AddDeliveryman() {
     phone: "+1",
     password: "",
     confirmPassword: "",
-  })
-  const [showPassword, setShowPassword] = useState(false)
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
-  const [showSuccessDialog, setShowSuccessDialog] = useState(false)
-  const [formErrors, setFormErrors] = useState({})
-  const [isSubmitting, setIsSubmitting] = useState(false)
+  });
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [showSuccessDialog, setShowSuccessDialog] = useState(false);
+  const [formErrors, setFormErrors] = useState({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleInputChange = (field, value) => {
-    setFormData(prev => ({ ...prev, [field]: value }))
+    setFormData((prev) => ({ ...prev, [field]: value }));
     if (formErrors[field]) {
-      setFormErrors(prev => ({ ...prev, [field]: "" }))
+      setFormErrors((prev) => ({ ...prev, [field]: "" }));
     }
-  }
+  };
 
   const validateForm = () => {
-    const errors = {}
-    if (!formData.firstName.trim()) errors.firstName = "First name is required"
-    if (!formData.lastName.trim()) errors.lastName = "Last name is required"
+    const errors = {};
+    if (!formData.firstName.trim()) errors.firstName = "First name is required";
+    if (!formData.lastName.trim()) errors.lastName = "Last name is required";
     if (!formData.email.trim()) {
-      errors.email = "Email is required"
+      errors.email = "Email is required";
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
-      errors.email = "Invalid email format"
+      errors.email = "Invalid email format";
     }
-    if (!formData.deliverymanType) errors.deliverymanType = "Deliveryman type is required"
-    if (!formData.zone) errors.zone = "Zone is required"
-    if (!formData.vehicle) errors.vehicle = "Vehicle is required"
-    if (!formData.identityNumber.trim()) errors.identityNumber = "Identity number is required"
-    if (!formData.age || parseInt(formData.age) < 18) errors.age = "Age must be at least 18"
-    if (!formData.birthdate) errors.birthdate = "Birthdate is required"
-    if (!formData.phone || formData.phone.length < 10) errors.phone = "Valid phone number is required"
-    if (!formData.password || formData.password.length < 8) errors.password = "Password must be at least 8 characters"
-    if (formData.password !== formData.confirmPassword) errors.confirmPassword = "Passwords do not match"
-    setFormErrors(errors)
-    return Object.keys(errors).length === 0
-  }
+    if (!formData.deliverymanType)
+      errors.deliverymanType = "Deliveryman type is required";
+    if (!formData.zone) errors.zone = "Zone is required";
+    if (!formData.vehicle) errors.vehicle = "Vehicle is required";
+    if (!formData.identityNumber.trim())
+      errors.identityNumber = "Identity number is required";
+    if (!formData.age || parseInt(formData.age) < 18)
+      errors.age = "Age must be at least 18";
+    if (!formData.birthdate) errors.birthdate = "Birthdate is required";
+    if (!formData.phone || formData.phone.length < 10)
+      errors.phone = "Valid phone number is required";
+    if (!formData.password || formData.password.length < 8)
+      errors.password = "Password must be at least 8 characters";
+    if (formData.password !== formData.confirmPassword)
+      errors.confirmPassword = "Passwords do not match";
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
 
   const handleSubmit = async (e) => {
-    e.preventDefault()
-    if (!validateForm()) return
-    
-    setIsSubmitting(true)
+    e.preventDefault();
+    if (!validateForm()) return;
+
+    setIsSubmitting(true);
     // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000))
-    setIsSubmitting(false)
-    setShowSuccessDialog(true)
-    handleReset()
-  }
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    setIsSubmitting(false);
+    setShowSuccessDialog(true);
+    handleReset();
+  };
 
   const handleReset = () => {
     setFormData({
@@ -80,8 +92,8 @@ export default function AddDeliveryman() {
       phone: "+1",
       password: "",
       confirmPassword: "",
-    })
-  }
+    });
+  };
 
   return (
     <div className="p-4 lg:p-6 bg-slate-50 min-h-screen">
@@ -92,12 +104,16 @@ export default function AddDeliveryman() {
             <Settings className="w-5 h-5 text-slate-600" />
           </button>
 
-          <h1 className="text-2xl font-bold text-slate-900 mb-6">Add New Deliveryman</h1>
+          <h1 className="text-2xl font-bold text-slate-900 mb-6">
+            Add New Deliveryman
+          </h1>
 
           <form onSubmit={handleSubmit}>
             {/* 1. General info */}
             <div className="mb-8">
-              <h2 className="text-lg font-semibold text-slate-900 mb-4">1. General info</h2>
+              <h2 className="text-lg font-semibold text-slate-900 mb-4">
+                1. General info
+              </h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-2">
@@ -106,13 +122,21 @@ export default function AddDeliveryman() {
                   <input
                     type="text"
                     value={formData.firstName}
-                    onChange={(e) => handleInputChange("firstName", e.target.value)}
+                    onChange={(e) =>
+                      handleInputChange("firstName", e.target.value)
+                    }
                     placeholder="Ex: Jhone"
                     className={`w-full px-4 py-2.5 border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm ${
-                      formErrors.firstName ? "border-red-500" : "border-slate-300"
+                      formErrors.firstName
+                        ? "border-red-500"
+                        : "border-slate-300"
                     }`}
                   />
-                  {formErrors.firstName && <p className="text-xs text-red-500 mt-1">{formErrors.firstName}</p>}
+                  {formErrors.firstName && (
+                    <p className="text-xs text-red-500 mt-1">
+                      {formErrors.firstName}
+                    </p>
+                  )}
                 </div>
 
                 <div>
@@ -122,13 +146,21 @@ export default function AddDeliveryman() {
                   <input
                     type="text"
                     value={formData.lastName}
-                    onChange={(e) => handleInputChange("lastName", e.target.value)}
+                    onChange={(e) =>
+                      handleInputChange("lastName", e.target.value)
+                    }
                     placeholder="Ex: Joe"
                     className={`w-full px-4 py-2.5 border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm ${
-                      formErrors.lastName ? "border-red-500" : "border-slate-300"
+                      formErrors.lastName
+                        ? "border-red-500"
+                        : "border-slate-300"
                     }`}
                   />
-                  {formErrors.lastName && <p className="text-xs text-red-500 mt-1">{formErrors.lastName}</p>}
+                  {formErrors.lastName && (
+                    <p className="text-xs text-red-500 mt-1">
+                      {formErrors.lastName}
+                    </p>
+                  )}
                 </div>
 
                 <div>
@@ -144,7 +176,11 @@ export default function AddDeliveryman() {
                       formErrors.email ? "border-red-500" : "border-slate-300"
                     }`}
                   />
-                  {formErrors.email && <p className="text-xs text-red-500 mt-1">{formErrors.email}</p>}
+                  {formErrors.email && (
+                    <p className="text-xs text-red-500 mt-1">
+                      {formErrors.email}
+                    </p>
+                  )}
                 </div>
 
                 <div>
@@ -153,7 +189,9 @@ export default function AddDeliveryman() {
                   </label>
                   <select
                     value={formData.deliverymanType}
-                    onChange={(e) => handleInputChange("deliverymanType", e.target.value)}
+                    onChange={(e) =>
+                      handleInputChange("deliverymanType", e.target.value)
+                    }
                     className="w-full px-4 py-2.5 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                   >
                     <option value="">Delivery man type</option>
@@ -183,8 +221,12 @@ export default function AddDeliveryman() {
                   </label>
                   <div className="border-2 border-dashed border-slate-300 rounded-lg p-6 text-center hover:border-blue-500 transition-colors cursor-pointer">
                     <Upload className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-                    <p className="text-sm font-medium text-blue-600 mb-1">Click to upload Or drag and drop</p>
-                    <p className="text-xs text-slate-500">JPG, JPEG, PNG, Gif Image size: Max 2 MB (1:1)</p>
+                    <p className="text-sm font-medium text-blue-600 mb-1">
+                      Click to upload Or drag and drop
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      JPG, JPEG, PNG, Gif Image size: Max 2 MB (1:1)
+                    </p>
                   </div>
                 </div>
               </div>
@@ -192,7 +234,9 @@ export default function AddDeliveryman() {
 
             {/* 2. Identification Information */}
             <div className="mb-8">
-              <h2 className="text-lg font-semibold text-slate-900 mb-4">2. Identification Information</h2>
+              <h2 className="text-lg font-semibold text-slate-900 mb-4">
+                2. Identification Information
+              </h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-2">
@@ -200,7 +244,9 @@ export default function AddDeliveryman() {
                   </label>
                   <select
                     value={formData.vehicle}
-                    onChange={(e) => handleInputChange("vehicle", e.target.value)}
+                    onChange={(e) =>
+                      handleInputChange("vehicle", e.target.value)
+                    }
                     className="w-full px-4 py-2.5 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                   >
                     <option value="">Select Vehicle</option>
@@ -215,7 +261,9 @@ export default function AddDeliveryman() {
                   </label>
                   <select
                     value={formData.identityType}
-                    onChange={(e) => handleInputChange("identityType", e.target.value)}
+                    onChange={(e) =>
+                      handleInputChange("identityType", e.target.value)
+                    }
                     className="w-full px-4 py-2.5 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                   >
                     <option value="Passport">Passport</option>
@@ -231,7 +279,9 @@ export default function AddDeliveryman() {
                   <input
                     type="text"
                     value={formData.identityNumber}
-                    onChange={(e) => handleInputChange("identityNumber", e.target.value)}
+                    onChange={(e) =>
+                      handleInputChange("identityNumber", e.target.value)
+                    }
                     placeholder="Ex: DH-23434-LS"
                     className="w-full px-4 py-2.5 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                   />
@@ -243,8 +293,12 @@ export default function AddDeliveryman() {
                   </label>
                   <div className="border-2 border-dashed border-slate-300 rounded-lg p-6 text-center hover:border-blue-500 transition-colors cursor-pointer">
                     <Upload className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-                    <p className="text-sm font-medium text-blue-600 mb-1">Select a file or Drag & Drop here</p>
-                    <p className="text-xs text-slate-500">Pdf, doc, jpg. File size: max 2 MB</p>
+                    <p className="text-sm font-medium text-blue-600 mb-1">
+                      Select a file or Drag & Drop here
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      Pdf, doc, jpg. File size: max 2 MB
+                    </p>
                   </div>
                 </div>
               </div>
@@ -252,7 +306,9 @@ export default function AddDeliveryman() {
 
             {/* 3. Additional Data */}
             <div className="mb-8">
-              <h2 className="text-lg font-semibold text-slate-900 mb-4">3. Additional Data</h2>
+              <h2 className="text-lg font-semibold text-slate-900 mb-4">
+                3. Additional Data
+              </h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-2">
@@ -275,7 +331,9 @@ export default function AddDeliveryman() {
                     <input
                       type="date"
                       value={formData.birthdate}
-                      onChange={(e) => handleInputChange("birthdate", e.target.value)}
+                      onChange={(e) =>
+                        handleInputChange("birthdate", e.target.value)
+                      }
                       className="w-full px-4 py-2.5 pr-10 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                     />
                     <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
@@ -300,7 +358,9 @@ export default function AddDeliveryman() {
 
             {/* 4. Account info */}
             <div className="mb-8">
-              <h2 className="text-lg font-semibold text-slate-900 mb-4">4. Account info</h2>
+              <h2 className="text-lg font-semibold text-slate-900 mb-4">
+                4. Account info
+              </h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-2">
@@ -313,7 +373,9 @@ export default function AddDeliveryman() {
                     <input
                       type="tel"
                       value={formData.phone.replace("+1", "")}
-                      onChange={(e) => handleInputChange("phone", "+1" + e.target.value)}
+                      onChange={(e) =>
+                        handleInputChange("phone", "+1" + e.target.value)
+                      }
                       placeholder="Enter phone number"
                       className="flex-1 px-4 py-2.5 border border-slate-300 border-l-0 rounded-r-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                     />
@@ -328,7 +390,9 @@ export default function AddDeliveryman() {
                     <input
                       type={showPassword ? "text" : "password"}
                       value={formData.password}
-                      onChange={(e) => handleInputChange("password", e.target.value)}
+                      onChange={(e) =>
+                        handleInputChange("password", e.target.value)
+                      }
                       placeholder="Ex: 8+ Character"
                       className="w-full px-4 py-2.5 pr-10 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                     />
@@ -337,7 +401,11 @@ export default function AddDeliveryman() {
                       onClick={() => setShowPassword(!showPassword)}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                     >
-                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      {showPassword ? (
+                        <EyeOff className="w-4 h-4" />
+                      ) : (
+                        <Eye className="w-4 h-4" />
+                      )}
                     </button>
                   </div>
                 </div>
@@ -350,16 +418,24 @@ export default function AddDeliveryman() {
                     <input
                       type={showConfirmPassword ? "text" : "password"}
                       value={formData.confirmPassword}
-                      onChange={(e) => handleInputChange("confirmPassword", e.target.value)}
+                      onChange={(e) =>
+                        handleInputChange("confirmPassword", e.target.value)
+                      }
                       placeholder="Ex: 8+ Character"
                       className="w-full px-4 py-2.5 pr-10 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                     />
                     <button
                       type="button"
-                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                      onClick={() =>
+                        setShowConfirmPassword(!showConfirmPassword)
+                      }
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                     >
-                      {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      {showConfirmPassword ? (
+                        <EyeOff className="w-4 h-4" />
+                      ) : (
+                        <Eye className="w-4 h-4" />
+                      )}
                     </button>
                   </div>
                 </div>
@@ -408,5 +484,5 @@ export default function AddDeliveryman() {
         </DialogContent>
       </Dialog>
     </div>
-  )
+  );
 }

@@ -8,6 +8,7 @@ import { deliveryAPI } from '@food/api';
 import { toast } from 'sonner';
 import useDeliveryBackNavigation from '../hooks/useDeliveryBackNavigation';
 import { useDeliveryStore } from '@/modules/DeliveryV2/store/useDeliveryStore';
+import { getModuleShortLabel } from '@/modules/DeliveryV2/utils/driverModuleAccess';
 
 /**
  * HistoryV2 - EXACT 1:1 Match with User Screenshot.
@@ -27,9 +28,18 @@ export const HistoryV2 = () => {
   const [showBonusModal, setShowBonusModal] = useState(false);
   const [bonusTransactions, setBonusTransactions] = useState([]);
   const [bonusLoading, setBonusLoading] = useState(false);
-  const getAvailableModules = useDeliveryStore(state => state.getAvailableModules);
-  const availableModules = getAvailableModules();
-  const [activeModuleFilter, setActiveModuleFilter] = useState('all');
+  const getAuthorizedModules = useDeliveryStore(state => state.getAuthorizedModules);
+  const activeModule = useDeliveryStore(state => state.activeModule);
+  const resolveActiveModule = useDeliveryStore(state => state.resolveActiveModule);
+  const availableModules = getAuthorizedModules();
+  const [activeModuleFilter, setActiveModuleFilter] = useState(
+    () => activeModule || resolveActiveModule() || 'all',
+  );
+
+  useEffect(() => {
+    const next = activeModule || resolveActiveModule();
+    if (next) setActiveModuleFilter(next);
+  }, [activeModule, resolveActiveModule]);
 
   const tripTypes = ["ALL TRIPS", "Completed", "Cancelled", "Pending"];
 
@@ -179,7 +189,7 @@ export const HistoryV2 = () => {
                       : 'bg-white text-gray-500 border border-gray-200'
                   }`}
                 >
-                  {mod.replace('_', ' ')}
+                  {getModuleShortLabel(mod)}
                 </button>
               ))}
             </div>

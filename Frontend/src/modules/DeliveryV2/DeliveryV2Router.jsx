@@ -16,7 +16,9 @@ const Welcome = lazy(() => import("./pages/auth/Welcome"))
 const SignIn = lazy(() => import("./pages/auth/SignIn"))
 const OTP = lazy(() => import("./pages/auth/OTP"))
 const SignupStep1 = lazy(() => import("./pages/auth/SignupStep1"))
+const SignupStepAddress = lazy(() => import("./pages/auth/SignupStepAddress"))
 const SignupStep2 = lazy(() => import("./pages/auth/SignupStep2"))
+const SignupStepReview = lazy(() => import("./pages/auth/SignupStepReview"))
 const PendingVerification = lazy(() => import("./pages/auth/PendingVerification"))
 
 // V2 Pages
@@ -73,7 +75,9 @@ const DeliveryV2Router = () => {
         <Route path="otp" element={<AuthPageGuard module="delivery" home="/food/delivery"><OTP /></AuthPageGuard>} />
         <Route path="signup" element={<Navigate to={`/food/delivery/login${location.search}`} replace />} />
         <Route path="signup/details" element={<SignupStep1 />} />
+        <Route path="signup/address" element={<SignupStepAddress />} />
         <Route path="signup/documents" element={<SignupStep2 />} />
+        <Route path="signup/review" element={<SignupStepReview />} />
         <Route path="verification" element={<PendingVerification />} />
         <Route path="terms" element={<TermsAndConditionsV2 />} />
         <Route path="privacy" element={<PrivacyPolicyV2 />} />

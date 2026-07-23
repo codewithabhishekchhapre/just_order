@@ -1,31 +1,60 @@
-import { useState, useMemo, useEffect } from "react"
-import { Search, Filter, Eye, Check, X, Package, ArrowUpDown, FileText, FileSpreadsheet, Loader2, Download, ExternalLink, Calendar, MapPin, CreditCard, User, Mail, Phone, Bike, FileCheck } from "lucide-react"
-import { adminAPI } from "@food/api"
-import { toast } from "sonner"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@food/components/ui/dialog"
-import { exportJoinRequestsToExcel, exportJoinRequestsToPDF } from "@food/components/admin/deliveryman/joinRequestExportUtils"
-import ApprovalAuditCard from "@food/components/admin/ApprovalAuditCard"
-const debugLog = (...args) => {}
-const debugWarn = (...args) => {}
-const debugError = (...args) => {}
-
+import { useState, useMemo, useEffect } from "react";
+import {
+  Search,
+  Filter,
+  Eye,
+  Check,
+  X,
+  Package,
+  ArrowUpDown,
+  FileText,
+  FileSpreadsheet,
+  Loader2,
+  Download,
+  ExternalLink,
+  Calendar,
+  MapPin,
+  CreditCard,
+  User,
+  Mail,
+  Phone,
+  Bike,
+  FileCheck,
+} from "lucide-react";
+import { adminAPI } from "@food/api";
+import { toast } from "sonner";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@food/components/ui/dialog";
+import {
+  exportJoinRequestsToExcel,
+  exportJoinRequestsToPDF,
+} from "@food/components/admin/deliveryman/joinRequestExportUtils";
+import ApprovalAuditCard from "@food/components/admin/ApprovalAuditCard";
+const debugLog = (...args) => {};
+const debugWarn = (...args) => {};
+const debugError = (...args) => {};
 
 export default function JoinRequest() {
-  const [activeTab, setActiveTab] = useState("pending")
-  const [searchQuery, setSearchQuery] = useState("")
-  const [requests, setRequests] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
-  const [isApproveOpen, setIsApproveOpen] = useState(false)
-  const [isDenyOpen, setIsDenyOpen] = useState(false)
-  const [isViewOpen, setIsViewOpen] = useState(false)
-  const [selectedRequest, setSelectedRequest] = useState(null)
-  const [viewDetails, setViewDetails] = useState(null)
-  const [processing, setProcessing] = useState(false)
-  const [rejectionReason, setRejectionReason] = useState("")
-  const [isRequestDocsOpen, setIsRequestDocsOpen] = useState(false)
-  const [requestedDocs, setRequestedDocs] = useState([])
-  const [requestDocsReason, setRequestDocsReason] = useState("")
+  const [activeTab, setActiveTab] = useState("pending");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [requests, setRequests] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [isApproveOpen, setIsApproveOpen] = useState(false);
+  const [isDenyOpen, setIsDenyOpen] = useState(false);
+  const [isViewOpen, setIsViewOpen] = useState(false);
+  const [selectedRequest, setSelectedRequest] = useState(null);
+  const [viewDetails, setViewDetails] = useState(null);
+  const [processing, setProcessing] = useState(false);
+  const [rejectionReason, setRejectionReason] = useState("");
+  const [isRequestDocsOpen, setIsRequestDocsOpen] = useState(false);
+  const [requestedDocs, setRequestedDocs] = useState([]);
+  const [requestDocsReason, setRequestDocsReason] = useState("");
   const DOC_REUPLOAD_OPTIONS = [
     { id: "profilePhoto", label: "Profile Photo" },
     { id: "aadharFront", label: "Aadhaar Front" },
@@ -34,261 +63,282 @@ export default function JoinRequest() {
     { id: "drivingLicenseBack", label: "DL Back" },
     { id: "rcPhoto", label: "RC" },
     { id: "insurancePhoto", label: "Insurance" },
-  ]
+  ];
   const [filters, setFilters] = useState({
     zone: "",
     jobType: "",
     vehicleType: "",
-  })
-  const [isFilterOpen, setIsFilterOpen] = useState(false)
-  const [debouncedSearch, setDebouncedSearch] = useState("")
-  const [allZones, setAllZones] = useState([])
+  });
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [allZones, setAllZones] = useState([]);
 
   // Fetch all zones for the filter dropdown
   useEffect(() => {
     const fetchZones = async () => {
       try {
-        const response = await adminAPI.getZones({ limit: 1000 })
+        const response = await adminAPI.getZones({ limit: 1000 });
         if (response.data && response.data.success) {
-          setAllZones(response.data.data.zones || [])
+          setAllZones(response.data.data.zones || []);
         }
       } catch (err) {
-        debugError("Error fetching zones:", err)
+        debugError("Error fetching zones:", err);
       }
-    }
-    fetchZones()
-  }, [])
+    };
+    fetchZones();
+  }, []);
 
   // Debounce search so we don't fetch on every keystroke
   useEffect(() => {
-    const timer = setTimeout(() => setDebouncedSearch(searchQuery), 500)
-    return () => clearTimeout(timer)
-  }, [searchQuery])
+    const timer = setTimeout(() => setDebouncedSearch(searchQuery), 500);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   // Fetch join requests from API (single source of truth for when to fetch)
   const fetchJoinRequests = async () => {
     try {
-      setLoading(true)
-      setError(null)
+      setLoading(true);
+      setError(null);
 
       const params = {
         status: activeTab === "pending" ? "pending" : "denied",
         page: 1,
         limit: 1000,
-      }
+      };
 
       if (debouncedSearch.trim()) {
-        params.search = debouncedSearch.trim()
+        params.search = debouncedSearch.trim();
       }
       if (filters.zone) {
-        params.zone = filters.zone
+        params.zone = filters.zone;
       }
       if (filters.vehicleType) {
-        params.vehicleType = filters.vehicleType.toLowerCase()
+        params.vehicleType = filters.vehicleType.toLowerCase();
       }
 
-      const response = await adminAPI.getDeliveryPartnerJoinRequests(params)
-      
+      const response = await adminAPI.getDeliveryPartnerJoinRequests(params);
+
       if (response.data && response.data.success) {
-        setRequests(response.data.data.requests || [])
+        setRequests(response.data.data.requests || []);
       } else {
-        setError("Failed to fetch join requests")
-        setRequests([])
+        setError("Failed to fetch join requests");
+        setRequests([]);
       }
     } catch (err) {
-      debugError("Error fetching join requests:", err)
-      
+      debugError("Error fetching join requests:", err);
+
       // Better error handling
-      let errorMessage = "Failed to fetch join requests. Please try again."
-      
-      if (err.code === 'ERR_NETWORK') {
-        errorMessage = "Network error. Please check if backend server is running."
+      let errorMessage = "Failed to fetch join requests. Please try again.";
+
+      if (err.code === "ERR_NETWORK") {
+        errorMessage =
+          "Network error. Please check if backend server is running.";
       } else if (err.response?.status === 401) {
-        errorMessage = "Unauthorized. Please login again."
+        errorMessage = "Unauthorized. Please login again.";
       } else if (err.response?.status === 403) {
-        errorMessage = "Access denied. You don't have permission to view this."
+        errorMessage = "Access denied. You don't have permission to view this.";
       } else if (err.response?.data?.message) {
-        errorMessage = err.response.data.message
+        errorMessage = err.response.data.message;
       } else if (err.message) {
-        errorMessage = err.message
+        errorMessage = err.message;
       }
-      
-      setError(errorMessage)
-      setRequests([])
+
+      setError(errorMessage);
+      setRequests([]);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   // Single effect: fetch only when tab, debounced search, filters, or filter dialog state change (avoids multiple calls on mount)
   useEffect(() => {
     if (!isFilterOpen) {
-      fetchJoinRequests()
+      fetchJoinRequests();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, debouncedSearch, filters, isFilterOpen])
+  }, [activeTab, debouncedSearch, filters, isFilterOpen]);
 
   const filteredRequests = useMemo(() => {
-    let result = [...requests]
-    
+    let result = [...requests];
+
     // Client-side filtering for additional filters not supported by backend
     if (filters.jobType) {
-      result = result.filter(request => request.jobType === filters.jobType)
+      result = result.filter((request) => request.jobType === filters.jobType);
     }
 
-    return result
-  }, [requests, filters])
+    return result;
+  }, [requests, filters]);
 
   const handleApprove = (request) => {
-    setSelectedRequest(request)
-    setIsApproveOpen(true)
-  }
+    setSelectedRequest(request);
+    setIsApproveOpen(true);
+  };
 
   const confirmApprove = async () => {
-    if (!selectedRequest) return
+    if (!selectedRequest) return;
 
     try {
-      setProcessing(true)
-      await adminAPI.approveDeliveryPartner(selectedRequest._id)
-      
+      setProcessing(true);
+      await adminAPI.approveDeliveryPartner(selectedRequest._id);
+
       // Refresh the list
-      await fetchJoinRequests()
-      
-      setIsApproveOpen(false)
-      setSelectedRequest(null)
-      
-      toast.success(`Successfully approved ${selectedRequest.name}'s join request!`)
+      await fetchJoinRequests();
+
+      setIsApproveOpen(false);
+      setSelectedRequest(null);
+
+      toast.success(
+        `Successfully approved ${selectedRequest.name}'s join request!`,
+      );
     } catch (err) {
-      debugError("Error approving request:", err)
-      const msg = err.response?.data?.message ?? err.response?.data?.error ?? err?.message
-      toast.error(msg || "Failed to approve request. Please try again.")
+      debugError("Error approving request:", err);
+      const msg =
+        err.response?.data?.message ??
+        err.response?.data?.error ??
+        err?.message;
+      toast.error(msg || "Failed to approve request. Please try again.");
     } finally {
-      setProcessing(false)
+      setProcessing(false);
     }
-  }
+  };
 
   const handleDeny = (request) => {
-    setSelectedRequest(request)
-    setRejectionReason("")
-    setIsDenyOpen(true)
-  }
+    setSelectedRequest(request);
+    setRejectionReason("");
+    setIsDenyOpen(true);
+  };
 
   const confirmDeny = async () => {
-    if (!selectedRequest) return
+    if (!selectedRequest) return;
 
     // Validate rejection reason
     if (!rejectionReason.trim()) {
-      toast.error("Please provide a reason for rejection")
-      return
+      toast.error("Please provide a reason for rejection");
+      return;
     }
 
     try {
-      setProcessing(true)
-      await adminAPI.rejectDeliveryPartner(selectedRequest._id, rejectionReason.trim())
-      
+      setProcessing(true);
+      await adminAPI.rejectDeliveryPartner(
+        selectedRequest._id,
+        rejectionReason.trim(),
+      );
+
       // Refresh the list
-      await fetchJoinRequests()
-      
-      setIsDenyOpen(false)
-      setSelectedRequest(null)
-      setRejectionReason("")
-      
-      toast.success(`Successfully rejected ${selectedRequest.name}'s join request.`)
+      await fetchJoinRequests();
+
+      setIsDenyOpen(false);
+      setSelectedRequest(null);
+      setRejectionReason("");
+
+      toast.success(
+        `Successfully rejected ${selectedRequest.name}'s join request.`,
+      );
     } catch (err) {
-      debugError("Error rejecting request:", err)
-      const msg = err.response?.data?.message ?? err.response?.data?.error ?? err?.message
-      toast.error(msg || "Failed to reject request. Please try again.")
+      debugError("Error rejecting request:", err);
+      const msg =
+        err.response?.data?.message ??
+        err.response?.data?.error ??
+        err?.message;
+      toast.error(msg || "Failed to reject request. Please try again.");
     } finally {
-      setProcessing(false)
+      setProcessing(false);
     }
-  }
+  };
 
   const handleRequestDocs = (request) => {
-    setSelectedRequest(request)
-    setRequestedDocs([])
-    setRequestDocsReason("")
-    setIsRequestDocsOpen(true)
-  }
+    setSelectedRequest(request);
+    setRequestedDocs([]);
+    setRequestDocsReason("");
+    setIsRequestDocsOpen(true);
+  };
 
   const confirmRequestDocs = async () => {
-    if (!selectedRequest) return
+    if (!selectedRequest) return;
     if (!requestedDocs.length) {
-      toast.error("Select at least one document to re-upload")
-      return
+      toast.error("Select at least one document to re-upload");
+      return;
     }
     if (!requestDocsReason.trim()) {
-      toast.error("Please provide a reason")
-      return
+      toast.error("Please provide a reason");
+      return;
     }
     try {
-      setProcessing(true)
+      setProcessing(true);
       await adminAPI.requestDeliveryPartnerDocuments(
         selectedRequest._id,
         requestedDocs,
-        requestDocsReason.trim()
-      )
-      await fetchJoinRequests()
-      setIsRequestDocsOpen(false)
-      setSelectedRequest(null)
-      setRequestedDocs([])
-      setRequestDocsReason("")
-      toast.success(`Document re-upload requested for ${selectedRequest.name}.`)
+        requestDocsReason.trim(),
+      );
+      await fetchJoinRequests();
+      setIsRequestDocsOpen(false);
+      setSelectedRequest(null);
+      setRequestedDocs([]);
+      setRequestDocsReason("");
+      toast.success(
+        `Document re-upload requested for ${selectedRequest.name}.`,
+      );
     } catch (err) {
-      debugError("Error requesting documents:", err)
-      const msg = err.response?.data?.message ?? err.response?.data?.error ?? err?.message
-      toast.error(msg || "Failed to request documents.")
+      debugError("Error requesting documents:", err);
+      const msg =
+        err.response?.data?.message ??
+        err.response?.data?.error ??
+        err?.message;
+      toast.error(msg || "Failed to request documents.");
     } finally {
-      setProcessing(false)
+      setProcessing(false);
     }
-  }
+  };
 
   const handleView = async (request) => {
     try {
-      setLoading(true)
-      const response = await adminAPI.getDeliveryPartnerById(request._id)
-      
+      setLoading(true);
+      const response = await adminAPI.getDeliveryPartnerById(request._id);
+
       if (response.data && response.data.success) {
-        setViewDetails(response.data.data.delivery)
-        setIsViewOpen(true)
+        setViewDetails(response.data.data.delivery);
+        setIsViewOpen(true);
       } else {
-        toast.error("Failed to load details")
+        toast.error("Failed to load details");
       }
     } catch (err) {
-      debugError("Error fetching details:", err)
-      toast.error(err.response?.data?.message || "Failed to load details")
+      debugError("Error fetching details:", err);
+      toast.error(err.response?.data?.message || "Failed to load details");
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const handleExportPDF = () => {
     if (filteredRequests.length === 0) {
-      toast.error("No data to export")
-      return
+      toast.error("No data to export");
+      return;
     }
-    exportJoinRequestsToPDF(filteredRequests)
-  }
+    exportJoinRequestsToPDF(filteredRequests);
+  };
 
   const handleExportExcel = () => {
     if (filteredRequests.length === 0) {
-      toast.error("No data to export")
-      return
+      toast.error("No data to export");
+      return;
     }
-    exportJoinRequestsToExcel(filteredRequests)
-  }
+    exportJoinRequestsToExcel(filteredRequests);
+  };
 
   const handleResetFilters = () => {
-    setFilters({ zone: "", jobType: "", vehicleType: "" })
-  }
+    setFilters({ zone: "", jobType: "", vehicleType: "" });
+  };
 
   const handleTabChange = (tab) => {
-    setActiveTab(tab)
-    setSearchQuery("") // Reset search when changing tabs
-    setFilters({ zone: "", jobType: "", vehicleType: "" }) // Reset filters
-  }
+    setActiveTab(tab);
+    setSearchQuery(""); // Reset search when changing tabs
+    setFilters({ zone: "", jobType: "", vehicleType: "" }); // Reset filters
+  };
 
-  const activeFiltersCount = Object.values(filters).filter(v => v).length
-  const vehicleTypes = [...new Set(requests.map(r => r.vehicleType))].filter(Boolean)
+  const activeFiltersCount = Object.values(filters).filter((v) => v).length;
+  const vehicleTypes = [...new Set(requests.map((r) => r.vehicleType))].filter(
+    Boolean,
+  );
 
   return (
     <div className="p-4 lg:p-6 bg-slate-50 min-h-screen">
@@ -298,7 +348,9 @@ export default function JoinRequest() {
             <div className="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center">
               <Package className="w-5 h-5 text-white" />
             </div>
-            <h1 className="text-2xl font-bold text-slate-900">New Joining Request</h1>
+            <h1 className="text-2xl font-bold text-slate-900">
+              New Joining Request
+            </h1>
           </div>
 
           {/* Tabs */}
@@ -340,10 +392,12 @@ export default function JoinRequest() {
             </div>
 
             <div className="flex items-center gap-2">
-              <button 
+              <button
                 onClick={() => setIsFilterOpen(true)}
                 className={`px-4 py-2.5 text-sm font-medium rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 flex items-center gap-2 transition-all relative ${
-                  activeFiltersCount > 0 ? "border-emerald-500 bg-emerald-50" : ""
+                  activeFiltersCount > 0
+                    ? "border-emerald-500 bg-emerald-50"
+                    : ""
                 }`}
               >
                 <Filter className="w-4 h-4" />
@@ -391,7 +445,9 @@ export default function JoinRequest() {
             {loading ? (
               <div className="flex items-center justify-center py-20">
                 <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-                <span className="ml-3 text-sm text-slate-600">Loading requests...</span>
+                <span className="ml-3 text-sm text-slate-600">
+                  Loading requests...
+                </span>
               </div>
             ) : (
               <table className="w-full">
@@ -439,7 +495,9 @@ export default function JoinRequest() {
                         <ArrowUpDown className="w-3 h-3 text-slate-400 cursor-pointer hover:text-slate-600" />
                       </div>
                     </th>
-                    <th className="px-6 py-4 text-center text-[10px] font-bold text-slate-700 uppercase tracking-wider">Action</th>
+                    <th className="px-6 py-4 text-center text-[10px] font-bold text-slate-700 uppercase tracking-wider">
+                      Action
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-slate-100">
@@ -447,35 +505,48 @@ export default function JoinRequest() {
                     <tr>
                       <td colSpan={8} className="px-6 py-20 text-center">
                         <p className="text-sm text-slate-500">
-                          {error ? "Error loading requests" : "No requests found"}
+                          {error
+                            ? "Error loading requests"
+                            : "No requests found"}
                         </p>
                       </td>
                     </tr>
                   ) : (
                     filteredRequests.map((request) => (
-                      <tr key={request._id} className="hover:bg-slate-50 transition-colors">
+                      <tr
+                        key={request._id}
+                        className="hover:bg-slate-50 transition-colors"
+                      >
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <span className="text-sm font-medium text-slate-700">{request.sl}</span>
+                          <span className="text-sm font-medium text-slate-700">
+                            {request.sl}
+                          </span>
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-3">
-                            <div 
+                            <div
                               className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center shrink-0 overflow-hidden cursor-pointer hover:opacity-80 transition-all border border-slate-100"
                               onClick={() => handleView(request)}
                             >
-                              {(request.profileImage?.url || request.profilePhoto) ? (
+                              {request.profileImage?.url ||
+                              request.profilePhoto ? (
                                 <img
-                                  src={request.profileImage?.url || request.profilePhoto}
+                                  src={
+                                    request.profileImage?.url ||
+                                    request.profilePhoto
+                                  }
                                   alt={request.name}
                                   className="w-full h-full object-cover"
                                 />
                               ) : (
                                 <span className="text-sm font-medium text-slate-500">
-                                  {request.name?.trim() ? request.name.slice(0, 2).toUpperCase() : "?"}
+                                  {request.name?.trim()
+                                    ? request.name.slice(0, 2).toUpperCase()
+                                    : "?"}
                                 </span>
                               )}
                             </div>
-                            <span 
+                            <span
                               className="text-sm font-medium text-slate-900 cursor-pointer hover:text-blue-600 transition-colors"
                               onClick={() => handleView(request)}
                             >
@@ -485,32 +556,55 @@ export default function JoinRequest() {
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex flex-col">
-                            <span className="text-sm text-slate-700">{request.email}</span>
-                            <span className="text-xs text-slate-500">{request.phone}</span>
+                            <span className="text-sm text-slate-700">
+                              {request.email}
+                            </span>
+                            <span className="text-xs text-slate-500">
+                              {request.phone}
+                            </span>
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <span className="text-sm text-slate-700">{request.zone}</span>
+                          <span className="text-sm text-slate-700">
+                            {request.zone}
+                          </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <span className="text-sm text-slate-700">{request.city || 'N/A'}</span>
+                          <span className="text-sm text-slate-700">
+                            {request.city || "N/A"}
+                          </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <span className="text-sm text-slate-700">{request.vehicleType}</span>
+                          <span className="text-sm text-slate-700">
+                            {request.vehicleType}
+                          </span>
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex flex-col gap-1">
-                            <span className={`px-3 py-1 rounded-full text-xs font-medium inline-block w-fit ${
-                              request.status === "Pending" || request.status === "pending"
-                                ? "bg-blue-100 text-blue-700"
-                                : request.status === "Denied" || request.status === "denied" || request.status === "blocked"
-                                ? "bg-red-100 text-red-700"
-                                : "bg-green-100 text-green-700"
-                            }`}>
-                              {request.status === "blocked" || request.status === "Blocked" || request.status === "Denied" || request.status === "denied" ? "Rejected" : request.status}
+                            <span
+                              className={`px-3 py-1 rounded-full text-xs font-medium inline-block w-fit ${
+                                request.status === "Pending" ||
+                                request.status === "pending"
+                                  ? "bg-blue-100 text-blue-700"
+                                  : request.status === "Denied" ||
+                                      request.status === "denied" ||
+                                      request.status === "blocked"
+                                    ? "bg-red-100 text-red-700"
+                                    : "bg-green-100 text-green-700"
+                              }`}
+                            >
+                              {request.status === "blocked" ||
+                              request.status === "Blocked" ||
+                              request.status === "Denied" ||
+                              request.status === "denied"
+                                ? "Rejected"
+                                : request.status}
                             </span>
                             {request.rejectionReason && (
-                              <span className="text-xs text-red-600 italic max-w-[200px] truncate" title={request.rejectionReason}>
+                              <span
+                                className="text-xs text-red-600 italic max-w-[200px] truncate"
+                                title={request.rejectionReason}
+                              >
                                 {request.rejectionReason}
                               </span>
                             )}
@@ -573,7 +667,8 @@ export default function JoinRequest() {
           </DialogHeader>
           <div className="px-6 pb-6">
             <p className="text-sm text-slate-700">
-              Are you sure you want to approve "{selectedRequest?.name}"'s join request?
+              Are you sure you want to approve "{selectedRequest?.name}"'s join
+              request?
             </p>
           </div>
           <DialogFooter className="px-6 pb-6">
@@ -604,7 +699,8 @@ export default function JoinRequest() {
           </DialogHeader>
           <div className="px-6 pb-6 space-y-4">
             <p className="text-sm text-slate-700">
-              Are you sure you want to deny "{selectedRequest?.name}"'s join request?
+              Are you sure you want to deny "{selectedRequest?.name}"'s join
+              request?
             </p>
             <div>
               <label className="block text-sm font-semibold text-slate-700 mb-2">
@@ -626,8 +722,8 @@ export default function JoinRequest() {
           <DialogFooter className="px-6 pb-6">
             <button
               onClick={() => {
-                setIsDenyOpen(false)
-                setRejectionReason("")
+                setIsDenyOpen(false);
+                setRejectionReason("");
               }}
               disabled={processing}
               className="px-4 py-2 text-sm font-medium rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 transition-all disabled:opacity-50"
@@ -658,12 +754,14 @@ export default function JoinRequest() {
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {DOC_REUPLOAD_OPTIONS.map((opt) => {
-                const checked = requestedDocs.includes(opt.id)
+                const checked = requestedDocs.includes(opt.id);
                 return (
                   <label
                     key={opt.id}
                     className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm cursor-pointer ${
-                      checked ? "border-amber-500 bg-amber-50" : "border-slate-200"
+                      checked
+                        ? "border-amber-500 bg-amber-50"
+                        : "border-slate-200"
                     }`}
                   >
                     <input
@@ -672,13 +770,15 @@ export default function JoinRequest() {
                       disabled={processing}
                       onChange={() => {
                         setRequestedDocs((prev) =>
-                          checked ? prev.filter((d) => d !== opt.id) : [...prev, opt.id]
-                        )
+                          checked
+                            ? prev.filter((d) => d !== opt.id)
+                            : [...prev, opt.id],
+                        );
                       }}
                     />
                     {opt.label}
                   </label>
-                )
+                );
               })}
             </div>
             <div>
@@ -698,9 +798,9 @@ export default function JoinRequest() {
           <DialogFooter className="px-6 pb-6">
             <button
               onClick={() => {
-                setIsRequestDocsOpen(false)
-                setRequestedDocs([])
-                setRequestDocsReason("")
+                setIsRequestDocsOpen(false);
+                setRequestedDocs([]);
+                setRequestDocsReason("");
               }}
               disabled={processing}
               className="px-4 py-2 text-sm font-medium rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50"
@@ -709,7 +809,9 @@ export default function JoinRequest() {
             </button>
             <button
               onClick={confirmRequestDocs}
-              disabled={processing || !requestedDocs.length || !requestDocsReason.trim()}
+              disabled={
+                processing || !requestedDocs.length || !requestDocsReason.trim()
+              }
               className="px-4 py-2 text-sm font-medium rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 flex items-center gap-2"
             >
               {processing && <Loader2 className="w-4 h-4 animate-spin" />}
@@ -723,7 +825,9 @@ export default function JoinRequest() {
       <Dialog open={isViewOpen} onOpenChange={setIsViewOpen}>
         <DialogContent className="max-w-3xl bg-white p-0 opacity-0 data-[state=open]:opacity-100 data-[state=closed]:opacity-0 transition-opacity duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0 data-[state=open]:scale-100 data-[state=closed]:scale-100 max-h-[85vh] overflow-y-auto">
           <DialogHeader className="px-6 pt-6 pb-4 border-b border-slate-200">
-            <DialogTitle className="text-xl font-bold text-slate-900">Delivery Partner Details</DialogTitle>
+            <DialogTitle className="text-xl font-bold text-slate-900">
+              Delivery Partner Details
+            </DialogTitle>
           </DialogHeader>
           <div className="px-6 pb-6">
             {viewDetails ? (
@@ -732,8 +836,8 @@ export default function JoinRequest() {
                 <div className="flex items-start gap-6 pb-6 border-b border-slate-200">
                   <div className="flex-shrink-0">
                     {viewDetails.profileImage?.url ? (
-                      <img 
-                        src={viewDetails.profileImage.url} 
+                      <img
+                        src={viewDetails.profileImage.url}
                         alt={viewDetails.name}
                         className="w-24 h-24 rounded-full object-cover border-2 border-slate-200"
                       />
@@ -748,59 +852,120 @@ export default function JoinRequest() {
                       <label className="text-xs font-semibold text-slate-500 uppercase flex items-center gap-1">
                         <User className="w-3 h-3" /> Name
                       </label>
-                      <p className="text-sm font-medium text-slate-900 mt-1">{viewDetails.name || "N/A"}</p>
+                      <p className="text-sm font-medium text-slate-900 mt-1">
+                        {viewDetails.name || "N/A"}
+                      </p>
                     </div>
                     <div>
                       <label className="text-xs font-semibold text-slate-500 uppercase flex items-center gap-1">
                         <Mail className="w-3 h-3" /> Email
                       </label>
-                      <p className="text-sm text-slate-900 mt-1">{viewDetails.email || "N/A"}</p>
+                      <p className="text-sm text-slate-900 mt-1">
+                        {viewDetails.email || "N/A"}
+                      </p>
                     </div>
                     <div>
                       <label className="text-xs font-semibold text-slate-500 uppercase flex items-center gap-1">
                         <Phone className="w-3 h-3" /> Phone
                       </label>
-                      <p className="text-sm text-slate-900 mt-1">{viewDetails.phone || "N/A"}</p>
+                      <p className="text-sm text-slate-900 mt-1">
+                        {viewDetails.phone || "N/A"}
+                      </p>
                     </div>
                     <div>
-                      <label className="text-xs font-semibold text-slate-500 uppercase">Delivery ID</label>
-                      <p className="text-sm font-medium text-slate-900 mt-1">{viewDetails.deliveryId || "N/A"}</p>
+                      <label className="text-xs font-semibold text-slate-500 uppercase">
+                        Delivery ID
+                      </label>
+                      <p className="text-sm font-medium text-slate-900 mt-1">
+                        {viewDetails.deliveryId || "N/A"}
+                      </p>
                     </div>
                     <div>
-                      <label className="text-xs font-semibold text-slate-500 uppercase">Status</label>
-                      <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium mt-1 ${
-                        viewDetails.status === 'pending' ? 'bg-blue-100 text-blue-700' :
-                        viewDetails.status === 'approved' || viewDetails.status === 'active' ? 'bg-green-100 text-green-700' :
-                        viewDetails.status === 'blocked' ? 'bg-red-100 text-red-700' :
-                        'bg-slate-100 text-slate-700'
-                      }`}>
-                        {viewDetails.status === 'blocked' ? 'Rejected' : (viewDetails.status?.charAt(0).toUpperCase() + viewDetails.status?.slice(1) || "N/A")}
+                      <label className="text-xs font-semibold text-slate-500 uppercase">
+                        Status
+                      </label>
+                      <span
+                        className={`inline-block px-2 py-1 rounded-full text-xs font-medium mt-1 ${
+                          viewDetails.status === "pending"
+                            ? "bg-blue-100 text-blue-700"
+                            : viewDetails.status === "approved" ||
+                                viewDetails.status === "active"
+                              ? "bg-green-100 text-green-700"
+                              : viewDetails.status === "blocked"
+                                ? "bg-red-100 text-red-700"
+                                : "bg-slate-100 text-slate-700"
+                        }`}
+                      >
+                        {viewDetails.status === "blocked"
+                          ? "Rejected"
+                          : viewDetails.status?.charAt(0).toUpperCase() +
+                              viewDetails.status?.slice(1) || "N/A"}
                       </span>
                     </div>
                     {viewDetails.rejectionReason && (
                       <div className="col-span-2">
-                        <label className="text-xs font-semibold text-slate-500 uppercase text-red-600">Rejection Reason</label>
+                        <label className="text-xs font-semibold text-slate-500 uppercase text-red-600">
+                          Rejection Reason
+                        </label>
                         <div className="bg-red-50 border border-red-200 rounded-lg p-3 mt-1">
-                          <p className="text-sm text-red-700 whitespace-pre-wrap">{viewDetails.rejectionReason}</p>
+                          <p className="text-sm text-red-700 whitespace-pre-wrap">
+                            {viewDetails.rejectionReason}
+                          </p>
                         </div>
                       </div>
                     )}
                     {viewDetails.approvedBy && (
                       <div className="col-span-2 p-3 bg-emerald-50 rounded-lg border border-emerald-200">
-                        <p className="text-xs font-semibold text-emerald-700 mb-1">Approved By</p>
-                        <p className="text-sm text-emerald-900 font-medium">{viewDetails.approvedBy.name}</p>
-                        {viewDetails.approvedBy.email && <p className="text-xs text-emerald-600">{viewDetails.approvedBy.email}</p>}
-                        {viewDetails.approvedBy.roleName && <p className="text-xs text-emerald-600">Role: {viewDetails.approvedBy.roleName}</p>}
-                        {viewDetails.approvedBy.actionAt && <p className="text-xs text-emerald-500 mt-1">{new Date(viewDetails.approvedBy.actionAt).toLocaleString()}</p>}
+                        <p className="text-xs font-semibold text-emerald-700 mb-1">
+                          Approved By
+                        </p>
+                        <p className="text-sm text-emerald-900 font-medium">
+                          {viewDetails.approvedBy.name}
+                        </p>
+                        {viewDetails.approvedBy.email && (
+                          <p className="text-xs text-emerald-600">
+                            {viewDetails.approvedBy.email}
+                          </p>
+                        )}
+                        {viewDetails.approvedBy.roleName && (
+                          <p className="text-xs text-emerald-600">
+                            Role: {viewDetails.approvedBy.roleName}
+                          </p>
+                        )}
+                        {viewDetails.approvedBy.actionAt && (
+                          <p className="text-xs text-emerald-500 mt-1">
+                            {new Date(
+                              viewDetails.approvedBy.actionAt,
+                            ).toLocaleString()}
+                          </p>
+                        )}
                       </div>
                     )}
                     {viewDetails.rejectedBy && (
                       <div className="col-span-2 p-3 bg-rose-50 rounded-lg border border-rose-200">
-                        <p className="text-xs font-semibold text-rose-700 mb-1">Rejected By</p>
-                        <p className="text-sm text-rose-900 font-medium">{viewDetails.rejectedBy.name}</p>
-                        {viewDetails.rejectedBy.email && <p className="text-xs text-rose-600">{viewDetails.rejectedBy.email}</p>}
-                        {viewDetails.rejectedBy.roleName && <p className="text-xs text-rose-600">Role: {viewDetails.rejectedBy.roleName}</p>}
-                        {viewDetails.rejectedBy.actionAt && <p className="text-xs text-rose-500 mt-1">{new Date(viewDetails.rejectedBy.actionAt).toLocaleString()}</p>}
+                        <p className="text-xs font-semibold text-rose-700 mb-1">
+                          Rejected By
+                        </p>
+                        <p className="text-sm text-rose-900 font-medium">
+                          {viewDetails.rejectedBy.name}
+                        </p>
+                        {viewDetails.rejectedBy.email && (
+                          <p className="text-xs text-rose-600">
+                            {viewDetails.rejectedBy.email}
+                          </p>
+                        )}
+                        {viewDetails.rejectedBy.roleName && (
+                          <p className="text-xs text-rose-600">
+                            Role: {viewDetails.rejectedBy.roleName}
+                          </p>
+                        )}
+                        {viewDetails.rejectedBy.actionAt && (
+                          <p className="text-xs text-rose-500 mt-1">
+                            {new Date(
+                              viewDetails.rejectedBy.actionAt,
+                            ).toLocaleString()}
+                          </p>
+                        )}
                       </div>
                     )}
                     {viewDetails.dateOfBirth && (
@@ -809,14 +974,21 @@ export default function JoinRequest() {
                           <Calendar className="w-3 h-3" /> Date of Birth
                         </label>
                         <p className="text-sm text-slate-900 mt-1">
-                          {new Date(viewDetails.dateOfBirth).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                          {new Date(viewDetails.dateOfBirth).toLocaleDateString(
+                            "en-GB",
+                            { day: "numeric", month: "short", year: "numeric" },
+                          )}
                         </p>
                       </div>
                     )}
                     {viewDetails.gender && (
                       <div>
-                        <label className="text-xs font-semibold text-slate-500 uppercase">Gender</label>
-                        <p className="text-sm text-slate-900 mt-1 capitalize">{viewDetails.gender || "N/A"}</p>
+                        <label className="text-xs font-semibold text-slate-500 uppercase">
+                          Gender
+                        </label>
+                        <p className="text-sm text-slate-900 mt-1 capitalize">
+                          {viewDetails.gender || "N/A"}
+                        </p>
                       </div>
                     )}
                   </div>
@@ -831,54 +1003,86 @@ export default function JoinRequest() {
                     <div className="grid grid-cols-2 gap-4">
                       {viewDetails.location.addressLine1 && (
                         <div className="col-span-2">
-                          <label className="text-xs font-semibold text-slate-500 uppercase">Address Line 1</label>
-                          <p className="text-sm text-slate-900 mt-1">{viewDetails.location.addressLine1}</p>
+                          <label className="text-xs font-semibold text-slate-500 uppercase">
+                            Address Line 1
+                          </label>
+                          <p className="text-sm text-slate-900 mt-1">
+                            {viewDetails.location.addressLine1}
+                          </p>
                         </div>
                       )}
                       {viewDetails.location.addressLine2 && (
                         <div className="col-span-2">
-                          <label className="text-xs font-semibold text-slate-500 uppercase">Address Line 2</label>
-                          <p className="text-sm text-slate-900 mt-1">{viewDetails.location.addressLine2}</p>
+                          <label className="text-xs font-semibold text-slate-500 uppercase">
+                            Address Line 2
+                          </label>
+                          <p className="text-sm text-slate-900 mt-1">
+                            {viewDetails.location.addressLine2}
+                          </p>
                         </div>
                       )}
                       {viewDetails.location.area && (
                         <div>
-                          <label className="text-xs font-semibold text-slate-500 uppercase">Area</label>
-                          <p className="text-sm text-slate-900 mt-1">{viewDetails.location.area}</p>
+                          <label className="text-xs font-semibold text-slate-500 uppercase">
+                            Area
+                          </label>
+                          <p className="text-sm text-slate-900 mt-1">
+                            {viewDetails.location.area}
+                          </p>
                         </div>
                       )}
                       {viewDetails.detectedZone && (
                         <div>
-                          <label className="text-xs font-semibold text-slate-500 uppercase">Detected Zone</label>
-                          <p className="text-sm text-slate-900 mt-1 font-medium">{viewDetails.detectedZone}</p>
+                          <label className="text-xs font-semibold text-slate-500 uppercase">
+                            Detected Zone
+                          </label>
+                          <p className="text-sm text-slate-900 mt-1 font-medium">
+                            {viewDetails.detectedZone}
+                          </p>
                         </div>
                       )}
                       {viewDetails.location.city && (
                         <div>
-                          <label className="text-xs font-semibold text-slate-500 uppercase">City</label>
-                          <p className="text-sm text-slate-900 mt-1">{viewDetails.location.city}</p>
+                          <label className="text-xs font-semibold text-slate-500 uppercase">
+                            City
+                          </label>
+                          <p className="text-sm text-slate-900 mt-1">
+                            {viewDetails.location.city}
+                          </p>
                         </div>
                       )}
                       {viewDetails.location.state && (
                         <div>
-                          <label className="text-xs font-semibold text-slate-500 uppercase">State</label>
-                          <p className="text-sm text-slate-900 mt-1">{viewDetails.location.state}</p>
+                          <label className="text-xs font-semibold text-slate-500 uppercase">
+                            State
+                          </label>
+                          <p className="text-sm text-slate-900 mt-1">
+                            {viewDetails.location.state}
+                          </p>
                         </div>
                       )}
                       {viewDetails.location.zipCode && (
                         <div>
-                          <label className="text-xs font-semibold text-slate-500 uppercase">Zip Code</label>
-                          <p className="text-sm text-slate-900 mt-1">{viewDetails.location.zipCode}</p>
-                        </div>
-                      )}
-                      {(viewDetails.location.latitude && viewDetails.location.longitude) && (
-                        <div className="col-span-2">
-                          <label className="text-xs font-semibold text-slate-500 uppercase">Coordinates</label>
+                          <label className="text-xs font-semibold text-slate-500 uppercase">
+                            Zip Code
+                          </label>
                           <p className="text-sm text-slate-900 mt-1">
-                            {viewDetails.location.latitude}, {viewDetails.location.longitude}
+                            {viewDetails.location.zipCode}
                           </p>
                         </div>
                       )}
+                      {viewDetails.location.latitude &&
+                        viewDetails.location.longitude && (
+                          <div className="col-span-2">
+                            <label className="text-xs font-semibold text-slate-500 uppercase">
+                              Coordinates
+                            </label>
+                            <p className="text-sm text-slate-900 mt-1">
+                              {viewDetails.location.latitude},{" "}
+                              {viewDetails.location.longitude}
+                            </p>
+                          </div>
+                        )}
                     </div>
                   </div>
                 )}
@@ -892,31 +1096,49 @@ export default function JoinRequest() {
                     <div className="grid grid-cols-4 gap-4">
                       {viewDetails.vehicle.brand && (
                         <div>
-                          <label className="text-xs font-semibold text-slate-500 uppercase">Brand</label>
-                          <p className="text-sm text-slate-900 mt-1">{viewDetails.vehicle.brand}</p>
+                          <label className="text-xs font-semibold text-slate-500 uppercase">
+                            Brand
+                          </label>
+                          <p className="text-sm text-slate-900 mt-1">
+                            {viewDetails.vehicle.brand}
+                          </p>
                         </div>
                       )}
                       {viewDetails.vehicle.model && (
                         <div>
-                          <label className="text-xs font-semibold text-slate-500 uppercase">Model</label>
-                          <p className="text-sm text-slate-900 mt-1">{viewDetails.vehicle.model}</p>
+                          <label className="text-xs font-semibold text-slate-500 uppercase">
+                            Model
+                          </label>
+                          <p className="text-sm text-slate-900 mt-1">
+                            {viewDetails.vehicle.model}
+                          </p>
                         </div>
                       )}
                       {viewDetails.vehicle.number && (
                         <div>
-                          <label className="text-xs font-semibold text-slate-500 uppercase">Vehicle Number</label>
-                          <p className="text-sm text-slate-900 mt-1">{viewDetails.vehicle.number}</p>
+                          <label className="text-xs font-semibold text-slate-500 uppercase">
+                            Vehicle Number
+                          </label>
+                          <p className="text-sm text-slate-900 mt-1">
+                            {viewDetails.vehicle.number}
+                          </p>
                         </div>
                       )}
                       {viewDetails.vehicle.type && (
                         <div>
-                          <label className="text-xs font-semibold text-slate-500 uppercase">Vehicle Type</label>
-                          <p className="text-sm text-slate-900 mt-1 capitalize">{viewDetails.vehicle.type}</p>
+                          <label className="text-xs font-semibold text-slate-500 uppercase">
+                            Vehicle Type
+                          </label>
+                          <p className="text-sm text-slate-900 mt-1 capitalize">
+                            {viewDetails.vehicle.type}
+                          </p>
                         </div>
                       )}
                       {viewDetails.vehicle.vehicleImage && (
                         <div className="col-span-4 mt-3">
-                          <label className="text-xs font-semibold text-slate-500 uppercase block mb-1">Vehicle Image</label>
+                          <label className="text-xs font-semibold text-slate-500 uppercase block mb-1">
+                            Vehicle Image
+                          </label>
                           <a
                             href={viewDetails.vehicle.vehicleImage}
                             target="_blank"
@@ -929,7 +1151,8 @@ export default function JoinRequest() {
                               className="w-full max-w-sm h-48 object-cover transition-transform duration-300 group-hover:scale-105"
                             />
                             <div className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-bold gap-1">
-                              <ExternalLink className="w-4 h-4" /> View Fullscreen
+                              <ExternalLink className="w-4 h-4" /> View
+                              Fullscreen
                             </div>
                           </a>
                         </div>
@@ -948,14 +1171,22 @@ export default function JoinRequest() {
                       {/* Aadhar */}
                       {viewDetails.documents.aadhar && (
                         <div>
-                          <label className="text-xs font-semibold text-slate-500 uppercase">Aadhaar</label>
+                          <label className="text-xs font-semibold text-slate-500 uppercase">
+                            Aadhaar
+                          </label>
                           <div className="mt-2 space-y-1">
                             {viewDetails.documents.aadhar.number && (
-                              <p className="text-sm text-slate-700">Number: {viewDetails.documents.aadhar.number}</p>
+                              <p className="text-sm text-slate-700">
+                                Number: {viewDetails.documents.aadhar.number}
+                              </p>
                             )}
-                            {(viewDetails.documents.aadhar.front || viewDetails.documents.aadhar.document) && (
+                            {(viewDetails.documents.aadhar.front ||
+                              viewDetails.documents.aadhar.document) && (
                               <a
-                                href={viewDetails.documents.aadhar.front || viewDetails.documents.aadhar.document}
+                                href={
+                                  viewDetails.documents.aadhar.front ||
+                                  viewDetails.documents.aadhar.document
+                                }
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700"
@@ -980,19 +1211,24 @@ export default function JoinRequest() {
                       {/* PAN */}
                       {viewDetails.documents.pan && (
                         <div>
-                          <label className="text-xs font-semibold text-slate-500 uppercase">PAN Card</label>
+                          <label className="text-xs font-semibold text-slate-500 uppercase">
+                            PAN Card
+                          </label>
                           <div className="mt-2">
                             {viewDetails.documents.pan.number && (
-                              <p className="text-sm text-slate-700 mb-1">Number: {viewDetails.documents.pan.number}</p>
+                              <p className="text-sm text-slate-700 mb-1">
+                                Number: {viewDetails.documents.pan.number}
+                              </p>
                             )}
                             {viewDetails.documents.pan.document && (
-                              <a 
-                                href={viewDetails.documents.pan.document} 
-                                target="_blank" 
+                              <a
+                                href={viewDetails.documents.pan.document}
+                                target="_blank"
                                 rel="noopener noreferrer"
                                 className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700"
                               >
-                                <ExternalLink className="w-3 h-3" /> View Document
+                                <ExternalLink className="w-3 h-3" /> View
+                                Document
                               </a>
                             )}
                           </div>
@@ -1002,19 +1238,36 @@ export default function JoinRequest() {
                       {/* Driving License */}
                       {viewDetails.documents.drivingLicense && (
                         <div>
-                          <label className="text-xs font-semibold text-slate-500 uppercase">Driving License</label>
+                          <label className="text-xs font-semibold text-slate-500 uppercase">
+                            Driving License
+                          </label>
                           <div className="mt-2 space-y-1">
                             {viewDetails.documents.drivingLicense.number && (
-                              <p className="text-sm text-slate-700">Number: {viewDetails.documents.drivingLicense.number}</p>
-                            )}
-                            {(viewDetails.documents.drivingLicense.expiry || viewDetails.documents.drivingLicense.expiryDate) && (
                               <p className="text-sm text-slate-700">
-                                Expiry: {new Date(viewDetails.documents.drivingLicense.expiry || viewDetails.documents.drivingLicense.expiryDate).toLocaleDateString('en-GB')}
+                                Number:{" "}
+                                {viewDetails.documents.drivingLicense.number}
                               </p>
                             )}
-                            {(viewDetails.documents.drivingLicense.front || viewDetails.documents.drivingLicense.document) && (
+                            {(viewDetails.documents.drivingLicense.expiry ||
+                              viewDetails.documents.drivingLicense
+                                .expiryDate) && (
+                              <p className="text-sm text-slate-700">
+                                Expiry:{" "}
+                                {new Date(
+                                  viewDetails.documents.drivingLicense.expiry ||
+                                    viewDetails.documents.drivingLicense
+                                      .expiryDate,
+                                ).toLocaleDateString("en-GB")}
+                              </p>
+                            )}
+                            {(viewDetails.documents.drivingLicense.front ||
+                              viewDetails.documents.drivingLicense
+                                .document) && (
                               <a
-                                href={viewDetails.documents.drivingLicense.front || viewDetails.documents.drivingLicense.document}
+                                href={
+                                  viewDetails.documents.drivingLicense.front ||
+                                  viewDetails.documents.drivingLicense.document
+                                }
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700"
@@ -1037,13 +1290,20 @@ export default function JoinRequest() {
                       )}
 
                       {/* Vehicle RC */}
-                      {(viewDetails.documents.rc || viewDetails.documents.vehicleRC) && (
+                      {(viewDetails.documents.rc ||
+                        viewDetails.documents.vehicleRC) && (
                         <div>
-                          <label className="text-xs font-semibold text-slate-500 uppercase">Vehicle RC</label>
+                          <label className="text-xs font-semibold text-slate-500 uppercase">
+                            Vehicle RC
+                          </label>
                           <div className="mt-2">
-                            {(viewDetails.documents.rc?.document || viewDetails.documents.vehicleRC?.document) && (
+                            {(viewDetails.documents.rc?.document ||
+                              viewDetails.documents.vehicleRC?.document) && (
                               <a
-                                href={viewDetails.documents.rc?.document || viewDetails.documents.vehicleRC?.document}
+                                href={
+                                  viewDetails.documents.rc?.document ||
+                                  viewDetails.documents.vehicleRC?.document
+                                }
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700"
@@ -1058,7 +1318,9 @@ export default function JoinRequest() {
                       {/* Insurance */}
                       {viewDetails.documents.insurance?.document && (
                         <div>
-                          <label className="text-xs font-semibold text-slate-500 uppercase">Insurance</label>
+                          <label className="text-xs font-semibold text-slate-500 uppercase">
+                            Insurance
+                          </label>
                           <div className="mt-2">
                             <a
                               href={viewDetails.documents.insurance.document}
@@ -1066,7 +1328,8 @@ export default function JoinRequest() {
                               rel="noopener noreferrer"
                               className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700"
                             >
-                              <ExternalLink className="w-3 h-3" /> View Insurance
+                              <ExternalLink className="w-3 h-3" /> View
+                              Insurance
                             </a>
                           </div>
                         </div>
@@ -1084,26 +1347,45 @@ export default function JoinRequest() {
                     <div className="grid grid-cols-2 gap-4">
                       {viewDetails.documents.bankDetails.accountHolderName && (
                         <div>
-                          <label className="text-xs font-semibold text-slate-500 uppercase">Account Holder Name</label>
-                          <p className="text-sm text-slate-900 mt-1">{viewDetails.documents.bankDetails.accountHolderName}</p>
+                          <label className="text-xs font-semibold text-slate-500 uppercase">
+                            Account Holder Name
+                          </label>
+                          <p className="text-sm text-slate-900 mt-1">
+                            {
+                              viewDetails.documents.bankDetails
+                                .accountHolderName
+                            }
+                          </p>
                         </div>
                       )}
                       {viewDetails.documents.bankDetails.accountNumber && (
                         <div>
-                          <label className="text-xs font-semibold text-slate-500 uppercase">Account Number</label>
-                          <p className="text-sm text-slate-900 mt-1">{viewDetails.documents.bankDetails.accountNumber}</p>
+                          <label className="text-xs font-semibold text-slate-500 uppercase">
+                            Account Number
+                          </label>
+                          <p className="text-sm text-slate-900 mt-1">
+                            {viewDetails.documents.bankDetails.accountNumber}
+                          </p>
                         </div>
                       )}
                       {viewDetails.documents.bankDetails.ifscCode && (
                         <div>
-                          <label className="text-xs font-semibold text-slate-500 uppercase">IFSC Code</label>
-                          <p className="text-sm text-slate-900 mt-1">{viewDetails.documents.bankDetails.ifscCode}</p>
+                          <label className="text-xs font-semibold text-slate-500 uppercase">
+                            IFSC Code
+                          </label>
+                          <p className="text-sm text-slate-900 mt-1">
+                            {viewDetails.documents.bankDetails.ifscCode}
+                          </p>
                         </div>
                       )}
                       {viewDetails.documents.bankDetails.bankName && (
                         <div>
-                          <label className="text-xs font-semibold text-slate-500 uppercase">Bank Name</label>
-                          <p className="text-sm text-slate-900 mt-1">{viewDetails.documents.bankDetails.bankName}</p>
+                          <label className="text-xs font-semibold text-slate-500 uppercase">
+                            Bank Name
+                          </label>
+                          <p className="text-sm text-slate-900 mt-1">
+                            {viewDetails.documents.bankDetails.bankName}
+                          </p>
                         </div>
                       )}
                     </div>
@@ -1114,33 +1396,55 @@ export default function JoinRequest() {
                 <div className="grid grid-cols-2 gap-4">
                   {viewDetails.signupMethod && (
                     <div>
-                      <label className="text-xs font-semibold text-slate-500 uppercase">Signup Method</label>
-                      <p className="text-sm text-slate-900 mt-1 capitalize">{viewDetails.signupMethod}</p>
+                      <label className="text-xs font-semibold text-slate-500 uppercase">
+                        Signup Method
+                      </label>
+                      <p className="text-sm text-slate-900 mt-1 capitalize">
+                        {viewDetails.signupMethod}
+                      </p>
                     </div>
                   )}
                   {viewDetails.phoneVerified !== undefined && (
                     <div>
-                      <label className="text-xs font-semibold text-slate-500 uppercase">Phone Verified</label>
-                      <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium mt-1 ${
-                        viewDetails.phoneVerified ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                      }`}>
-                        {viewDetails.phoneVerified ? 'Verified' : 'Not Verified'}
+                      <label className="text-xs font-semibold text-slate-500 uppercase">
+                        Phone Verified
+                      </label>
+                      <span
+                        className={`inline-block px-2 py-1 rounded-full text-xs font-medium mt-1 ${
+                          viewDetails.phoneVerified
+                            ? "bg-green-100 text-green-700"
+                            : "bg-red-100 text-red-700"
+                        }`}
+                      >
+                        {viewDetails.phoneVerified
+                          ? "Verified"
+                          : "Not Verified"}
                       </span>
                     </div>
                   )}
                   {viewDetails.createdAt && (
                     <div>
-                      <label className="text-xs font-semibold text-slate-500 uppercase">Joined Date</label>
+                      <label className="text-xs font-semibold text-slate-500 uppercase">
+                        Joined Date
+                      </label>
                       <p className="text-sm text-slate-900 mt-1">
-                        {new Date(viewDetails.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        {new Date(viewDetails.createdAt).toLocaleDateString(
+                          "en-GB",
+                          { day: "numeric", month: "short", year: "numeric" },
+                        )}
                       </p>
                     </div>
                   )}
                   {viewDetails.verifiedAt && (
                     <div>
-                      <label className="text-xs font-semibold text-slate-500 uppercase">Verified At</label>
+                      <label className="text-xs font-semibold text-slate-500 uppercase">
+                        Verified At
+                      </label>
                       <p className="text-sm text-slate-900 mt-1">
-                        {new Date(viewDetails.verifiedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        {new Date(viewDetails.verifiedAt).toLocaleDateString(
+                          "en-GB",
+                          { day: "numeric", month: "short", year: "numeric" },
+                        )}
                       </p>
                     </div>
                   )}
@@ -1180,28 +1484,40 @@ export default function JoinRequest() {
           </DialogHeader>
           <div className="px-6 pb-6 space-y-4">
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-2">Zone</label>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">
+                Zone
+              </label>
               <select
                 value={filters.zone}
-                onChange={(e) => setFilters({ ...filters, zone: e.target.value })}
+                onChange={(e) =>
+                  setFilters({ ...filters, zone: e.target.value })
+                }
                 className="w-full px-4 py-2.5 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
               >
                 <option value="">All Zones</option>
-                {allZones.map(zone => (
-                  <option key={zone._id} value={zone.name}>{zone.name}</option>
+                {allZones.map((zone) => (
+                  <option key={zone._id} value={zone.name}>
+                    {zone.name}
+                  </option>
                 ))}
               </select>
             </div>
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-2">Vehicle Type</label>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">
+                Vehicle Type
+              </label>
               <select
                 value={filters.vehicleType}
-                onChange={(e) => setFilters({ ...filters, vehicleType: e.target.value })}
+                onChange={(e) =>
+                  setFilters({ ...filters, vehicleType: e.target.value })
+                }
                 className="w-full px-4 py-2.5 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
               >
                 <option value="">All Vehicle Types</option>
-                {vehicleTypes.map(type => (
-                  <option key={type} value={type}>{type}</option>
+                {vehicleTypes.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
                 ))}
               </select>
             </div>
@@ -1223,6 +1539,5 @@ export default function JoinRequest() {
         </DialogContent>
       </Dialog>
     </div>
-  )
+  );
 }
-

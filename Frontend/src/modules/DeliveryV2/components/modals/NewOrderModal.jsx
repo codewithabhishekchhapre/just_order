@@ -1,23 +1,27 @@
-import React, { useEffect, useState, useMemo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronDown } from 'lucide-react';
-import { ActionSlider } from '@/modules/DeliveryV2/components/ui/ActionSlider';
-import { useDeliveryStore } from '@/modules/DeliveryV2/store/useDeliveryStore';
-import { getHaversineDistance } from '@/modules/DeliveryV2/utils/geo';
-import { normalizePickupPoints, isMixedOrder, isReturnPickupTrip, getReturnPickupStopLabels, formatDeliveryAddressText } from '@/modules/DeliveryV2/utils/orderRouting';
-import { RenderNewOrder } from './renderers/NewOrderRenderers';
-import { locationAPI } from '@food/api';
+import React, { useEffect, useMemo, useState } from "react";
+import { motion } from "framer-motion";
+import { ChevronDown } from "lucide-react";
+import { ActionSlider } from "@/modules/DeliveryV2/components/ui/ActionSlider";
+import { useDeliveryStore } from "@/modules/DeliveryV2/store/useDeliveryStore";
+import { getHaversineDistance } from "@/modules/DeliveryV2/utils/geo";
+import {
+  normalizePickupPoints,
+  formatDeliveryAddressText,
+} from "@/modules/DeliveryV2/utils/orderRouting";
+import { buildFeedRequestViewModel } from "@/modules/DeliveryV2/utils/feedRequestFormatters";
+import { RequestCard } from "@/modules/DeliveryV2/components/feed";
+import { locationAPI } from "@food/api";
 
 /**
- * NewOrderModal - Ported to Original 1:1 Theme with Slider Accept.
- * Matches the Zomato/Swiggy style Green Header + White Card.
+ * Compact incoming-offer sheet. Uses shared RequestCard for the summary;
+ * keeps existing accept/reject timers and road-distance enrichment.
  */
 export const NewOrderModal = ({ order, onAccept, onReject, onMinimize }) => {
   const { riderLocation } = useDeliveryStore();
   const [timeLeft, setTimeLeft] = useState(30);
+  const [showDetails, setShowDetails] = useState(false);
   const pickupPoints = normalizePickupPoints(order);
   const primaryPickup = pickupPoints[0] || null;
-  const mixedOrder = isMixedOrder(order);
 
   useEffect(() => {
     const timer = setInterval(() => setTimeLeft((t) => t - 1), 1000);
@@ -33,60 +37,80 @@ export const NewOrderModal = ({ order, onAccept, onReject, onMinimize }) => {
   const { distanceKm, etaMins } = useMemo(() => {
     if (!order) return { distanceKm: null, etaMins: null };
 
-    // A. Use provided data if available (Direct distance from socket)
     const rawDist = order.pickupDistanceKm || order.distanceKm;
     const rawEta = order.estimatedTime || order.duration || order.eta;
 
     if (rawDist != null) {
       return {
         distanceKm: Number(rawDist).toFixed(1),
-        etaMins: rawEta && rawEta > 0 ? Math.ceil(rawEta) : Math.ceil((rawDist * 1000) / 416) + 5
+        etaMins:
+          rawEta && rawEta > 0
+            ? Math.ceil(rawEta)
+            : Math.ceil((rawDist * 1000) / 416) + 5,
       };
     }
 
-    // B. Calculate from locations (Local calculation fallback)
-    const rest = primaryPickup?.location || order.restaurantLocation || order.restaurantId?.location || {};
-    const resLat = parseFloat(order.restaurant_lat || order.restaurantLat || rest.latitude || rest.lat);
-    const resLng = parseFloat(order.restaurant_lng || order.restaurantLng || rest.longitude || rest.lng);
+    const rest =
+      primaryPickup?.location ||
+      order.restaurantLocation ||
+      order.restaurantId?.location ||
+      {};
+    const resLat = parseFloat(
+      order.restaurant_lat || order.restaurantLat || rest.latitude || rest.lat,
+    );
+    const resLng = parseFloat(
+      order.restaurant_lng || order.restaurantLng || rest.longitude || rest.lng,
+    );
 
     if (riderLocation && !isNaN(resLat) && !isNaN(resLng)) {
       const distM = getHaversineDistance(
-        riderLocation.lat, riderLocation.lng,
-        resLat, resLng
+        riderLocation.lat,
+        riderLocation.lng,
+        resLat,
+        resLng,
       );
       const km = distM / 1000;
-      // Assume 25km/h avg for initial estimate (roughly 416m/min)
       const mins = Math.ceil(distM / 416) + (order.prepTime || 5);
-
-      return {
-        distanceKm: km.toFixed(1),
-        etaMins: mins
-      };
+      return { distanceKm: km.toFixed(1), etaMins: mins };
     }
 
-    return { distanceKm: '??', etaMins: order.prepTime || 15 };
+    return { distanceKm: null, etaMins: order.prepTime || 15 };
   }, [order, primaryPickup, riderLocation]);
 
-  // Stable pickup (restaurant/store) and drop (customer) coordinates.
   const routeCoords = useMemo(() => {
     if (!order) return { pickup: null, drop: null };
-    const rest = primaryPickup?.location || order.restaurantLocation || order.restaurantId?.location || {};
-    const pLat = parseFloat(order.restaurant_lat || order.restaurantLat || rest.latitude || rest.lat);
-    const pLng = parseFloat(order.restaurant_lng || order.restaurantLng || rest.longitude || rest.lng);
+    const rest =
+      primaryPickup?.location ||
+      order.restaurantLocation ||
+      order.restaurantId?.location ||
+      {};
+    const pLat = parseFloat(
+      order.restaurant_lat || order.restaurantLat || rest.latitude || rest.lat,
+    );
+    const pLng = parseFloat(
+      order.restaurant_lng || order.restaurantLng || rest.longitude || rest.lng,
+    );
     const geo = order?.deliveryAddress?.location?.coordinates;
-    const dropRaw = order.customerLocation || order.deliveryLocation ||
-      (Array.isArray(geo) && geo.length >= 2 ? { lat: geo[1], lng: geo[0] } : null);
+    const dropRaw =
+      order.customerLocation ||
+      order.deliveryLocation ||
+      (Array.isArray(geo) && geo.length >= 2
+        ? { lat: geo[1], lng: geo[0] }
+        : null);
     const dLat = parseFloat(dropRaw?.lat ?? dropRaw?.latitude);
     const dLng = parseFloat(dropRaw?.lng ?? dropRaw?.longitude);
     return {
-      pickup: Number.isFinite(pLat) && Number.isFinite(pLng) ? { lat: pLat, lng: pLng } : null,
-      drop: Number.isFinite(dLat) && Number.isFinite(dLng) ? { lat: dLat, lng: dLng } : null,
+      pickup:
+        Number.isFinite(pLat) && Number.isFinite(pLng)
+          ? { lat: pLat, lng: pLng }
+          : null,
+      drop:
+        Number.isFinite(dLat) && Number.isFinite(dLng)
+          ? { lat: dLat, lng: dLng }
+          : null,
     };
   }, [order, primaryPickup]);
 
-  // Real ROAD distances for both legs (backend Routes API, server-cached):
-  // rider -> pickup, and pickup -> customer drop. Haversine stays as the
-  // instant fallback shown until these resolve (or if the backend is down).
   const [roadLegs, setRoadLegs] = useState({ pickup: null, drop: null });
   useEffect(() => {
     setRoadLegs({ pickup: null, drop: null });
@@ -95,10 +119,16 @@ export const NewOrderModal = ({ order, onAccept, onReject, onMinimize }) => {
 
     const fetchLeg = (from, to, key) => {
       if (!from || !to) return;
-      locationAPI.roadDistance(from.lat, from.lng, to.lat, to.lng)
+      locationAPI
+        .roadDistance(from.lat, from.lng, to.lat, to.lng)
         .then((res) => {
           const d = res?.data?.data;
-          if (!cancelled && d && Number.isFinite(Number(d.distanceKm)) && d.source !== 'haversine') {
+          if (
+            !cancelled &&
+            d &&
+            Number.isFinite(Number(d.distanceKm)) &&
+            d.source !== "haversine"
+          ) {
             setRoadLegs((prev) => ({ ...prev, [key]: d }));
           }
         })
@@ -106,114 +136,171 @@ export const NewOrderModal = ({ order, onAccept, onReject, onMinimize }) => {
     };
 
     fetchLeg(
-      riderLocation ? { lat: riderLocation.lat, lng: riderLocation.lng } : null,
+      riderLocation
+        ? { lat: riderLocation.lat, lng: riderLocation.lng }
+        : null,
       routeCoords.pickup,
-      'pickup'
+      "pickup",
     );
-    fetchLeg(routeCoords.pickup, routeCoords.drop, 'drop');
+    fetchLeg(routeCoords.pickup, routeCoords.drop, "drop");
 
-    return () => { cancelled = true; };
-    // riderLocation intentionally sampled once per offer — the modal lives ~30s.
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [order?.orderId, order?._id, routeCoords.pickup?.lat, routeCoords.pickup?.lng, routeCoords.drop?.lat, routeCoords.drop?.lng]);
+  }, [
+    order?.orderId,
+    order?._id,
+    routeCoords.pickup?.lat,
+    routeCoords.pickup?.lng,
+    routeCoords.drop?.lat,
+    routeCoords.drop?.lng,
+  ]);
 
-  if (!order) return null;
+  const enrichedOrder = useMemo(() => {
+    if (!order) return null;
+    const pickupKm =
+      roadLegs.pickup?.distanceKm != null
+        ? Number(roadLegs.pickup.distanceKm)
+        : distanceKm != null
+          ? Number(distanceKm)
+          : order.pickupDistanceKm;
+    const tripKm =
+      roadLegs.drop?.distanceKm != null
+        ? Number(roadLegs.drop.distanceKm)
+        : order.tripDistanceKm ?? order.deliveryDistanceKm;
+    const eta =
+      roadLegs.pickup?.durationMinutes ??
+      roadLegs.drop?.durationMinutes ??
+      etaMins ??
+      order.estimatedTime;
+    return {
+      ...order,
+      pickupDistanceKm: pickupKm,
+      tripDistanceKm: tripKm,
+      estimatedTime: eta,
+    };
+  }, [order, roadLegs, distanceKm, etaMins]);
 
-  const isReturnPickup = isReturnPickupTrip(order);
-  const returnLabels = getReturnPickupStopLabels();
-  const dropPoint = order?.dropPoint || null;
-  const earnings = order.earnings || order.riderEarning || order.tripEarning || order.walletEarning || (order.orderAmount ? order.orderAmount * 0.1 : 0);
-  const isQuickOrder = String(order?.orderType || order?.serviceType || order?.type || '').trim().toLowerCase() === 'quick';
-  const restaurantName =
-    order?.dispatchLeg?.sourceName ||
-    (isQuickOrder
-      ? order?.storeName || order?.sellerName || order?.seller?.shopName || order?.seller?.name || 'Seller store'
-      : order?.restaurantName || order?.restaurant_name || order?.restaurantId?.restaurantName || order?.restaurantId?.name || 'Restaurant');
-  const restaurantAddress =
-    (isQuickOrder
-      ? order?.storeAddress || order?.sellerAddress || order?.seller?.location?.address || order?.seller?.location?.formattedAddress
-      : order?.restaurantAddress || order?.restaurant_address || order?.restaurantId?.location?.address) ||
-    'Address not available';
+  const viewModel = useMemo(
+    () =>
+      buildFeedRequestViewModel(enrichedOrder, {
+        expiresInSec: timeLeft,
+        riderLocation,
+      }),
+    [enrichedOrder, timeLeft, riderLocation],
+  );
+
+  if (!order || !viewModel) return null;
+
   const deliveryAddress = order?.deliveryAddress || {};
-
-  const geoCoords =
-    Array.isArray(deliveryAddress?.location?.coordinates) &&
-      deliveryAddress.location.coordinates.length >= 2
-      ? {
-        lng: deliveryAddress.location.coordinates[0],
-        lat: deliveryAddress.location.coordinates[1],
-      }
-      : null;
-
-  const customerLocation = order.customerLocation || order.deliveryLocation || geoCoords || null;
-
-  const customerAddress =
-    formatDeliveryAddressText(deliveryAddress, order.customerAddress || order.customer_address || '') ||
-    'Location not available';
-
-  const mapsLink =
-    customerLocation?.lat != null && customerLocation?.lng != null
-      ? `https://www.google.com/maps?q=${encodeURIComponent(
-        `${customerLocation.lat},${customerLocation.lng}`,
-      )}`
-      : null;
-
-  const pickupStops = pickupPoints.length
-    ? pickupPoints
-    : [
-      {
-        id: order?.dispatchLeg?.legId || 'food:primary',
-        pickupType: order?.dispatchLeg?.pickupType === 'quick' || isQuickOrder ? 'quick' : 'food',
-        sourceName: order?.dispatchLeg?.sourceName || restaurantName,
-        address: order?.dispatchLeg?.address || restaurantAddress,
-      },
-    ];
+  const note = order?.note || order?.deliveryInstructions || "";
+  const items = Array.isArray(order?.items) ? order.items : [];
 
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[300] bg-black/60 flex items-end justify-center p-0 sm:p-4"
+      className="fixed inset-0 z-[300] bg-black/55 flex items-end justify-center p-0 sm:p-4"
     >
       <motion.div
-        initial={{ y: '100%' }}
+        initial={{ y: "100%" }}
         animate={{ y: 0 }}
-        exit={{ y: '100%' }}
-        className="w-full max-w-lg max-h-[92vh] bg-white rounded-t-[2.5rem] sm:rounded-[2.5rem] overflow-hidden shadow-[0_-20px_60px_rgba(0,0,0,0.5)] flex flex-col pt-2"
+        exit={{ y: "100%" }}
+        className="w-full max-w-lg max-h-[88vh] bg-slate-100 rounded-t-3xl sm:rounded-3xl overflow-hidden shadow-[0_-20px_60px_rgba(0,0,0,0.45)] flex flex-col"
       >
-        {/* Handle / Minimize */}
-        <div className="w-full flex justify-center pb-1 pt-1 bg-white relative z-10 rounded-t-[2rem] -mb-[2px] shrink-0">
-          <button type="button" onClick={onMinimize} className="p-1 hover:bg-gray-100 active:scale-95 transition-all rounded-full flex flex-col items-center">
-            <ChevronDown className="w-5 h-5 text-gray-400 stroke-[3px]" />
+        <div className="w-full flex justify-center pt-2 pb-1 shrink-0">
+          <button
+            type="button"
+            onClick={onMinimize}
+            className="p-1.5 rounded-full active:bg-white/80 flex flex-col items-center"
+            aria-label="Minimize offer"
+          >
+            <span className="w-10 h-1 rounded-full bg-slate-300 mb-0.5" />
+            <ChevronDown className="w-4 h-4 text-slate-400" />
           </button>
         </div>
 
-        <RenderNewOrder
-          order={order}
-          distanceKm={distanceKm}
-          etaMins={etaMins}
-          pickupLeg={roadLegs.pickup}
-          dropLeg={roadLegs.drop}
-          timeLeft={timeLeft}
-        />
+        <div className="flex-1 overflow-y-auto overscroll-contain px-3 pb-2 space-y-2.5 no-scrollbar">
+          <div className="flex items-center justify-between gap-2 px-1">
+            <p className="text-xs font-bold text-slate-700">New request</p>
+            <div className="rounded-full bg-slate-900 text-white text-xs font-bold tabular-nums px-2.5 py-1">
+              {timeLeft}s
+            </div>
+          </div>
 
-        {/* Sticky Accept / Reject */}
-        <div className="p-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] space-y-3 border-t border-gray-100 bg-white shrink-0">
-          <ActionSlider
-            label="Slide to Accept Delivery"
-            onConfirm={() => onAccept(order)}
-            color="bg-black"
-            successLabel="Delivery Accepted ✓"
-            timeProgress={(timeLeft / 30) * 100}
+          <RequestCard
+            viewModel={viewModel}
+            order={enrichedOrder}
+            highlighted
+            expanded={showDetails}
+            onViewDetails={() => setShowDetails((v) => !v)}
           />
 
+          {showDetails ? (
+            <div className="rounded-2xl border border-slate-200 bg-white px-3.5 py-3 space-y-2.5">
+              {note ? (
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Instructions
+                  </p>
+                  <p className="text-xs text-slate-700 mt-1 leading-relaxed">
+                    {note}
+                  </p>
+                </div>
+              ) : null}
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  Drop address
+                </p>
+                <p className="text-xs text-slate-700 mt-1 leading-relaxed">
+                  {formatDeliveryAddressText(
+                    deliveryAddress,
+                    order.customerAddress || order.customer_address || "",
+                  ) || viewModel.drop.address}
+                </p>
+              </div>
+              {items.length > 0 ? (
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+                    Items ({items.length})
+                  </p>
+                  <ul className="space-y-1">
+                    {items.slice(0, 6).map((item, idx) => (
+                      <li
+                        key={idx}
+                        className="text-xs font-semibold text-slate-800"
+                      >
+                        {Number(item.quantity || 1)} × {item.name || "Item"}
+                      </li>
+                    ))}
+                    {items.length > 6 ? (
+                      <li className="text-[11px] text-slate-400 font-medium">
+                        +{items.length - 6} more
+                      </li>
+                    ) : null}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="p-3.5 pb-[max(1rem,env(safe-area-inset-bottom))] space-y-2.5 border-t border-slate-200 bg-white shrink-0">
+          <ActionSlider
+            label="Slide to Accept"
+            onConfirm={() => onAccept(order)}
+            color="bg-primary-orange"
+            successLabel="Accepted ✓"
+            timeProgress={(timeLeft / 30) * 100}
+          />
           <button
             type="button"
             onClick={onReject}
-            className="w-full text-gray-400 font-bold text-[10px] uppercase tracking-widest hover:text-red-500 transition-colors py-2 active:scale-95"
+            className="w-full h-10 rounded-xl text-xs font-bold uppercase tracking-wide text-red-600 bg-red-50 border border-red-100 active:scale-[0.98] transition"
           >
-            Reject Delivery
+            Decline
           </button>
         </div>
       </motion.div>

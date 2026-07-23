@@ -9,7 +9,17 @@ import {
   DeliveryField,
 } from "../../components/ui/deliveryUi"
 import { deliveryAPI } from "@food/api"
-import { setAuthData as storeAuthData } from "@food/utils/auth"
+import { setAuthData as storeAuthData, clearModuleAuth } from "@food/utils/auth"
+import {
+  clearDeliveryOnboardingOnlyGate,
+  setDeliveryOnboardingOnlyGate,
+} from "../../utils/driverModuleAccess"
+import {
+  clearSignupSession,
+  resetOnboardingClientStateForPhone,
+} from "../../utils/signupSubmit"
+import { applyServerOnboardingToClient } from "../../utils/onboardingDraftApi"
+import { emptySignupDetails, saveSignupDetails } from "../../utils/signupDraft"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -237,6 +247,9 @@ export default function DeliveryOTP() {
       debugLog("Parsed Delivery OTP Data:", data)
 
       if (data.pendingApproval === true) {
+        const digits = String(phone || "").replace(/\D/g, "").slice(-10)
+        clearSignupSession()
+        resetOnboardingClientStateForPhone(digits)
         sessionStorage.removeItem("deliveryAuthData")
         setIsLoading(false)
         setError("")
@@ -262,33 +275,65 @@ export default function DeliveryOTP() {
         } else {
           sessionStorage.removeItem("deliveryDocumentsRequired")
         }
+        // Restricted onboarding access: allow status + resubmit without full work access
+        if (data.accessToken && data.user) {
+          try {
+            storeAuthData("delivery", data.accessToken, data.user, null)
+            setDeliveryOnboardingOnlyGate()
+            applyServerOnboardingToClient(data.user)
+            if (Array.isArray(data.enrollments)) {
+              sessionStorage.setItem(
+                "deliveryEnrollments",
+                JSON.stringify(data.enrollments),
+              )
+            }
+            sessionStorage.setItem("deliveryPendingPhone", digits)
+            navigate("/food/delivery/verification", {
+              replace: true,
+              state: { phone: digits, enrollments: data.enrollments || [] },
+            })
+            return
+          } catch (e) {
+            debugWarn("Failed to persist onboarding token", e)
+          }
+        }
         return
       }
 
       const needsRegistration = data.needsRegistration === true
 
       if (needsRegistration) {
-        // No DB record yet; redirect to registration details page WITHOUT creating anything in DB.
-        const existingDetailsRaw = sessionStorage.getItem("deliverySignupDetails")
-        let existingDetails = {}
-        try {
-          if (existingDetailsRaw) {
-            existingDetails = JSON.parse(existingDetailsRaw)
-          }
-        } catch (e) {
-          debugError("Error parsing existing signup details:", e)
-        }
+        const digits = String(phone || "").replace(/\D/g, "").slice(-10)
+        // Always drop any previous driver's client draft before starting anew
+        clearSignupSession()
+        resetOnboardingClientStateForPhone(digits)
 
         sessionStorage.removeItem("deliveryAuthData")
         sessionStorage.setItem("deliveryNeedsRegistration", "true")
-        const digits = String(phone || "").replace(/\D/g, "")
-        const details = {
-          ...existingDetails,
-          name: existingDetails.name || "",
-          phone: digits.slice(-10),
-          countryCode: "+91",
+
+        if (data.accessToken && data.user) {
+          try {
+            storeAuthData("delivery", data.accessToken, data.user, null)
+            setDeliveryOnboardingOnlyGate()
+            applyServerOnboardingToClient(data.user)
+          } catch (e) {
+            debugWarn("Failed to persist onboarding draft token", e)
+            saveSignupDetails(
+              emptySignupDetails({
+                phone: digits,
+                countryCode: "+91",
+              }),
+            )
+          }
+        } else {
+          saveSignupDetails(
+            emptySignupDetails({
+              phone: digits,
+              countryCode: "+91",
+            }),
+          )
         }
-        sessionStorage.setItem("deliverySignupDetails", JSON.stringify(details))
+
         setIsLoading(false)
         navigate("/food/delivery/signup/details", { replace: true })
         return
@@ -303,10 +348,20 @@ export default function DeliveryOTP() {
       }
 
       sessionStorage.removeItem("deliveryAuthData")
+      const digits = String(phone || "").replace(/\D/g, "").slice(-10)
+      clearSignupSession()
+      resetOnboardingClientStateForPhone(digits)
 
       try {
         debugLog("Storing auth data for delivery:", { hasToken: !!accessToken, hasUser: !!user })
         storeAuthData("delivery", accessToken, user, refreshToken)
+        clearDeliveryOnboardingOnlyGate()
+        if (Array.isArray(data.enrollments)) {
+          sessionStorage.setItem(
+            "deliveryEnrollments",
+            JSON.stringify(data.enrollments),
+          )
+        }
         debugLog("Auth data stored successfully")
       } catch (storageError) {
         debugError("Failed to store authentication data:", storageError)
@@ -393,6 +448,7 @@ export default function DeliveryOTP() {
       try {
         debugLog("Storing auth data for delivery (with name):", { hasToken: !!accessToken, hasUser: !!user })
         storeAuthData("delivery", accessToken, user, refreshToken)
+        clearDeliveryOnboardingOnlyGate()
         debugLog("Auth data stored successfully")
       } catch (storageError) {
         debugError("Failed to store authentication data:", storageError)
@@ -560,18 +616,34 @@ export default function DeliveryOTP() {
                     type="button"
                     onClick={() => {
                       const phone = authData?.phone
-                      const digits = String(phone || "").replace(/\D/g, "")
+                      const digits = String(phone || "").replace(/\D/g, "").slice(-10)
                       sessionStorage.setItem("deliveryNeedsRegistration", "true")
                       sessionStorage.setItem("deliveryIsRejected", "true")
                       sessionStorage.setItem("deliveryDocumentsRequired", "true")
                       if (rejectionReason) {
                         sessionStorage.setItem("deliveryRejectionReason", rejectionReason)
                       }
+                      // Keep existing draft; never wipe to empty name/phone-only
+                      const existingRaw = sessionStorage.getItem("deliverySignupDetails")
+                      let existing = {}
+                      try {
+                        existing = existingRaw ? JSON.parse(existingRaw) : {}
+                      } catch {
+                        existing = {}
+                      }
                       sessionStorage.setItem(
                         "deliverySignupDetails",
-                        JSON.stringify({ name: "", phone: digits.slice(-10), countryCode: "+91" })
+                        JSON.stringify({
+                          ...existing,
+                          phone: existing.phone || digits,
+                          countryCode: existing.countryCode || "+91",
+                        }),
                       )
-                      navigate("/food/delivery/signup/documents", { replace: true })
+                      sessionStorage.setItem("deliveryPendingPhone", digits)
+                      navigate("/food/delivery/verification", {
+                        replace: true,
+                        state: { phone: digits },
+                      })
                     }}
                   >
                     Re-upload Documents
@@ -580,7 +652,13 @@ export default function DeliveryOTP() {
 
                 <button
                   type="button"
-                  onClick={() => navigate("/food/delivery/login", { replace: true })}
+                  onClick={() => {
+                    clearModuleAuth("delivery")
+                    clearDeliveryOnboardingOnlyGate()
+                    sessionStorage.removeItem("deliveryPendingPhone")
+                    sessionStorage.removeItem("deliveryAuthData")
+                    navigate("/food/delivery/login", { replace: true })
+                  }}
                   className={`text-sm font-medium underline transition-colors ${documentsRequired ? "text-orange-700 hover:text-orange-900" : "text-amber-700 hover:text-amber-900"}`}
                 >
                   Back to login
@@ -701,7 +779,9 @@ export default function DeliveryOTP() {
               
               <div className="bg-amber-50/50 border border-amber-100 rounded-2xl p-4 flex gap-3">
                 <div className="flex-1 text-xs text-amber-800 leading-relaxed font-medium">
-                  <strong>Please note:</strong> Re-onboarding will clear your previous details and documents. You must fill out the form entirely from scratch.
+                  <strong>Please note:</strong> You can edit only the fields or
+                  documents that need correction. Everything else stays as you
+                  previously submitted.
                 </div>
               </div>
             </div>
@@ -712,44 +792,24 @@ export default function DeliveryOTP() {
                 type="button"
                 onClick={() => {
                   const phone = authData?.phone;
-                  const digits = String(phone || "").replace(/\D/g, "");
+                  const digits = String(phone || "").replace(/\D/g, "").slice(-10);
                   sessionStorage.setItem("deliveryNeedsRegistration", "true");
                   sessionStorage.setItem("deliveryIsRejected", "true");
                   if (rejectionReason) {
                     sessionStorage.setItem("deliveryRejectionReason", rejectionReason);
                   }
-                  const details = {
-                    name: "",
-                    phone: digits.slice(-10),
-                    countryCode: "+91",
-                  };
-                  sessionStorage.setItem("deliverySignupDetails", JSON.stringify(details));
-                  let requested = [];
-                  try {
-                    requested = JSON.parse(sessionStorage.getItem("deliveryDocumentsRequested") || "[]");
-                  } catch {
-                    requested = [];
-                  }
-                  // Full reject: clear drafts and restart. Partial request: keep only phone + requested docs.
-                  if (!(Array.isArray(requested) && requested.length > 0)) {
-                    try {
-                      indexedDB.deleteDatabase("DeliverySignupDB");
-                    } catch (e) {
-                      console.error("Failed to delete IndexedDB:", e);
-                    }
-                    sessionStorage.removeItem("deliveryDocumentsRequested");
-                  }
+                  // Prefer verification page Edit & Resubmit (keeps auth + full profile)
+                  sessionStorage.setItem("deliveryPendingPhone", digits);
                   setIsRejected(false);
                   setPendingMessage("");
-                  if (Array.isArray(requested) && requested.length > 0) {
-                    navigate("/food/delivery/signup/documents", { replace: true });
-                  } else {
-                    navigate("/food/delivery/signup/details", { replace: true });
-                  }
+                  navigate("/food/delivery/verification", {
+                    replace: true,
+                    state: { phone: digits },
+                  });
                 }}
                 className="w-full h-14 bg-gradient-to-r from-rose-600 to-red-500 hover:from-rose-700 hover:to-red-600 text-white rounded-2xl font-black text-sm tracking-widest uppercase shadow-lg shadow-orange-500/20 active:scale-[0.98] transition-all"
               >
-                Re-apply / Start Fresh
+                Edit & Resubmit
               </button>
               <button
                 type="button"

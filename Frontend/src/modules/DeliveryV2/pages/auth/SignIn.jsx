@@ -17,6 +17,7 @@ import {
   DeliveryPhoneInput,
   DeliveryPrimaryButton,
 } from "../../components/ui/deliveryUi"
+import { resetOnboardingClientStateForPhone } from "../../utils/signupSubmit"
 
 export default function DeliverySignIn() {
   const companyName = useCompanyName()
@@ -114,6 +115,8 @@ export default function DeliverySignIn() {
     try {
       setIsSending(true)
       clearModuleAuth("delivery")
+      // Drop any previous account's onboarding cache before OTP for this phone
+      resetOnboardingClientStateForPhone(formData.phone)
       await deliveryAPI.sendOTP(fullPhone, "login")
 
       sessionStorage.setItem(
@@ -128,15 +131,9 @@ export default function DeliverySignIn() {
       )
 
       if (referralCode) {
-        try {
-          const existingSignupDetails = JSON.parse(sessionStorage.getItem("deliverySignupDetails") || "{}")
-          sessionStorage.setItem(
-            "deliverySignupDetails",
-            JSON.stringify({ ...existingSignupDetails, ref: referralCode })
-          )
-        } catch {
-          /* ignore */
-        }
+        sessionStorage.setItem("deliveryPendingReferralRef", referralCode)
+      } else {
+        sessionStorage.removeItem("deliveryPendingReferralRef")
       }
 
       navigate("/food/delivery/otp")

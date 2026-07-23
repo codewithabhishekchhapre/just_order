@@ -2,6 +2,7 @@ export const DEFAULT_ENABLED_MODULES = {
   food: true,
   quickCommerce: true,
   porter: true,
+  taxi: true,
 };
 
 export const ALLOWED_MODULE_KEYS = Object.keys(DEFAULT_ENABLED_MODULES);
@@ -10,18 +11,21 @@ export const MODULE_LABELS = {
   food: "Food Delivery",
   quickCommerce: "Quick Commerce",
   porter: "Porter / Logistics",
+  taxi: "Taxi",
 };
 
 export const MODULE_LANDING_PATHS = {
   food: "/food/user",
   quickCommerce: "/quick",
   porter: "/porter",
+  taxi: "/taxi",
 };
 
 export const TAB_TO_MODULE_KEY = {
   food: "food",
   quick: "quickCommerce",
   porter: "porter",
+  taxi: "taxi",
 };
 
 export const normalizeEnabledModules = (modules) => {
@@ -51,6 +55,7 @@ export const resolveModuleKeyFromPath = (pathname = "") => {
   const path = String(pathname || "");
   if (path === "/quick" || path.startsWith("/quick/")) return "quickCommerce";
   if (path === "/porter" || path.startsWith("/porter/")) return "porter";
+  if (path === "/taxi" || path.startsWith("/taxi/")) return "taxi";
   if (
     path === "/food/user" ||
     path.startsWith("/food/user/") ||
@@ -68,6 +73,7 @@ export const getVisibleHomeTabs = (modules) => {
     { id: "quick", moduleKey: "quickCommerce" },
     { id: "food", moduleKey: "food" },
     { id: "porter", moduleKey: "porter" },
+    { id: "taxi", moduleKey: "taxi" },
   ];
   return tabs.filter((tab) => normalized[tab.moduleKey] !== false);
 };

@@ -15,6 +15,7 @@
     "migrate:fcm-tokens": "node scripts/migrate-fcm-tokens-to-profile-models.js",
     "migrate:order-payments": "node scripts/migrate-orders-to-transactions.js",
     "migrate:global-auth": "node scripts/migrate-global-auth-collections.js",
+    "migrate:driver-module-enrollments": "node scripts/migrate-driver-module-enrollments.js",
     "migrate:seller-quick-shared": "node scripts/migrate-seller-quick-commerce-to-shared.js",
     "cleanup:legacy-collections": "node scripts/cleanup-legacy-collections.js",
     "db:seed-admin": "node scripts/seed-admin.js",

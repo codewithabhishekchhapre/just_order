@@ -14,7 +14,11 @@ export {
   isRetryableApiError,
 } from "./errors.js";
 export { notifyApiError } from "./networkToast.js";
-export { isOnline, subscribeNetworkStatus, installNetworkMonitor } from "./networkMonitor.js";
+export {
+  isOnline,
+  subscribeNetworkStatus,
+  installNetworkMonitor,
+} from "./networkMonitor.js";
 
 const stub = () =>
   Promise.resolve({
@@ -53,9 +57,13 @@ export const subscriptionAPI = {
       contextModule: userType.toLowerCase().replace("_partner", ""),
     }),
   createWalletTopupOrder: (userType, amount) =>
-    apiClient.post("/food/subscriptions/wallet/topup", { amount }, {
-      contextModule: userType.toLowerCase().replace("_partner", ""),
-    }),
+    apiClient.post(
+      "/food/subscriptions/wallet/topup",
+      { amount },
+      {
+        contextModule: userType.toLowerCase().replace("_partner", ""),
+      },
+    ),
   verifyWalletTopup: (userType, payload) =>
     apiClient.post("/food/subscriptions/wallet/verify", payload, {
       contextModule: userType.toLowerCase().replace("_partner", ""),
@@ -70,9 +78,13 @@ export const subscriptionAPI = {
       contextModule: userType.toLowerCase().replace("_partner", ""),
     }),
   cancelAutoRenew: (userType) =>
-    apiClient.post("/food/subscriptions/cancel-auto-renew", {}, {
-      contextModule: userType.toLowerCase().replace("_partner", ""),
-    }),
+    apiClient.post(
+      "/food/subscriptions/cancel-auto-renew",
+      {},
+      {
+        contextModule: userType.toLowerCase().replace("_partner", ""),
+      },
+    ),
 };
 
 const createStubAPI = () =>
@@ -222,7 +234,8 @@ export const adminAPI = {
   getSidebarBadges: () =>
     apiClient.get("/food/admin/sidebar-badges", { contextModule: "admin" }),
   getPublicRoles: () => apiClient.get("/auth/admin/roles"),
-  login: (email, password, roleId) => authService.adminLogin(email, password, roleId),
+  login: (email, password, roleId) =>
+    authService.adminLogin(email, password, roleId),
   /** POST /auth/admin/forgot-password/request-otp – only accepts registered admin email */
   requestForgotPasswordOtp: (email) =>
     apiClient.post("/auth/admin/forgot-password/request-otp", {
@@ -269,7 +282,10 @@ export const adminAPI = {
       (typeof localStorage !== "undefined"
         ? localStorage.getItem("admin_refreshToken")
         : null);
-    const fcmToken = typeof localStorage !== "undefined" ? localStorage.getItem("fcm_web_registered_token_admin") : null;
+    const fcmToken =
+      typeof localStorage !== "undefined"
+        ? localStorage.getItem("fcm_web_registered_token_admin")
+        : null;
     return authService.logout(token, fcmToken, "web");
   },
   logoutAll: (refreshToken) => {
@@ -278,7 +294,10 @@ export const adminAPI = {
       (typeof localStorage !== "undefined"
         ? localStorage.getItem("admin_refreshToken")
         : null);
-    const fcmToken = typeof localStorage !== "undefined" ? localStorage.getItem("fcm_web_registered_token_admin") : null;
+    const fcmToken =
+      typeof localStorage !== "undefined"
+        ? localStorage.getItem("fcm_web_registered_token_admin")
+        : null;
     return authService.logoutAll(token, fcmToken, "web");
   },
   // Restaurant approvals and join requests
@@ -367,13 +386,24 @@ export const adminAPI = {
       contextModule: "admin",
     }),
   /** Delivery withdrawal aliases */
-  getDeliveryWithdrawalRequests: (params) => adminAPI.getDeliveryWithdrawals(params),
-  approveDeliveryWithdrawal: (id) => adminAPI.updateDeliveryWithdrawalStatus(id, { status: "approved" }),
-  rejectDeliveryWithdrawal: (id, reason) => adminAPI.updateDeliveryWithdrawalStatus(id, { status: "rejected", rejectionReason: reason }),
+  getDeliveryWithdrawalRequests: (params) =>
+    adminAPI.getDeliveryWithdrawals(params),
+  approveDeliveryWithdrawal: (id) =>
+    adminAPI.updateDeliveryWithdrawalStatus(id, { status: "approved" }),
+  rejectDeliveryWithdrawal: (id, reason) =>
+    adminAPI.updateDeliveryWithdrawalStatus(id, {
+      status: "rejected",
+      rejectionReason: reason,
+    }),
   // Aliases for RestaurantWithdraws page
   getWithdrawalRequests: (params) => adminAPI.getWithdrawals(params),
-  approveWithdrawalRequest: (id) => adminAPI.updateWithdrawalStatus(id, { status: "approved" }),
-  rejectWithdrawalRequest: (id, reason) => adminAPI.updateWithdrawalStatus(id, { status: "rejected", rejectionReason: reason }),
+  approveWithdrawalRequest: (id) =>
+    adminAPI.updateWithdrawalStatus(id, { status: "approved" }),
+  rejectWithdrawalRequest: (id, reason) =>
+    adminAPI.updateWithdrawalStatus(id, {
+      status: "rejected",
+      rejectionReason: reason,
+    }),
   /** Delivery boy wallets (stub until backend implements - returns empty so list still loads) */
   getDeliveryBoyWallets: (params) =>
     apiClient.get("/food/admin/delivery/wallets", {
@@ -465,7 +495,11 @@ export const adminAPI = {
     }),
   /** Categories (admin) */
   getCategories: (params = {}, config = {}) =>
-    apiClient.get("/food/admin/categories", { params, contextModule: "admin", ...config }),
+    apiClient.get("/food/admin/categories", {
+      params,
+      contextModule: "admin",
+      ...config,
+    }),
   /** Dining categories (admin) */
   getDiningCategories: (params = {}) =>
     apiClient.get("/food/admin/dining/categories", {
@@ -570,7 +604,11 @@ export const adminAPI = {
     }),
   /** Foods (admin) - separate collection */
   getFoods: (params = {}, config = {}) =>
-    apiClient.get("/food/admin/foods", { params, contextModule: "admin", ...config }),
+    apiClient.get("/food/admin/foods", {
+      params,
+      contextModule: "admin",
+      ...config,
+    }),
   createFood: (body) =>
     apiClient.post("/food/admin/foods", body ?? {}, { contextModule: "admin" }),
   updateFood: (id, body) =>
@@ -644,7 +682,11 @@ export const adminAPI = {
     ),
   /** Customers (admin) */
   getCustomers: (params = {}, config = {}) =>
-    apiClient.get("/food/admin/customers", { params, contextModule: "admin", ...config }),
+    apiClient.get("/food/admin/customers", {
+      params,
+      contextModule: "admin",
+      ...config,
+    }),
   getCustomerById: (id) =>
     apiClient.get(`/food/admin/customers/${String(id)}`, {
       contextModule: "admin",
@@ -710,9 +752,13 @@ export const adminAPI = {
       contextModule: "admin",
     }),
   finalizeRestaurantDraft: (id) =>
-    apiClient.patch(`/food/admin/restaurants/onboarding-draft/${String(id)}/finalize`, {}, {
-      contextModule: "admin",
-    }),
+    apiClient.patch(
+      `/food/admin/restaurants/onboarding-draft/${String(id)}/finalize`,
+      {},
+      {
+        contextModule: "admin",
+      },
+    ),
   discardRestaurantDraft: (id) =>
     apiClient.delete(`/food/admin/restaurants/onboarding-draft/${String(id)}`, {
       contextModule: "admin",
@@ -931,9 +977,13 @@ export const adminAPI = {
       contextModule: "admin",
     }),
   updateCashPayRequestStatus: (id, body) =>
-    apiClient.patch(`/food/admin/delivery/cash-pay-requests/${String(id)}`, body, {
-      contextModule: "admin",
-    }),
+    apiClient.patch(
+      `/food/admin/delivery/cash-pay-requests/${String(id)}`,
+      body,
+      {
+        contextModule: "admin",
+      },
+    ),
   getZoneHubs: (params = {}) =>
     apiClient.get("/food/admin/zone-hubs", {
       params,
@@ -953,9 +1003,13 @@ export const adminAPI = {
       contextModule: "admin",
     }),
   settleCODVerification: (id, body) =>
-    apiClient.post(`/food/admin/zone-hubs/cod-verification/${String(id)}/action`, body ?? {}, {
-      contextModule: "admin",
-    }),
+    apiClient.post(
+      `/food/admin/zone-hubs/cod-verification/${String(id)}/action`,
+      body ?? {},
+      {
+        contextModule: "admin",
+      },
+    ),
 
   /** Backward-compatible alias used in UI */
   getApprovedRestaurants: (params = {}, config = {}) =>
@@ -1057,11 +1111,9 @@ export const adminAPI = {
       contextModule: "admin",
     }),
   updateRestaurantAddon: (id, body) =>
-    apiClient.patch(
-      `/food/admin/addons/${String(id)}`,
-      body ?? {},
-      { contextModule: "admin" },
-    ),
+    apiClient.patch(`/food/admin/addons/${String(id)}`, body ?? {}, {
+      contextModule: "admin",
+    }),
   approveRestaurantAddon: (id) =>
     apiClient.patch(
       `/food/admin/addons/${String(id)}/approve`,
@@ -1087,14 +1139,26 @@ export const adminAPI = {
     const formData = new FormData();
     // Add JSON data as a string in the 'data' field
     formData.append("data", JSON.stringify(data));
-    
+
     // Add files with the same names expected by the backend
     const fileFields = [
-      'logo', 'adminLogo', 'adminFavicon', 'userLogo', 'userFavicon', 
-      'deliveryLogo', 'deliveryFavicon', 'restaurantLogo', 'restaurantFavicon', 
-      'sellerLogo', 'sellerFavicon', 'favicon', 'loginBanner', 'sellerLoginBanner', 'restaurantLoginBanner'
+      "logo",
+      "adminLogo",
+      "adminFavicon",
+      "userLogo",
+      "userFavicon",
+      "deliveryLogo",
+      "deliveryFavicon",
+      "restaurantLogo",
+      "restaurantFavicon",
+      "sellerLogo",
+      "sellerFavicon",
+      "favicon",
+      "loginBanner",
+      "sellerLoginBanner",
+      "restaurantLoginBanner",
     ];
-    fileFields.forEach(field => {
+    fileFields.forEach((field) => {
       if (files[field]) {
         formData.append(field, files[field]);
       }
@@ -1106,24 +1170,38 @@ export const adminAPI = {
   },
   /** GET /food/admin/customer-role-requests (Bearer ADMIN) */
   getCustomerRoleRequests: () =>
-    apiClient.get("/food/admin/customer-role-requests", { contextModule: "admin" }),
+    apiClient.get("/food/admin/customer-role-requests", {
+      contextModule: "admin",
+    }),
   /** PATCH /food/admin/customer-role-requests/:id/status (Bearer ADMIN) */
   updateCustomerRoleRequestStatus: (id, status) =>
-    apiClient.patch(`/food/admin/customer-role-requests/${id}/status`, { status }, { contextModule: "admin" }),
+    apiClient.patch(
+      `/food/admin/customer-role-requests/${id}/status`,
+      { status },
+      { contextModule: "admin" },
+    ),
   getRestaurantCoupons: () =>
     apiClient.get("/food/admin/restaurant-coupons", { contextModule: "admin" }),
   updateRestaurantCouponStatus: (id, status, rejectionReason) =>
     apiClient.patch(
       `/food/admin/restaurant-coupons/${id}/status`,
       { status, ...(rejectionReason ? { rejectionReason } : {}) },
-      { contextModule: "admin" }
+      { contextModule: "admin" },
     ),
   revertRestaurantCoupon: (id) =>
-    apiClient.patch(`/food/admin/restaurant-coupons/${id}/revert`, {}, { contextModule: "admin" }),
+    apiClient.patch(
+      `/food/admin/restaurant-coupons/${id}/revert`,
+      {},
+      { contextModule: "admin" },
+    ),
   getDeletedAccounts: () =>
     apiClient.get("/food/admin/deleted-accounts", { contextModule: "admin" }),
   reactivateAccount: (id, role) =>
-    apiClient.post(`/food/admin/deleted-accounts/${id}/reactivate`, { role }, { contextModule: "admin" }),
+    apiClient.post(
+      `/food/admin/deleted-accounts/${id}/reactivate`,
+      { role },
+      { contextModule: "admin" },
+    ),
 };
 
 /** Restaurant API - OTP login via new backend; no email/password. */
@@ -1132,7 +1210,15 @@ export const restaurantAPI = {
     if (!phone) return Promise.reject(new Error("Phone is required"));
     return authService.requestRestaurantOtp(phone);
   },
-  verifyOTP: (phone, otp, _purpose, _name, _email, fcmToken = null, platform = "web") => {
+  verifyOTP: (
+    phone,
+    otp,
+    _purpose,
+    _name,
+    _email,
+    fcmToken = null,
+    platform = "web",
+  ) => {
     if (!phone || !otp)
       return Promise.reject(new Error("Phone and OTP are required"));
     return authService.verifyRestaurantOtp(phone, otp, fcmToken, platform);
@@ -1153,18 +1239,22 @@ export const restaurantAPI = {
     }),
   /** Create a topup order for subscription wallet. */
   createSubscriptionTopupOrder: (amount) =>
-    apiClient.post("/food/restaurant/subscription-topup", { amount: Number(amount) }, {
-      contextModule: "restaurant"
-    }),
+    apiClient.post(
+      "/food/restaurant/subscription-topup",
+      { amount: Number(amount) },
+      {
+        contextModule: "restaurant",
+      },
+    ),
   /** Verify topup payment and credit wallet. */
   verifyTopup: (data) =>
     apiClient.post("/food/restaurant/verify-topup", data, {
-      contextModule: "restaurant"
+      contextModule: "restaurant",
     }),
   /** Get current recurring subscription status. */
   getMySubscription: () =>
     apiClient.get("/food/subscriptions/my-subscription", {
-      contextModule: "restaurant"
+      contextModule: "restaurant",
     }),
   /** Fetch restaurant by owner (stub for missing backend endpoint). */
   getRestaurantByOwner: () =>
@@ -1182,13 +1272,17 @@ export const restaurantAPI = {
     }),
   /** Submit a real withdrawal request to the backend. */
   createWithdrawalRequest: (amount) =>
-    apiClient.post("/food/restaurant/withdraw", { amount: Number(amount) }, {
-      contextModule: "restaurant"
-    }),
+    apiClient.post(
+      "/food/restaurant/withdraw",
+      { amount: Number(amount) },
+      {
+        contextModule: "restaurant",
+      },
+    ),
   /** List withdrawal history for current restaurant. */
   getWithdrawalHistory: () =>
     apiClient.get("/food/restaurant/withdrawals", {
-      contextModule: "restaurant"
+      contextModule: "restaurant",
     }),
   getCODDeposits: (params = {}) =>
     apiClient.get("/food/restaurant/finance/cod-verification", {
@@ -1196,10 +1290,14 @@ export const restaurantAPI = {
       params: params || {},
     }),
   processCODDeposit: (id, formData) =>
-    apiClient.post(`/food/restaurant/finance/cod-verification/${String(id)}/action`, formData, {
-      contextModule: "restaurant",
-      headers: { "Content-Type": "multipart/form-data" },
-    }),
+    apiClient.post(
+      `/food/restaurant/finance/cod-verification/${String(id)}/action`,
+      formData,
+      {
+        contextModule: "restaurant",
+        headers: { "Content-Type": "multipart/form-data" },
+      },
+    ),
   /** Update restaurant profile fields (name/cuisines/location/menuImages). */
   updateProfile: (body) =>
     apiClient
@@ -1290,59 +1388,63 @@ export const restaurantAPI = {
   getPublicOffers: () => apiClient.get("/food/restaurant/offers"),
   /** Backward-compat helper used by Cart: returns coupons array for an item by adapting public offers */
   getCouponsByItemIdPublic: (restaurantId, _itemId) =>
-    apiClient.get("/food/restaurant/offers", {
-      params: { restaurantId, _ts: Date.now() },
-    }).then((res) => {
-      const list = res?.data?.data?.allOffers || res?.data?.allOffers || [];
-      const now = Date.now();
-      const cartRestaurantId = String(restaurantId || "").trim();
-      const coupons = list
-        .filter((o) => {
-          if (o?.showInCart === false) return false;
-          if (o?.endDate && new Date(o.endDate).getTime() <= now) return false;
-          if (o?.startDate && new Date(o.startDate).getTime() > now) return false;
+    apiClient
+      .get("/food/restaurant/offers", {
+        params: { restaurantId, _ts: Date.now() },
+      })
+      .then((res) => {
+        const list = res?.data?.data?.allOffers || res?.data?.allOffers || [];
+        const now = Date.now();
+        const cartRestaurantId = String(restaurantId || "").trim();
+        const coupons = list
+          .filter((o) => {
+            if (o?.showInCart === false) return false;
+            if (o?.endDate && new Date(o.endDate).getTime() <= now)
+              return false;
+            if (o?.startDate && new Date(o.startDate).getTime() > now)
+              return false;
 
-          // Guard: respect selected restaurant scope (match Mongo _id or public REST id)
-          if (String(o?.restaurantScope) === "selected") {
-            if (!cartRestaurantId) return false;
-            const candidates = [
-              o.restaurantId,
-              o.restaurantMongoId,
-              o.restaurantPublicId,
-            ]
-              .map((id) => String(id || "").trim())
-              .filter(Boolean);
-            return candidates.includes(cartRestaurantId);
-          }
-          return true;
-        })
-        .map((o) => {
-          const isPct = o.discountType === "percentage";
-          const discountValue = Number(o.discountValue) || 0;
-          return {
-            couponCode: o.couponCode,
-            discountType: o.discountType,
-            discountPercentage: isPct ? discountValue : 0,
-            originalPrice: isPct ? 0 : discountValue,
-            discountedPrice: 0,
-            discountValue,
-            minOrderValue: Number(o.minOrderValue || 0),
-            minOrder: Number(o.minOrderValue || 0),
-            maxDiscount: o.maxDiscount != null ? Number(o.maxDiscount) : null,
-            customerGroup: o.customerScope || "all",
-            isGlobalCoupon: String(o?.restaurantScope || "") !== "selected",
-            freeDelivery: Boolean(o.freeDelivery),
-            startDate: o.startDate || null,
-            endDate: o.endDate || null,
-            showInCart: o.showInCart !== false,
-            restaurantId: o.restaurantId || null,
-            restaurantMongoId: o.restaurantMongoId || null,
-            restaurantPublicId: o.restaurantPublicId || null,
-            _ts: now,
-          };
-        });
-      return { data: { success: true, data: { coupons } } };
-    }),
+            // Guard: respect selected restaurant scope (match Mongo _id or public REST id)
+            if (String(o?.restaurantScope) === "selected") {
+              if (!cartRestaurantId) return false;
+              const candidates = [
+                o.restaurantId,
+                o.restaurantMongoId,
+                o.restaurantPublicId,
+              ]
+                .map((id) => String(id || "").trim())
+                .filter(Boolean);
+              return candidates.includes(cartRestaurantId);
+            }
+            return true;
+          })
+          .map((o) => {
+            const isPct = o.discountType === "percentage";
+            const discountValue = Number(o.discountValue) || 0;
+            return {
+              couponCode: o.couponCode,
+              discountType: o.discountType,
+              discountPercentage: isPct ? discountValue : 0,
+              originalPrice: isPct ? 0 : discountValue,
+              discountedPrice: 0,
+              discountValue,
+              minOrderValue: Number(o.minOrderValue || 0),
+              minOrder: Number(o.minOrderValue || 0),
+              maxDiscount: o.maxDiscount != null ? Number(o.maxDiscount) : null,
+              customerGroup: o.customerScope || "all",
+              isGlobalCoupon: String(o?.restaurantScope || "") !== "selected",
+              freeDelivery: Boolean(o.freeDelivery),
+              startDate: o.startDate || null,
+              endDate: o.endDate || null,
+              showInCart: o.showInCart !== false,
+              restaurantId: o.restaurantId || null,
+              restaurantMongoId: o.restaurantMongoId || null,
+              restaurantPublicId: o.restaurantPublicId || null,
+              _ts: now,
+            };
+          });
+        return { data: { success: true, data: { coupons } } };
+      }),
   /** Categories (restaurant dashboard) */
   getCategories: (params = {}) =>
     // Compact payload for item creation forms (id + name only).
@@ -1616,7 +1718,10 @@ export const restaurantAPI = {
       (typeof localStorage !== "undefined"
         ? localStorage.getItem("restaurant_refreshToken")
         : null);
-    const fcmToken = typeof localStorage !== "undefined" ? localStorage.getItem("fcm_web_registered_token_restaurant") : null;
+    const fcmToken =
+      typeof localStorage !== "undefined"
+        ? localStorage.getItem("fcm_web_registered_token_restaurant")
+        : null;
     return authService.logout(token, fcmToken, "web");
   },
   logoutAll: (refreshToken) => {
@@ -1628,7 +1733,10 @@ export const restaurantAPI = {
       (typeof localStorage !== "undefined"
         ? localStorage.getItem("restaurant_refreshToken")
         : null);
-    const fcmToken = typeof localStorage !== "undefined" ? localStorage.getItem("fcm_web_registered_token_restaurant") : null;
+    const fcmToken =
+      typeof localStorage !== "undefined"
+        ? localStorage.getItem("fcm_web_registered_token_restaurant")
+        : null;
     return authService.logoutAll(token, fcmToken, "web");
   },
   /** Backend has no email/password login; use phone OTP only. */
@@ -1691,9 +1799,13 @@ export const restaurantAPI = {
     apiClient.get("/food/restaurant/offers", { params, ...config }),
   /** Resend delivery notification (restaurant dashboard) */
   resendDeliveryNotification: (orderId) =>
-    apiClient.post(`/food/restaurant/orders/${String(orderId)}/resend-notification`, {}, {
-      contextModule: "restaurant",
-    }),
+    apiClient.post(
+      `/food/restaurant/orders/${String(orderId)}/resend-notification`,
+      {},
+      {
+        contextModule: "restaurant",
+      },
+    ),
   /** List restaurant complaints (for current restaurant dashboard) */
   getComplaints: (params = {}) =>
     apiClient.get("/food/restaurant/complaints", {
@@ -1864,8 +1976,13 @@ const getPublicRestaurantMenuOnce = (id, config = {}) => {
     return apiClient.get(`/food/restaurant/restaurants/${safeId}/menu`, {
       ...axiosConfig,
       noCache: true,
-      headers: { ...axiosConfig.headers, 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0' },
-      params: { ...axiosConfig.params, _ts: Date.now() }
+      headers: {
+        ...axiosConfig.headers,
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        Pragma: "no-cache",
+        Expires: "0",
+      },
+      params: { ...axiosConfig.params, _ts: Date.now() },
     });
   }
   const key = `menu:${safeId}`;
@@ -1965,14 +2082,23 @@ export const deliveryAPI = {
     if (!phone) return Promise.reject(new Error("Phone is required"));
     return authService.requestDeliveryOtp(phone);
   },
-  verifyOTP: (phone, otp, _purpose, _name, fcmToken = null, platform = "web") => {
+  verifyOTP: (
+    phone,
+    otp,
+    _purpose,
+    _name,
+    fcmToken = null,
+    platform = "web",
+  ) => {
     if (!phone || !otp)
       return Promise.reject(new Error("Phone and OTP are required"));
     return authService.verifyDeliveryOtp(phone, otp, fcmToken, platform);
   },
   /** GET /food/delivery/onboarding-status?phone= — public pending/approved status poll */
   getOnboardingStatus: (phone) => {
-    const digits = String(phone || "").replace(/\D/g, "").slice(-10);
+    const digits = String(phone || "")
+      .replace(/\D/g, "")
+      .slice(-10);
     if (!digits) return Promise.reject(new Error("Phone is required"));
     return apiClient.get("/food/delivery/onboarding-status", {
       params: { phone: digits },
@@ -2004,7 +2130,10 @@ export const deliveryAPI = {
       (typeof localStorage !== "undefined"
         ? localStorage.getItem("delivery_refreshToken")
         : null);
-    const fcmToken = typeof localStorage !== "undefined" ? localStorage.getItem("fcm_web_registered_token_delivery") : null;
+    const fcmToken =
+      typeof localStorage !== "undefined"
+        ? localStorage.getItem("fcm_web_registered_token_delivery")
+        : null;
     return authService.logout(token, fcmToken, "web");
   },
   /** POST /food/delivery/register - multipart FormData (new partner, no token). */
@@ -2096,16 +2225,25 @@ export const deliveryAPI = {
       contextModule: "delivery",
     }),
   /** PATCH /food/delivery/availability - set online/offline (and optional lat/lng). */
-  updateOnlineStatus: (isOnline, confirmPass = false) =>
+  updateOnlineStatus: (isOnline, confirmPass = false, extras = {}) =>
     apiClient.patch(
       "/food/delivery/availability",
-      { status: isOnline ? "online" : "offline", confirmPass: Boolean(confirmPass) },
+      {
+        status: isOnline ? "online" : "offline",
+        confirmPass: Boolean(confirmPass),
+        ...(extras && typeof extras === "object" ? extras : {}),
+      },
       { contextModule: "delivery" },
     ),
   updateLocation: (latitude, longitude, isOnline, extras = {}) =>
     apiClient.patch(
       "/food/delivery/availability",
-      { status: isOnline ? "online" : "offline", latitude, longitude, ...extras },
+      {
+        status: isOnline ? "online" : "offline",
+        latitude,
+        longitude,
+        ...extras,
+      },
       { contextModule: "delivery" },
     ),
   /** Orders */
@@ -2206,7 +2344,10 @@ export const deliveryAPI = {
     };
   })(),
   /** GET /food/delivery/current - fallback for some UI hooks */
-  getCurrentDelivery: () => apiClient.get("/food/delivery/orders/current", { contextModule: "delivery" }),
+  getCurrentDelivery: () =>
+    apiClient.get("/food/delivery/orders/current", {
+      contextModule: "delivery",
+    }),
   acceptOrder: (orderId, body = {}) =>
     apiClient.patch(
       `/food/delivery/orders/${String(orderId)}/accept`,
@@ -2358,25 +2499,34 @@ export const deliveryAPI = {
     }),
   createWithdrawalRequest: (body) =>
     apiClient.post("/food/delivery/wallet/withdraw", body ?? {}, {
-      contextModule: "delivery"
+      contextModule: "delivery",
     }),
   createDepositOrder: (amount) =>
-    apiClient.post("/food/delivery/wallet/deposit/order", { amount }, {
-      contextModule: "delivery"
-    }),
+    apiClient.post(
+      "/food/delivery/wallet/deposit/order",
+      { amount },
+      {
+        contextModule: "delivery",
+      },
+    ),
   verifyDepositPayment: (body) =>
     apiClient.post("/food/delivery/wallet/deposit/verify", body ?? {}, {
-      contextModule: "delivery"
+      contextModule: "delivery",
     }),
   submitManualDeposit: (formData) =>
     apiClient.post("/food/delivery/wallet/deposit/manual", formData, {
       headers: { "Content-Type": "multipart/form-data" },
-      contextModule: "delivery"
+      contextModule: "delivery",
     }),
   getDepositZones: () =>
-    apiClient.get("/food/delivery/wallet/deposit/zones", { contextModule: "delivery" }),
+    apiClient.get("/food/delivery/wallet/deposit/zones", {
+      contextModule: "delivery",
+    }),
   getDepositZoneHubs: (zoneId) =>
-    apiClient.get(`/food/delivery/wallet/deposit/zones/${String(zoneId)}/hubs`, { contextModule: "delivery" }),
+    apiClient.get(
+      `/food/delivery/wallet/deposit/zones/${String(zoneId)}/hubs`,
+      { contextModule: "delivery" },
+    ),
   /** Wallet transactions - from wallet response (no separate backend endpoint) */
   getWalletTransactions: (params) =>
     apiClient
@@ -2503,38 +2653,46 @@ export const userAPI = {
   })(),
   /** POST /food/user/addresses (Bearer USER) */
   addAddress: (body) =>
-    apiClient.post("/food/user/addresses", body ?? {}, {
-      contextModule: "user",
-    }).then((res) => {
-      userAPI.getAddresses.invalidateCache?.();
-      return res;
-    }),
+    apiClient
+      .post("/food/user/addresses", body ?? {}, {
+        contextModule: "user",
+      })
+      .then((res) => {
+        userAPI.getAddresses.invalidateCache?.();
+        return res;
+      }),
   /** PATCH /food/user/addresses/:id (Bearer USER) */
   updateAddress: (id, body) =>
-    apiClient.patch(`/food/user/addresses/${String(id)}`, body ?? {}, {
-      contextModule: "user",
-    }).then((res) => {
-      userAPI.getAddresses.invalidateCache?.();
-      return res;
-    }),
+    apiClient
+      .patch(`/food/user/addresses/${String(id)}`, body ?? {}, {
+        contextModule: "user",
+      })
+      .then((res) => {
+        userAPI.getAddresses.invalidateCache?.();
+        return res;
+      }),
   /** DELETE /food/user/addresses/:id (Bearer USER) */
   deleteAddress: (id) =>
-    apiClient.delete(`/food/user/addresses/${String(id)}`, {
-      contextModule: "user",
-    }).then((res) => {
-      userAPI.getAddresses.invalidateCache?.();
-      return res;
-    }),
+    apiClient
+      .delete(`/food/user/addresses/${String(id)}`, {
+        contextModule: "user",
+      })
+      .then((res) => {
+        userAPI.getAddresses.invalidateCache?.();
+        return res;
+      }),
   /** PATCH /food/user/addresses/:id/default (Bearer USER) */
   setDefaultAddress: (id) =>
-    apiClient.patch(
-      `/food/user/addresses/${String(id)}/default`,
-      {},
-      { contextModule: "user" },
-    ).then((res) => {
-      userAPI.getAddresses.invalidateCache?.();
-      return res;
-    }),
+    apiClient
+      .patch(
+        `/food/user/addresses/${String(id)}/default`,
+        {},
+        { contextModule: "user" },
+      )
+      .then((res) => {
+        userAPI.getAddresses.invalidateCache?.();
+        return res;
+      }),
   /** POST /food/user/safety-emergency-reports (Bearer USER) */
   createSafetyEmergencyReport: (message) =>
     apiClient.post(
@@ -2580,20 +2738,34 @@ export const userAPI = {
   },
   testFcmNotification: (options = {}) => {
     const platform = options?.platform === "mobile" ? "mobile" : "web";
-    return apiClient.post("/fcm-tokens/test", { platform }, { contextModule: "user" });
+    return apiClient.post(
+      "/fcm-tokens/test",
+      { platform },
+      { contextModule: "user" },
+    );
   },
   /** POST /food/user/role-requests (Bearer USER) */
   submitRoleRequest: (role, details) =>
-    apiClient.post("/food/user/role-requests", { role, details }, { contextModule: "user" }),
+    apiClient.post(
+      "/food/user/role-requests",
+      { role, details },
+      { contextModule: "user" },
+    ),
   /** GET /food/user/role-requests (Bearer USER) */
   getMyRoleRequests: () =>
     apiClient.get("/food/user/role-requests", { contextModule: "user" }),
   /** PATCH /food/user/role-requests/:id (Bearer USER) */
   updateRoleRequest: (id, details) =>
-    apiClient.patch(`/food/user/role-requests/${id}`, { details }, { contextModule: "user" }),
+    apiClient.patch(
+      `/food/user/role-requests/${id}`,
+      { details },
+      { contextModule: "user" },
+    ),
   /** DELETE /food/user/role-requests/:id (Bearer USER) */
   deleteRoleRequest: (id) =>
-    apiClient.delete(`/food/user/role-requests/${id}`, { contextModule: "user" }),
+    apiClient.delete(`/food/user/role-requests/${id}`, {
+      contextModule: "user",
+    }),
   /** DELETE /food/user/profile (Bearer USER) */
   deleteAccount: () =>
     apiClient.delete("/food/user/profile", { contextModule: "user" }),
@@ -2674,14 +2846,19 @@ export const uploadAPI = {
 };
 /** Food cart API (DB-backed; authenticated USER). Mutations return updated cart. */
 export const foodCartAPI = {
-  getCart: () =>
-    apiClient.get("/food/cart", { contextModule: "user" }),
+  getCart: () => apiClient.get("/food/cart", { contextModule: "user" }),
   addItem: (payload) =>
-    apiClient.post("/food/cart/items", payload ?? {}, { contextModule: "user" }),
-  updateItem: (lineId, payload) =>
-    apiClient.patch(`/food/cart/items/${encodeURIComponent(String(lineId))}`, payload ?? {}, {
+    apiClient.post("/food/cart/items", payload ?? {}, {
       contextModule: "user",
     }),
+  updateItem: (lineId, payload) =>
+    apiClient.patch(
+      `/food/cart/items/${encodeURIComponent(String(lineId))}`,
+      payload ?? {},
+      {
+        contextModule: "user",
+      },
+    ),
   removeItem: (lineId) =>
     apiClient.delete(`/food/cart/items/${encodeURIComponent(String(lineId))}`, {
       contextModule: "user",
@@ -2717,13 +2894,21 @@ export const orderAPI = {
       contextModule: "user",
     }),
   retryPayment: (orderId) =>
-    apiClient.post(`/food/orders/${String(orderId)}/retry-payment`, {}, {
-      contextModule: "user",
-    }),
+    apiClient.post(
+      `/food/orders/${String(orderId)}/retry-payment`,
+      {},
+      {
+        contextModule: "user",
+      },
+    ),
   markPaymentFailed: (orderId, body = {}) =>
-    apiClient.patch(`/food/orders/${String(orderId)}/payment-failed`, body ?? {}, {
-      contextModule: "user",
-    }),
+    apiClient.patch(
+      `/food/orders/${String(orderId)}/payment-failed`,
+      body ?? {},
+      {
+        contextModule: "user",
+      },
+    ),
   getOrders: (params = {}) =>
     apiClient
       .get("/food/orders", {
@@ -2808,11 +2993,17 @@ export const orderAPI = {
       contextModule: "user",
     }),
   updateOrderInstructions: (orderId, instructions) =>
-    apiClient.patch(`/food/orders/${String(orderId)}/instructions`, { instructions }, {
+    apiClient.patch(
+      `/food/orders/${String(orderId)}/instructions`,
+      { instructions },
+      {
+        contextModule: "user",
+      },
+    ),
+  submitOrderRatings: (orderId, body = {}) =>
+    apiClient.patch(`/food/orders/${String(orderId)}/ratings`, body ?? {}, {
       contextModule: "user",
     }),
-  submitOrderRatings: (orderId, body = {}) =>
-    apiClient.patch(`/food/orders/${String(orderId)}/ratings`, body ?? {}, { contextModule: "user" }),
   /** Submit a complaint for an order (user). */
   submitComplaint: (payload) =>
     apiClient.post(
@@ -2823,7 +3014,7 @@ export const orderAPI = {
         issueType: payload.complaintType,
         description: `${payload.subject}: ${payload.description}`,
       },
-      { contextModule: "user" }
+      { contextModule: "user" },
     ),
 };
 
@@ -2871,7 +3062,8 @@ const normalizeRestaurantShape = (restaurant) => {
   return {
     _id: restaurant?._id || restaurant?.id || null,
     id: restaurant?.id || restaurant?._id || null,
-    restaurantId: restaurant?.restaurantId || restaurant?._id || restaurant?.id || null,
+    restaurantId:
+      restaurant?.restaurantId || restaurant?._id || restaurant?.id || null,
     restaurantNameNormalized:
       restaurant?.restaurantNameNormalized || restaurant?.slug || "",
     slug: restaurant?.slug || "",
@@ -2881,7 +3073,9 @@ const normalizeRestaurantShape = (restaurant) => {
     coverImages: Array.isArray(restaurant?.coverImages)
       ? restaurant.coverImages
       : [],
-    menuImages: Array.isArray(restaurant?.menuImages) ? restaurant.menuImages : [],
+    menuImages: Array.isArray(restaurant?.menuImages)
+      ? restaurant.menuImages
+      : [],
     image:
       restaurant?.coverImages?.[0]?.url ||
       restaurant?.coverImages?.[0] ||
@@ -2902,7 +3096,11 @@ const collectRestaurantBookingKeys = (restaurantCandidate) => {
   const raw =
     typeof restaurantCandidate === "object"
       ? restaurantCandidate
-      : { _id: restaurantCandidate, id: restaurantCandidate, restaurantId: restaurantCandidate };
+      : {
+          _id: restaurantCandidate,
+          id: restaurantCandidate,
+          restaurantId: restaurantCandidate,
+        };
 
   const values = [
     raw?._id,
@@ -2918,11 +3116,7 @@ const collectRestaurantBookingKeys = (restaurantCandidate) => {
   ];
 
   return Array.from(
-    new Set(
-      values
-        .map((value) => String(value || "").trim())
-        .filter(Boolean),
-    ),
+    new Set(values.map((value) => String(value || "").trim()).filter(Boolean)),
   );
 };
 
@@ -3206,8 +3400,17 @@ export const publicAPI = createStubAPI();
 
 export const onboardingFeeAPI = {
   getPublicFees: () => apiClient.get("/common/onboarding-fees/public"),
-  createOrder: (body) => apiClient.post("/common/onboarding-fees/public/create-order", body ?? {}),
-  getConfig: () => apiClient.get("/common/onboarding-fees/config", { contextModule: "admin" }),
-  updateConfig: (role, body) => apiClient.put(`/common/onboarding-fees/config/${role}`, body ?? {}, { contextModule: "admin" }),
-  getPayments: (params = {}) => apiClient.get("/common/onboarding-fees/payments", { params, contextModule: "admin" })
+  createOrder: (body) =>
+    apiClient.post("/common/onboarding-fees/public/create-order", body ?? {}),
+  getConfig: () =>
+    apiClient.get("/common/onboarding-fees/config", { contextModule: "admin" }),
+  updateConfig: (role, body) =>
+    apiClient.put(`/common/onboarding-fees/config/${role}`, body ?? {}, {
+      contextModule: "admin",
+    }),
+  getPayments: (params = {}) =>
+    apiClient.get("/common/onboarding-fees/payments", {
+      params,
+      contextModule: "admin",
+    }),
 };

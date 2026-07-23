@@ -1,14 +1,11 @@
-import { useState, useEffect, useMemo } from "react"
-import { Link, useLocation, useNavigate } from "react-router-dom"
-import {
-  adminSidebarMenu,
-} from "@food/utils/adminSidebarMenu"
-import {
-  quickAdminSidebarMenu,
-} from "@food/utils/quickAdminSidebarMenu"
+import { useState, useEffect, useMemo } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { adminSidebarMenu } from "@food/utils/adminSidebarMenu";
+import { quickAdminSidebarMenu } from "@food/utils/quickAdminSidebarMenu";
 
-import { commonAdminSidebarMenu } from "@food/utils/commonAdminSidebarMenu"
-import { porterAdminSidebarMenu } from "@/modules/porter/admin/utils/porterAdminSidebarMenu"
+import { commonAdminSidebarMenu } from "@food/utils/commonAdminSidebarMenu";
+import { porterAdminSidebarMenu } from "@/modules/porter/admin/utils/porterAdminSidebarMenu";
+import { taxiAdminSidebarMenu } from "@/modules/taxi/admin/utils/taxiAdminSidebarMenu";
 import {
   Search,
   FileText,
@@ -40,6 +37,7 @@ import {
   Wallet,
   Award,
   Truck,
+  Car,
   Package,
   CreditCard,
   Settings,
@@ -52,10 +50,8 @@ import {
   Database,
   Zap,
   Phone,
-
   PiggyBank,
   Lock,
-
   ClipboardCheck,
   CircleHelp,
   MessageCircle,
@@ -63,33 +59,42 @@ import {
   Smartphone,
   Monitor,
   Briefcase,
-
   ChevronDown as ChevronDownIcon,
   LayoutGrid,
-} from "lucide-react"
-import { cn } from "@food/utils/utils"
-import { Input } from "@food/components/ui/input"
+} from "lucide-react";
+import { cn } from "@food/utils/utils";
+import { Input } from "@food/components/ui/input";
 import {
   getCachedSettings,
   loadBusinessSettings,
   getCompanyName,
   getAppLogo,
   getAppFavicon,
-  updateBrowserFavicon
-} from "@common/utils/businessSettings"
-import { normalizeEnabledModules } from "@common/utils/enabledModules"
-import { adminAPI } from "@food/api"
-import { getCurrentUser } from "@food/utils/auth"
-import { useAuth } from "@core/context/AuthContext"
-import { extractAdminPermissions, extractAdminRoleId, fetchAdminRolePermissions, getFirstAccessibleAdminPath, hasAnyRootAccess } from "@food/utils/adminPermissions"
+  updateBrowserFavicon,
+} from "@common/utils/businessSettings";
+import { normalizeEnabledModules } from "@common/utils/enabledModules";
+import { adminAPI } from "@food/api";
+import { getCurrentUser } from "@food/utils/auth";
+import { useAuth } from "@core/context/AuthContext";
+import {
+  extractAdminPermissions,
+  extractAdminRoleId,
+  fetchAdminRolePermissions,
+  getFirstAccessibleAdminPath,
+  hasAnyRootAccess,
+} from "@food/utils/adminPermissions";
 
-const debugLog = (...args) => { }
-const debugWarn = (...args) => { }
-const debugError = (...args) => { }
+const debugLog = (...args) => {};
+const debugWarn = (...args) => {};
+const debugError = (...args) => {};
 
 // Default enable-state used before settings load.
-const DEFAULT_ENABLED_MODULES = { food: true, quickCommerce: true, porter: true };
-
+const DEFAULT_ENABLED_MODULES = {
+  food: true,
+  quickCommerce: true,
+  porter: true,
+  taxi: true,
+};
 
 // Icon mapping
 const iconMap = {
@@ -118,6 +123,7 @@ const iconMap = {
   Wallet,
   Award,
   Truck,
+  Car,
   Package,
   CreditCard,
   Settings,
@@ -144,273 +150,301 @@ const iconMap = {
 
   X,
   LayoutGrid,
-}
+};
 
-export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange }) {
-  const location = useLocation()
-  const navigate = useNavigate()
-  const [searchQuery, setSearchQuery] = useState("")
-  const [badges, setBadges] = useState({})
+export default function AdminSidebar({
+  isOpen = false,
+  onClose,
+  onCollapseChange,
+}) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [badges, setBadges] = useState({});
   const [enabledModules, setEnabledModules] = useState(() =>
-    normalizeEnabledModules(getCachedSettings()?.modules)
+    normalizeEnabledModules(getCachedSettings()?.modules),
   );
 
   useEffect(() => {
     const fetchBadges = async () => {
       try {
-        const res = await adminAPI.getSidebarBadges()
+        const res = await adminAPI.getSidebarBadges();
         if (res?.data?.success) {
-          setBadges(res.data.counts || {})
+          setBadges(res.data.counts || {});
         }
       } catch (error) {
-        debugError("Error fetching sidebar badges:", error)
+        debugError("Error fetching sidebar badges:", error);
       }
-    }
-    fetchBadges()
-    const timer = setInterval(fetchBadges, 60000)
-    return () => clearInterval(timer)
-  }, [])
+    };
+    fetchBadges();
+    const timer = setInterval(fetchBadges, 60000);
+    return () => clearInterval(timer);
+  }, []);
 
   const getBadgeCount = (label = "", path = "") => {
-    const l = label.toLowerCase()
-    const p = path?.toLowerCase() || ""
+    const l = label.toLowerCase();
+    const p = path?.toLowerCase() || "";
 
-    if (l.includes("menu approval") || l.includes("food approval")) return badges.foodApprovals
-    if (l === "menus" || l === "foods") return badges.foods
-    if (l === "restaurants" || l.includes("new joining request")) return badges.restaurants
-    if (l.includes("restaurant complaints")) return badges.restaurantComplaints
-    if (p.includes("orders/pending")) return badges.orders
-    if (p.includes("offline-payments")) return badges.offlinePayments
-    if (l.includes("support tickets")) return l.includes("delivery") ? badges.deliverySupportTickets : badges.userSupportTickets
-    if (l.includes("withdrawal")) return l.includes("delivery") ? badges.deliveryWithdrawals : badges.restaurantWithdrawals
-    if (l.includes("emergency help")) return badges.emergencyHelp
-    if (l.includes("earning addon history")) return badges.earningAddons
-    if (l.includes("safety emergency reports")) return badges.safetyReports
-    if (l === "deliveryman" && !p.includes("join-request")) return badges.deliveryPartners // expandable parent
-    if (l.includes("join request") || p.includes("join-request")) return badges.deliveryPartners
-    return 0
-  }
-  const [logoUrl, setLogoUrl] = useState(() => getAppLogo('admin'))
-  const [faviconUrl, setFaviconUrl] = useState(() => getAppFavicon('admin'))
-  const [companyName, setCompanyName] = useState(() => getCompanyName())
+    if (l.includes("menu approval") || l.includes("food approval"))
+      return badges.foodApprovals;
+    if (l === "menus" || l === "foods") return badges.foods;
+    if (l === "restaurants" || l.includes("new joining request"))
+      return badges.restaurants;
+    if (l.includes("restaurant complaints")) return badges.restaurantComplaints;
+    if (p.includes("orders/pending")) return badges.orders;
+    if (p.includes("offline-payments")) return badges.offlinePayments;
+    if (l.includes("support tickets"))
+      return l.includes("delivery")
+        ? badges.deliverySupportTickets
+        : badges.userSupportTickets;
+    if (l.includes("withdrawal"))
+      return l.includes("delivery")
+        ? badges.deliveryWithdrawals
+        : badges.restaurantWithdrawals;
+    if (l.includes("emergency help")) return badges.emergencyHelp;
+    if (l.includes("earning addon history")) return badges.earningAddons;
+    if (l.includes("safety emergency reports")) return badges.safetyReports;
+    if (l === "deliveryman" && !p.includes("join-request"))
+      return badges.deliveryPartners; // expandable parent
+    if (l.includes("join request") || p.includes("join-request"))
+      return badges.deliveryPartners;
+    return 0;
+  };
+  const [logoUrl, setLogoUrl] = useState(() => getAppLogo("admin"));
+  const [faviconUrl, setFaviconUrl] = useState(() => getAppFavicon("admin"));
+  const [companyName, setCompanyName] = useState(() => getCompanyName());
 
   // Load business settings logo
   useEffect(() => {
     const loadLogo = async () => {
       try {
         // First check cache
-        let cached = getCachedSettings()
+        let cached = getCachedSettings();
         if (cached) {
-          const adminLogo = getAppLogo('admin')
+          const adminLogo = getAppLogo("admin");
           if (adminLogo) {
-            setLogoUrl(adminLogo)
+            setLogoUrl(adminLogo);
           }
-          const adminFav = getAppFavicon('admin')
+          const adminFav = getAppFavicon("admin");
           if (adminFav) {
-            updateBrowserFavicon(adminFav)
-            setFaviconUrl(adminFav)
+            updateBrowserFavicon(adminFav);
+            setFaviconUrl(adminFav);
           }
           if (cached.companyName) {
-            setCompanyName(cached.companyName)
+            setCompanyName(cached.companyName);
           }
         }
 
         // Always try to load fresh data to ensure we have the latest
-        const settings = await loadBusinessSettings()
+        const settings = await loadBusinessSettings();
         if (settings) {
-          const adminLogo = getAppLogo('admin')
+          const adminLogo = getAppLogo("admin");
           if (adminLogo) {
-            setLogoUrl(adminLogo)
+            setLogoUrl(adminLogo);
           }
-          const adminFav = getAppFavicon('admin')
+          const adminFav = getAppFavicon("admin");
           if (adminFav) {
-            updateBrowserFavicon(adminFav)
-            setFaviconUrl(adminFav)
+            updateBrowserFavicon(adminFav);
+            setFaviconUrl(adminFav);
           }
           if (settings.companyName) {
-            setCompanyName(settings.companyName)
+            setCompanyName(settings.companyName);
           }
         }
       } catch (error) {
-        debugError('Error loading logo:', error)
+        debugError("Error loading logo:", error);
       }
-    }
+    };
 
     // Load immediately
-    loadLogo()
+    loadLogo();
 
     // Also try after a small delay to ensure DOM is ready
     const timeoutId = setTimeout(() => {
-      loadLogo()
-    }, 100)
+      loadLogo();
+    }, 100);
 
     // Listen for business settings updates
     const handleUpdate = (e) => {
-      const settings = e?.detail || getCachedSettings()
+      const settings = e?.detail || getCachedSettings();
       if (settings) {
-        const adminLogo = getAppLogo('admin')
+        const adminLogo = getAppLogo("admin");
         if (adminLogo) {
-          setLogoUrl(adminLogo)
+          setLogoUrl(adminLogo);
         }
-        const adminFav = getAppFavicon('admin')
+        const adminFav = getAppFavicon("admin");
         if (adminFav) {
-          updateBrowserFavicon(adminFav)
-          setFaviconUrl(adminFav)
+          updateBrowserFavicon(adminFav);
+          setFaviconUrl(adminFav);
         }
         if (settings.companyName) {
-          setCompanyName(settings.companyName)
+          setCompanyName(settings.companyName);
         }
         if (settings.modules) {
           setEnabledModules(normalizeEnabledModules(settings.modules));
         }
       }
-    }
-    window.addEventListener('businessSettingsUpdated', handleUpdate)
+    };
+    window.addEventListener("businessSettingsUpdated", handleUpdate);
 
     return () => {
-      clearTimeout(timeoutId)
-      window.removeEventListener('businessSettingsUpdated', handleUpdate)
-    }
-  }, [])
+      clearTimeout(timeoutId);
+      window.removeEventListener("businessSettingsUpdated", handleUpdate);
+    };
+  }, []);
 
   // Get initial states from consolidated admin_sidebar_state
   const getInitialStates = () => {
     try {
-      const saved = localStorage.getItem('admin_sidebar_state')
+      const saved = localStorage.getItem("admin_sidebar_state");
       if (saved) {
-        return JSON.parse(saved)
+        return JSON.parse(saved);
       }
     } catch (e) {
-      debugError('Error loading sidebar state:', e)
+      debugError("Error loading sidebar state:", e);
     }
-    return { isCollapsed: false, expandedSections: {} }
-  }
+    return { isCollapsed: false, expandedSections: {} };
+  };
 
-  const [isCollapsed, setIsCollapsed] = useState(() => getInitialStates().isCollapsed)
+  const [isCollapsed, setIsCollapsed] = useState(
+    () => getInitialStates().isCollapsed,
+  );
   const [expandedSections, setExpandedSections] = useState(() => {
-    const initialState = getInitialStates().expandedSections
-    if (Object.keys(initialState || {}).length > 0) return initialState
+    const initialState = getInitialStates().expandedSections;
+    if (Object.keys(initialState || {}).length > 0) return initialState;
 
     // Generate defaults if empty
-    const state = {}
+    const state = {};
     adminSidebarMenu.forEach((item) => {
       if (item.type === "section") {
         item.items.forEach((subItem) => {
           if (subItem.type === "expandable") {
-            state[subItem.label.toLowerCase().replace(/\s+/g, "")] = false
+            state[subItem.label.toLowerCase().replace(/\s+/g, "")] = false;
           }
-        })
+        });
       }
-    })
-    return state
-  })
+    });
+    return state;
+  });
 
   // Save states to consolidated localStorage and notify parent
   useEffect(() => {
     try {
-      const currentState = JSON.parse(localStorage.getItem('admin_sidebar_state') || '{}')
-      localStorage.setItem('admin_sidebar_state', JSON.stringify({
-        ...currentState,
-        isCollapsed
-      }))
+      const currentState = JSON.parse(
+        localStorage.getItem("admin_sidebar_state") || "{}",
+      );
+      localStorage.setItem(
+        "admin_sidebar_state",
+        JSON.stringify({
+          ...currentState,
+          isCollapsed,
+        }),
+      );
       if (onCollapseChange) {
-        onCollapseChange(isCollapsed)
+        onCollapseChange(isCollapsed);
       }
     } catch (e) {
-      debugError('Error saving sidebar collapsed state:', e)
+      debugError("Error saving sidebar collapsed state:", e);
     }
-  }, [isCollapsed, onCollapseChange])
+  }, [isCollapsed, onCollapseChange]);
 
   // Notify parent on initial load
   useEffect(() => {
     if (onCollapseChange) {
-      onCollapseChange(isCollapsed)
+      onCollapseChange(isCollapsed);
     }
-  }, [])
+  }, []);
 
   const toggleCollapse = () => {
-    setIsCollapsed(prev => !prev)
-  }
+    setIsCollapsed((prev) => !prev);
+  };
 
   const getExpandableSectionKeys = (menuData = []) => {
-    const keys = []
+    const keys = [];
     menuData.forEach((item) => {
       if (item.type === "section" && Array.isArray(item.items)) {
         item.items.forEach((subItem) => {
           if (subItem.type === "expandable" && subItem.label) {
-            keys.push(subItem.label.toLowerCase().replace(/\s+/g, ""))
+            keys.push(subItem.label.toLowerCase().replace(/\s+/g, ""));
           }
-        })
+        });
       }
-    })
-    return keys
-  }
+    });
+    return keys;
+  };
 
-  const isQuickAdmin = location.pathname.startsWith("/admin/quick-commerce")
-  const isCommonAdmin = location.pathname.startsWith("/admin/global-settings")
-  const isPorterAdmin = location.pathname.startsWith("/admin/porter")
+  const isQuickAdmin = location.pathname.startsWith("/admin/quick-commerce");
+  const isCommonAdmin = location.pathname.startsWith("/admin/global-settings");
+  const isPorterAdmin = location.pathname.startsWith("/admin/porter");
+  const isTaxiAdmin = location.pathname.startsWith("/admin/taxi");
 
-  const { user: authUser } = useAuth()
-  const user = useMemo(() => authUser || getCurrentUser("admin"), [authUser])
-  const [resolvedPermissions, setResolvedPermissions] = useState({})
+  const { user: authUser } = useAuth();
+  const user = useMemo(() => authUser || getCurrentUser("admin"), [authUser]);
+  const [resolvedPermissions, setResolvedPermissions] = useState({});
 
   useEffect(() => {
-    let isMounted = true
+    let isMounted = true;
 
     const resolvePermissions = async () => {
       if (!user || user.role === "ADMIN") {
-        if (isMounted) setResolvedPermissions({})
-        return
+        if (isMounted) setResolvedPermissions({});
+        return;
       }
 
-      const existingPermissions = extractAdminPermissions(user)
+      const existingPermissions = extractAdminPermissions(user);
       if (Object.keys(existingPermissions).length > 0) {
-        if (isMounted) setResolvedPermissions(existingPermissions)
-        return
+        if (isMounted) setResolvedPermissions(existingPermissions);
+        return;
       }
 
-      const roleId = extractAdminRoleId(user)
+      const roleId = extractAdminRoleId(user);
       if (!roleId) {
-        if (isMounted) setResolvedPermissions({})
-        return
+        if (isMounted) setResolvedPermissions({});
+        return;
       }
 
       try {
-        const rolePermissions = await fetchAdminRolePermissions(roleId)
-        if (isMounted) setResolvedPermissions(rolePermissions)
+        const rolePermissions = await fetchAdminRolePermissions(roleId);
+        if (isMounted) setResolvedPermissions(rolePermissions);
       } catch {
-        if (isMounted) setResolvedPermissions({})
+        if (isMounted) setResolvedPermissions({});
       }
-    }
+    };
 
-    resolvePermissions()
+    resolvePermissions();
     return () => {
-      isMounted = false
-    }
-  }, [user])
+      isMounted = false;
+    };
+  }, [user]);
 
   const activeMenuData = useMemo(() => {
-    let menu = adminSidebarMenu
-    let rootKey = "food"
+    let menu = adminSidebarMenu;
+    let rootKey = "food";
     if (isQuickAdmin) {
-      menu = quickAdminSidebarMenu
-      rootKey = "quick"
+      menu = quickAdminSidebarMenu;
+      rootKey = "quick";
     } else if (isCommonAdmin) {
-      menu = commonAdminSidebarMenu
-      rootKey = "global"
+      menu = commonAdminSidebarMenu;
+      rootKey = "global";
     } else if (isPorterAdmin) {
-      menu = porterAdminSidebarMenu
-      rootKey = "porter"
+      menu = porterAdminSidebarMenu;
+      rootKey = "porter";
+    } else if (isTaxiAdmin) {
+      menu = taxiAdminSidebarMenu;
+      rootKey = "taxi";
     } else {
-      menu = adminSidebarMenu
-      rootKey = "food"
+      menu = adminSidebarMenu;
+      rootKey = "food";
     }
 
     // Special case for the "Module Switcher" or shared links if they exist
     // But since we are filtering the WHOLE menu based on the active admin context:
-    if (isQuickAdmin && !enabledModules.quickCommerce) return []
+    if (isQuickAdmin && !enabledModules.quickCommerce) return [];
+    if (isPorterAdmin && !enabledModules.porter) return [];
+    if (isTaxiAdmin && !enabledModules.taxi) return [];
 
-    if (!isQuickAdmin && !isCommonAdmin && !enabledModules.food) return []
+    if (!isQuickAdmin && !isCommonAdmin && !isPorterAdmin && !isTaxiAdmin && !enabledModules.food)
+      return [];
 
     // Filter by permissions if employee
     if (user && user.role !== "ADMIN") {
@@ -423,14 +457,20 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
             const hasView = permissions[currentKey]?.view === true;
             if (item.type === "section" && item.items) {
               if (!hasView) return null;
-              const filteredItems = filterMenuByPermissions(item.items, currentKey);
+              const filteredItems = filterMenuByPermissions(
+                item.items,
+                currentKey,
+              );
               if (filteredItems.length === 0) return null;
               return { ...item, items: filteredItems };
             }
 
             if (item.type === "expandable" && item.subItems) {
               if (!hasView) return null;
-              const filteredSubItems = filterMenuByPermissions(item.subItems, currentKey);
+              const filteredSubItems = filterMenuByPermissions(
+                item.subItems,
+                currentKey,
+              );
               if (filteredSubItems.length === 0) return null;
               return { ...item, subItems: filteredSubItems };
             }
@@ -444,179 +484,231 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
       return filterMenuByPermissions(menu, rootKey);
     }
 
-    return menu
-  }, [isQuickAdmin, isCommonAdmin, isPorterAdmin, enabledModules, resolvedPermissions, user])
+    return menu;
+  }, [
+    isQuickAdmin,
+    isCommonAdmin,
+    isPorterAdmin,
+    isTaxiAdmin,
+    enabledModules,
+    resolvedPermissions,
+    user,
+  ]);
 
   // Ensure expandable keys exist for whichever admin module is active (food/quick)
   useEffect(() => {
-    const activeKeys = getExpandableSectionKeys(activeMenuData)
+    const activeKeys = getExpandableSectionKeys(activeMenuData);
     setExpandedSections((prev) => {
-      const next = { ...prev }
+      const next = { ...prev };
       activeKeys.forEach((key) => {
         if (typeof next[key] !== "boolean") {
-          next[key] = false
+          next[key] = false;
         }
-      })
-      return next
-    })
-  }, [activeMenuData])
+      });
+      return next;
+    });
+  }, [activeMenuData]);
 
-  const canAccessFoodModule = user?.role === "ADMIN" || hasAnyRootAccess(resolvedPermissions, "food")
-  const canAccessQuickModule = user?.role === "ADMIN" || hasAnyRootAccess(resolvedPermissions, "quick")
-  const canAccessGlobalModule = user?.role === "ADMIN" || hasAnyRootAccess(resolvedPermissions, "global")
-  const canAccessPorterModule = user?.role === "ADMIN" || hasAnyRootAccess(resolvedPermissions, "porter")
+  const canAccessFoodModule =
+    user?.role === "ADMIN" || hasAnyRootAccess(resolvedPermissions, "food");
+  const canAccessQuickModule =
+    user?.role === "ADMIN" || hasAnyRootAccess(resolvedPermissions, "quick");
+  const canAccessGlobalModule =
+    user?.role === "ADMIN" || hasAnyRootAccess(resolvedPermissions, "global");
+  const canAccessPorterModule =
+    user?.role === "ADMIN" || hasAnyRootAccess(resolvedPermissions, "porter");
+  const canAccessTaxiModule =
+    user?.role === "ADMIN" || hasAnyRootAccess(resolvedPermissions, "taxi");
 
   const switchAdminModule = (target) => {
     if (target === "quick") {
       const targetPath =
         user?.role === "ADMIN"
           ? "/admin/quick-commerce"
-          : getFirstAccessibleAdminPath(quickAdminSidebarMenu, resolvedPermissions, "quick") || "/admin/quick-commerce"
-      navigate(targetPath)
-
+          : getFirstAccessibleAdminPath(
+              quickAdminSidebarMenu,
+              resolvedPermissions,
+              "quick",
+            ) || "/admin/quick-commerce";
+      navigate(targetPath);
     } else if (target === "common") {
       const targetPath =
         user?.role === "ADMIN"
           ? "/admin/global-settings"
-          : getFirstAccessibleAdminPath(commonAdminSidebarMenu, resolvedPermissions, "global") || "/admin/global-settings"
-      navigate(targetPath)
+          : getFirstAccessibleAdminPath(
+              commonAdminSidebarMenu,
+              resolvedPermissions,
+              "global",
+            ) || "/admin/global-settings";
+      navigate(targetPath);
     } else if (target === "porter") {
       const targetPath =
         user?.role === "ADMIN"
           ? "/admin/porter"
-          : getFirstAccessibleAdminPath(porterAdminSidebarMenu, resolvedPermissions, "porter") || "/admin/porter"
-      navigate(targetPath)
+          : getFirstAccessibleAdminPath(
+              porterAdminSidebarMenu,
+              resolvedPermissions,
+              "porter",
+            ) || "/admin/porter";
+      navigate(targetPath);
+    } else if (target === "taxi") {
+      const targetPath =
+        user?.role === "ADMIN"
+          ? "/admin/taxi"
+          : getFirstAccessibleAdminPath(
+              taxiAdminSidebarMenu,
+              resolvedPermissions,
+              "taxi",
+            ) || "/admin/taxi";
+      navigate(targetPath);
     } else {
       const targetPath =
         user?.role === "ADMIN"
           ? "/admin/food"
-          : getFirstAccessibleAdminPath(adminSidebarMenu, resolvedPermissions, "food") || "/admin/food"
-      navigate(targetPath)
+          : getFirstAccessibleAdminPath(
+              adminSidebarMenu,
+              resolvedPermissions,
+              "food",
+            ) || "/admin/food";
+      navigate(targetPath);
     }
     if (window.innerWidth < 1024 && onClose) {
-      onClose()
+      onClose();
     }
-  }
+  };
 
   // Filter menu items based on search query
   const filteredMenuData = useMemo(() => {
     if (!searchQuery.trim()) {
-      return activeMenuData
+      return activeMenuData;
     }
 
-    const query = searchQuery.toLowerCase().trim()
-    const filtered = []
+    const query = searchQuery.toLowerCase().trim();
+    const filtered = [];
 
     activeMenuData.forEach((item) => {
       if (item.type === "link") {
         if (item.label.toLowerCase().includes(query)) {
-          filtered.push(item)
+          filtered.push(item);
         }
       } else if (item.type === "section") {
-        const filteredItems = []
+        const filteredItems = [];
 
         item.items.forEach((subItem) => {
           if (subItem.type === "link") {
             if (subItem.label.toLowerCase().includes(query)) {
-              filteredItems.push(subItem)
+              filteredItems.push(subItem);
             }
           } else if (subItem.type === "expandable") {
-            const matchesLabel = subItem.label.toLowerCase().includes(query)
-            const matchingSubItems = subItem.subItems?.filter(
-              (si) => si.label.toLowerCase().includes(query)
-            ) || []
+            const matchesLabel = subItem.label.toLowerCase().includes(query);
+            const matchingSubItems =
+              subItem.subItems?.filter((si) =>
+                si.label.toLowerCase().includes(query),
+              ) || [];
 
             if (matchesLabel || matchingSubItems.length > 0) {
               filteredItems.push({
                 ...subItem,
                 subItems: matchesLabel ? subItem.subItems : matchingSubItems,
-              })
+              });
             }
           }
-        })
+        });
 
         if (filteredItems.length > 0) {
           filtered.push({
             ...item,
             items: filteredItems,
-          })
+          });
         }
       }
-    })
+    });
 
-    return filtered
-  }, [searchQuery, activeMenuData])
+    return filtered;
+  }, [searchQuery, activeMenuData]);
 
   // Auto-expand sections with matches when searching
   useEffect(() => {
     if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase().trim()
+      const query = searchQuery.toLowerCase().trim();
 
       setExpandedSections((prev) => {
-        const newExpandedState = { ...prev }
+        const newExpandedState = { ...prev };
 
         activeMenuData.forEach((item) => {
           if (item.type === "section") {
             item.items.forEach((subItem) => {
               if (subItem.type === "expandable") {
-                const matchesLabel = subItem.label.toLowerCase().includes(query)
-                const hasMatchingSubItems = subItem.subItems?.some(
-                  (si) => si.label.toLowerCase().includes(query)
-                )
+                const matchesLabel = subItem.label
+                  .toLowerCase()
+                  .includes(query);
+                const hasMatchingSubItems = subItem.subItems?.some((si) =>
+                  si.label.toLowerCase().includes(query),
+                );
 
                 if (matchesLabel || hasMatchingSubItems) {
-                  const sectionKey = subItem.label.toLowerCase().replace(/\s+/g, "")
-                  newExpandedState[sectionKey] = true
+                  const sectionKey = subItem.label
+                    .toLowerCase()
+                    .replace(/\s+/g, "");
+                  newExpandedState[sectionKey] = true;
                 }
               }
-            })
+            });
           }
-        })
+        });
 
-        return newExpandedState
-      })
+        return newExpandedState;
+      });
     }
-  }, [searchQuery, activeMenuData])
+  }, [searchQuery, activeMenuData]);
 
   const isActive = (path, allPaths = []) => {
-    const currentPath = location.pathname.replace(/\/+$/, "") || "/"
-    const targetPath = String(path || "").replace(/\/+$/, "") || "/"
+    const currentPath = location.pathname.replace(/\/+$/, "") || "/";
+    const targetPath = String(path || "").replace(/\/+$/, "") || "/";
     const matchesPath = (candidatePath) =>
-      currentPath === candidatePath || currentPath.startsWith(`${candidatePath}/`)
+      currentPath === candidatePath ||
+      currentPath.startsWith(`${candidatePath}/`);
 
     if (targetPath === "/admin" || targetPath === "/admin/food") {
-      return currentPath === targetPath
+      return currentPath === targetPath;
     }
 
     // For subItems, check if this is the most specific match
     if (allPaths.length > 0) {
       // Sort paths by length (longest first) to find most specific match
-      const sortedPaths = [...allPaths].sort((a, b) => b.length - a.length)
+      const sortedPaths = [...allPaths].sort((a, b) => b.length - a.length);
       const bestMatch = sortedPaths.find((candidatePath) =>
-        matchesPath(String(candidatePath || "").replace(/\/+$/, "") || "/")
-      )
-      return (String(bestMatch || "").replace(/\/+$/, "") || "/") === targetPath
+        matchesPath(String(candidatePath || "").replace(/\/+$/, "") || "/"),
+      );
+      return (
+        (String(bestMatch || "").replace(/\/+$/, "") || "/") === targetPath
+      );
     }
 
-    return matchesPath(targetPath)
-  }
+    return matchesPath(targetPath);
+  };
 
   useEffect(() => {
     try {
-      const currentState = JSON.parse(localStorage.getItem('admin_sidebar_state') || '{}')
-      localStorage.setItem('admin_sidebar_state', JSON.stringify({
-        ...currentState,
-        expandedSections
-      }))
+      const currentState = JSON.parse(
+        localStorage.getItem("admin_sidebar_state") || "{}",
+      );
+      localStorage.setItem(
+        "admin_sidebar_state",
+        JSON.stringify({
+          ...currentState,
+          expandedSections,
+        }),
+      );
     } catch (e) {
-      debugError('Error saving sidebar state:', e)
+      debugError("Error saving sidebar state:", e);
     }
-  }, [expandedSections])
+  }, [expandedSections]);
 
   const toggleSection = (sectionKey) => {
     setExpandedSections((prev) => {
-      const isCurrentlyOpen = Boolean(prev[sectionKey])
-      const keys = Array.from(new Set([...Object.keys(prev), sectionKey]))
+      const isCurrentlyOpen = Boolean(prev[sectionKey]);
+      const keys = Array.from(new Set([...Object.keys(prev), sectionKey]));
 
       // Accordion behavior:
       // 1) If current section is open -> close it.
@@ -625,27 +717,27 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
         return {
           ...prev,
           [sectionKey]: false,
-        }
+        };
       }
 
-      const next = {}
+      const next = {};
       keys.forEach((key) => {
-        next[key] = key === sectionKey
-      })
-      return next
-    })
-  }
+        next[key] = key === sectionKey;
+      });
+      return next;
+    });
+  };
 
   const renderMenuItem = (item, index, isInSection = false) => {
     if (item.type === "link") {
-      const Icon = iconMap[item.icon] || Utensils
+      const Icon = iconMap[item.icon] || Utensils;
       return (
         <Link
           key={index}
           to={item.path}
           onClick={() => {
             if (window.innerWidth < 1024 && onClose) {
-              onClose()
+              onClose();
             }
           }}
           className={cn(
@@ -654,24 +746,35 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
             isActive(item.path)
               ? "bg-[#FFF3EB] text-[#FF6A00] border border-[#FFF3EB]/30 font-semibold shadow-xs"
               : "text-[#5C5247] hover:bg-[#FAF7F2] hover:text-[#1A1A1A]",
-            isCollapsed && "justify-center px-2"
+            isCollapsed && "justify-center px-2",
           )}
           style={{ animationDelay: `${index * 0.05}s` }}
           title={isCollapsed ? item.label : undefined}
         >
-          <Icon className={cn(
-            "shrink-0 transition-all duration-300 text-left",
-            isInSection ? "w-4 h-4" : "w-4 h-4",
-            isActive(item.path) ? "text-[#FF6A00] scale-110" : "text-[#5C5247] group-hover:text-[#1A1A1A]"
-          )} />
+          <Icon
+            className={cn(
+              "shrink-0 transition-all duration-300 text-left",
+              isInSection ? "w-4 h-4" : "w-4 h-4",
+              isActive(item.path)
+                ? "text-[#FF6A00] scale-110"
+                : "text-[#5C5247] group-hover:text-[#1A1A1A]",
+            )}
+          />
           {!isCollapsed && (
             <div className="flex-1 flex items-center justify-between overflow-hidden">
-              <span className={cn("text-left truncate", isInSection ? "font-semibold" : "font-medium")}>
+              <span
+                className={cn(
+                  "text-left truncate",
+                  isInSection ? "font-semibold" : "font-medium",
+                )}
+              >
                 {item.label}
               </span>
               {getBadgeCount(item.label, item.path) > 0 && (
                 <span className="shrink-0 bg-red-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full ml-1 min-w-[18px] text-center">
-                  {getBadgeCount(item.label, item.path) > 99 ? "99+" : getBadgeCount(item.label, item.path)}
+                  {getBadgeCount(item.label, item.path) > 99
+                    ? "99+"
+                    : getBadgeCount(item.label, item.path)}
                 </span>
               )}
             </div>
@@ -680,22 +783,26 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
             <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-600 rounded-full border-2 border-neutral-950" />
           )}
         </Link>
-      )
+      );
     }
 
     if (item.type === "expandable") {
-      const Icon = iconMap[item.icon] || Utensils
-      const sectionKey = item.label.toLowerCase().replace(/\s+/g, "")
-      const isExpanded = expandedSections[sectionKey] || false
+      const Icon = iconMap[item.icon] || Utensils;
+      const sectionKey = item.label.toLowerCase().replace(/\s+/g, "");
+      const isExpanded = expandedSections[sectionKey] || false;
 
       if (isCollapsed) {
         return (
-          <div key={index} className="menu-item-animate" style={{ animationDelay: `${index * 0.05}s` }}>
+          <div
+            key={index}
+            className="menu-item-animate"
+            style={{ animationDelay: `${index * 0.05}s` }}
+          >
             <button
               onClick={() => toggleSection(sectionKey)}
               className={cn(
                 "w-full flex items-center justify-center px-2 py-2 rounded-lg transition-all duration-300 ease-out text-sm font-medium",
-                "text-[#5C5247] hover:bg-[#FAF7F2] hover:text-[#1A1A1A]"
+                "text-[#5C5247] hover:bg-[#FAF7F2] hover:text-[#1A1A1A]",
               )}
               title={item.label}
             >
@@ -707,77 +814,100 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
               </div>
             </button>
           </div>
-        )
+        );
       }
 
       return (
-        <div key={index} className="menu-item-animate" style={{ animationDelay: `${index * 0.05}s` }}>
+        <div
+          key={index}
+          className="menu-item-animate"
+          style={{ animationDelay: `${index * 0.05}s` }}
+        >
           <button
             onClick={() => toggleSection(sectionKey)}
             className={cn(
               "w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg transition-all duration-300 ease-out text-sm font-medium text-left",
-              "text-[#5C5247] hover:bg-[#FAF7F2] hover:text-[#1A1A1A]"
+              "text-[#5C5247] hover:bg-[#FAF7F2] hover:text-[#1A1A1A]",
             )}
           >
             <div className="flex items-center gap-2.5 text-left flex-1 min-w-0">
               <Icon className="w-4 h-4 shrink-0 text-[#5C5247] transition-transform duration-300" />
-              <span className="font-medium text-left truncate">{item.label}</span>
+              <span className="font-medium text-left truncate">
+                {item.label}
+              </span>
               {getBadgeCount(item.label, item.path) > 0 && (
                 <span className="shrink-0 bg-red-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full ml-1 min-w-[18px] text-center">
-                  {getBadgeCount(item.label, item.path) > 99 ? "99+" : getBadgeCount(item.label, item.path)}
+                  {getBadgeCount(item.label, item.path) > 99
+                    ? "99+"
+                    : getBadgeCount(item.label, item.path)}
                 </span>
               )}
             </div>
-            <div className="transition-transform duration-300 shrink-0" style={{ transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)' }}>
+            <div
+              className="transition-transform duration-300 shrink-0"
+              style={{
+                transform: isExpanded ? "rotate(0deg)" : "rotate(-90deg)",
+              }}
+            >
               <ChevronDown className="w-4 h-4 shrink-0 text-[#5C5247]" />
             </div>
           </button>
           {isExpanded && item.subItems && (
             <div className="ml-5 mt-1 space-y-1 border-neutral-800/60 pl-3 submenu-animate overflow-hidden">
               {item.subItems.map((subItem, subIndex) => {
-                const allSubPaths = item.subItems.map(si => si.path)
-                const subItemLabel = subItem.label || subItem.title || subItem.name || (subItem.permissionKey === "modules" ? "Modules" : "")
+                const allSubPaths = item.subItems.map((si) => si.path);
+                const subItemLabel =
+                  subItem.label ||
+                  subItem.title ||
+                  subItem.name ||
+                  (subItem.permissionKey === "modules" ? "Modules" : "");
                 return (
                   <Link
                     key={subIndex}
                     to={subItem.path}
                     onClick={() => {
                       if (window.innerWidth < 1024 && onClose) {
-                        onClose()
+                        onClose();
                       }
                     }}
                     className={cn(
                       "flex w-full items-center gap-2 px-3 py-1.5 rounded-md transition-all duration-300 ease-out text-sm font-normal text-left",
                       isActive(subItem.path, allSubPaths)
                         ? "bg-[#FFF3EB] text-[#FF6A00] font-semibold shadow-xs"
-                        : "text-[#5C5247] hover:bg-[#FAF7F2] hover:text-[#1A1A1A]"
+                        : "text-[#5C5247] hover:bg-[#FAF7F2] hover:text-[#1A1A1A]",
                     )}
                     style={{ animationDelay: `${subIndex * 0.03}s` }}
                     title={subItemLabel}
                   >
-                    <span className={cn(
-                      "w-1.5 h-1.5 rounded-full shrink-0 transition-all duration-300",
-                      isActive(subItem.path, allSubPaths) ? "bg-[#FF6A00] scale-125" : "bg-[#5C5247]"
-                    )}></span>
+                    <span
+                      className={cn(
+                        "w-1.5 h-1.5 rounded-full shrink-0 transition-all duration-300",
+                        isActive(subItem.path, allSubPaths)
+                          ? "bg-[#FF6A00] scale-125"
+                          : "bg-[#5C5247]",
+                      )}
+                    ></span>
                     <span className="block min-w-[120px] text-left text-sm font-medium leading-5 text-current">
                       {subItemLabel}
                     </span>
                     {getBadgeCount(subItemLabel, subItem.path) > 0 && (
                       <span className="shrink-0 bg-red-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full ml-1 min-w-[18px] text-center">
-                        {getBadgeCount(subItemLabel, subItem.path) > 99 ? "99+" : getBadgeCount(subItemLabel, subItem.path)}
+                        {getBadgeCount(subItemLabel, subItem.path) > 99
+                          ? "99+"
+                          : getBadgeCount(subItemLabel, subItem.path)}
                       </span>
                     )}
                   </Link>
-                )
+                );
               })}
             </div>
           )}
         </div>
-      )
+      );
     }
 
-    return null
-  }
+    return null;
+  };
 
   const moduleTabs = [
     {
@@ -785,8 +915,8 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
       label: "Food",
       enabled: enabledModules.food,
       visible: canAccessFoodModule,
-      active: !isQuickAdmin && !isCommonAdmin && !isPorterAdmin,
-      onClick: () => switchAdminModule("food")
+      active: !isQuickAdmin && !isCommonAdmin && !isPorterAdmin && !isTaxiAdmin,
+      onClick: () => switchAdminModule("food"),
     },
     {
       key: "quick",
@@ -794,7 +924,7 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
       enabled: enabledModules.quickCommerce,
       visible: canAccessQuickModule,
       active: isQuickAdmin,
-      onClick: () => switchAdminModule("quick")
+      onClick: () => switchAdminModule("quick"),
     },
     {
       key: "porter",
@@ -802,11 +932,21 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
       enabled: enabledModules.porter,
       visible: canAccessPorterModule,
       active: isPorterAdmin,
-      onClick: () => switchAdminModule("porter")
-    }
+      onClick: () => switchAdminModule("porter"),
+    },
+    {
+      key: "taxi",
+      label: "Taxi",
+      enabled: enabledModules.taxi,
+      visible: canAccessTaxiModule,
+      active: isTaxiAdmin,
+      onClick: () => switchAdminModule("taxi"),
+    },
   ];
 
-  const visibleModuleTabs = moduleTabs.filter(tab => tab.enabled && tab.visible);
+  const visibleModuleTabs = moduleTabs.filter(
+    (tab) => tab.enabled && tab.visible,
+  );
 
   return (
     <>
@@ -893,13 +1033,11 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
           "transform transition-all duration-300 ease-in-out",
           "lg:translate-x-0",
           isOpen ? "translate-x-0" : "-translate-x-full",
-          isCollapsed ? "w-20" : "w-80"
+          isCollapsed ? "w-20" : "w-80",
         )}
       >
         {/* Header with Logo and Brand */}
-        <div
-          className="shrink-0 px-3 py-3 border-b border-[#EDE8E0] bg-transparent animate-[fadeIn_0.4s_ease-out]"
-        >
+        <div className="shrink-0 px-3 py-3 border-b border-[#EDE8E0] bg-transparent animate-[fadeIn_0.4s_ease-out]">
           <div className="flex items-center justify-between mb-3">
             {!isCollapsed && (
               <div className="flex items-center gap-2 animate-[slideIn_0.3s_ease-out]">
@@ -911,7 +1049,7 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
                       className="w-44 h-14 object-contain"
                       loading="lazy"
                       onError={(e) => {
-                        e.target.style.display = 'none'
+                        e.target.style.display = "none";
                       }}
                     />
                   ) : (
@@ -932,7 +1070,7 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
                       className="w-10 h-10 object-contain"
                       loading="lazy"
                       onError={(e) => {
-                        e.target.style.display = 'none'
+                        e.target.style.display = "none";
                       }}
                     />
                   ) : (
@@ -971,11 +1109,13 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
                 Admin Panel
               </h2>
               <div className="mt-2 rounded-xl border border-[#EDE8E0] bg-[#ffffffcc] p-1">
-                <div 
+                <div
                   className="grid gap-1"
-                  style={{ gridTemplateColumns: `repeat(${visibleModuleTabs.length}, minmax(0, 1fr))` }}
+                  style={{
+                    gridTemplateColumns: `repeat(${visibleModuleTabs.length}, minmax(0, 1fr))`,
+                  }}
                 >
-                  {visibleModuleTabs.map(tab => (
+                  {visibleModuleTabs.map((tab) => (
                     <button
                       key={`${tab.key}-module-btn`}
                       type="button"
@@ -984,7 +1124,7 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
                         "rounded-lg px-2 py-1.5 text-[11px] font-bold uppercase tracking-wide transition-all",
                         tab.active
                           ? "bg-[#FF6A00] text-white shadow-[0_4px_12px_rgba(255, 106, 0,0.2)]"
-                          : "text-[#5C5247] hover:text-[#1A1A1A] hover:bg-white/50"
+                          : "text-[#5C5247] hover:text-[#1A1A1A] hover:bg-white/50",
                       )}
                     >
                       {tab.label}
@@ -996,12 +1136,14 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
                       key="global-settings-btn"
                       type="button"
                       onClick={() => switchAdminModule("common")}
-                      style={{ gridColumn: `span ${visibleModuleTabs.length} / span ${visibleModuleTabs.length}` }}
+                      style={{
+                        gridColumn: `span ${visibleModuleTabs.length} / span ${visibleModuleTabs.length}`,
+                      }}
                       className={cn(
                         "rounded-lg px-2 py-1.5 mt-1 text-[11px] font-bold uppercase tracking-wide transition-all",
                         isCommonAdmin
                           ? "bg-[#FF6A00] text-white shadow-[0_4px_12px_rgba(255, 106, 0,0.2)]"
-                          : "text-[#5C5247] hover:text-[#1A1A1A] hover:bg-white/50"
+                          : "text-[#5C5247] hover:text-[#1A1A1A] hover:bg-white/50",
                       )}
                     >
                       Global Settings
@@ -1023,7 +1165,7 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className={cn(
                   "w-full pl-9 py-2 bg-[#ffffffcc] border border-[#EDE8E0] rounded-lg text-sm text-[#1A1A1A] placeholder:text-[#7C7062] focus:outline-none focus:ring-2 focus:ring-[#FF6A00]/40 focus:border-[#FF6A00]/40 transition-all duration-200 text-left",
-                  searchQuery ? "pr-9" : "pr-3"
+                  searchQuery ? "pr-9" : "pr-3",
                 )}
               />
               {searchQuery && (
@@ -1043,13 +1185,17 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
         <nav className="admin-sidebar-scroll flex-1 min-h-0 overflow-y-auto overscroll-y-contain px-3 py-3 space-y-2">
           {filteredMenuData.length === 0 && searchQuery.trim() ? (
             <div className="px-3 py-12 text-left animate-[fadeIn_0.4s_ease-out]">
-              <p className="text-[#5C5247] text-sm font-medium text-left">No menu items found</p>
-              <p className="text-neutral-400 text-sm mt-2 text-left">Try a different search term</p>
+              <p className="text-[#5C5247] text-sm font-medium text-left">
+                No menu items found
+              </p>
+              <p className="text-neutral-400 text-sm mt-2 text-left">
+                Try a different search term
+              </p>
             </div>
           ) : (
             filteredMenuData.map((item, index) => {
               if (item.type === "link") {
-                return renderMenuItem(item, index)
+                return renderMenuItem(item, index);
               }
 
               if (item.type === "section") {
@@ -1058,7 +1204,7 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
                     key={index}
                     className={cn(
                       index > 0 ? "mt-2 pt-2 border-t border-[#EDE8E0]" : "",
-                      "animate-[fadeIn_0.4s_ease-out]"
+                      "animate-[fadeIn_0.4s_ease-out]",
                     )}
                     style={{ animationDelay: `${index * 0.1}s` }}
                   >
@@ -1070,18 +1216,19 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
                       </div>
                     )}
                     <div className="space-y-1">
-                      {item.items.map((subItem, subIndex) => renderMenuItem(subItem, `${index}-${subIndex}`, true))}
+                      {item.items.map((subItem, subIndex) =>
+                        renderMenuItem(subItem, `${index}-${subIndex}`, true),
+                      )}
                     </div>
                   </div>
-                )
+                );
               }
 
-              return null
+              return null;
             })
           )}
         </nav>
       </div>
     </>
-  )
+  );
 }
-

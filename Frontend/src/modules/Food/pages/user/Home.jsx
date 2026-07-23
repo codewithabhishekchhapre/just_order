@@ -124,6 +124,7 @@ const MiniCart = lazy(() => import("@food/components/user/MiniCart"));
 const OrderTrackingCard = lazy(() => import("@food/components/user/OrderTrackingCard"));
 const QuickCommerceHomePage = lazy(() => import("../../../quickCommerce/user/pages/Home"));
 const PorterHomePage = lazy(() => import("../../../porter/user/pages/Home"));
+const TaxiHomePage = lazy(() => import("../../../taxi/user/pages/Home"));
 
 // Animated placeholder for search - moved outside component to prevent recreation
 const placeholders = [
@@ -344,10 +345,18 @@ export default function Home() {
       ? "quick"
       : path === "/porter" || path.endsWith("/porter")
       ? "porter"
+      : path === "/taxi" || path.endsWith("/taxi")
+      ? "taxi"
       : "food";
 
     const moduleKey =
-      targetTab === "quick" ? "quickCommerce" : targetTab === "porter" ? "porter" : "food";
+      targetTab === "quick"
+        ? "quickCommerce"
+        : targetTab === "porter"
+          ? "porter"
+          : targetTab === "taxi"
+            ? "taxi"
+            : "food";
 
     if (enabledModules[moduleKey] === false) {
       const fallbackPath = getFirstEnabledModulePath(enabledModules);
@@ -367,18 +376,27 @@ export default function Home() {
       const nextTab = visibleHomeTabs[0].id;
       if (nextTab === "quick") navigate("/quick", { replace: true });
       else if (nextTab === "porter") navigate("/porter", { replace: true });
+      else if (nextTab === "taxi") navigate("/taxi", { replace: true });
       else navigate("/food/user", { replace: true });
     }
   }, [activeTab, modulesLoading, navigate, visibleHomeTabs]);
 
   // --- Handlers ---
   const handleTabChange = (tab) => {
-    const moduleKey = tab === "quick" ? "quickCommerce" : tab === "porter" ? "porter" : "food";
+    const moduleKey =
+      tab === "quick"
+        ? "quickCommerce"
+        : tab === "porter"
+          ? "porter"
+          : tab === "taxi"
+            ? "taxi"
+            : "food";
     if (enabledModules[moduleKey] === false) return;
 
     startTransition(() => setActiveTab(tab));
     if (tab === "quick") navigate("/quick");
     else if (tab === "porter") navigate("/porter");
+    else if (tab === "taxi") navigate("/taxi");
     else navigate("/food/user");
   };
 
@@ -416,14 +434,18 @@ export default function Home() {
 
   // --- Render ---
   return (
-    <div className="relative min-h-screen bg-white dark:bg-[#0a0a0a] pb-16 md:pb-6">
+    <div
+      className={`relative min-h-screen bg-white dark:bg-[#0a0a0a] md:pb-6 ${
+        activeTab === "taxi" ? "pb-0" : "pb-16"
+      }`}
+    >
       <div className="md:hidden relative z-[50]">
         {!state.isBootstrapped ? (
           <div className="px-4 pt-6 pb-4">
             <div className="h-10 w-48 bg-slate-100 animate-pulse rounded-xl mb-6" />
             <div className="h-14 w-full bg-slate-100 animate-pulse rounded-2xl" />
           </div>
-        ) : (
+        ) : activeTab === "taxi" ? null : (
           <HomeHeader
             activeTab={activeTab}
             setActiveTab={handleTabChange}
@@ -560,6 +582,19 @@ export default function Home() {
               </QuickCartProvider>
             </QuickLocationProvider>
           </motion.div>
+        ) : activeTab === "taxi" ? (
+          <motion.div
+            key="taxi-content"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.16, ease: "easeOut" }}
+            className="bg-transparent"
+          >
+            <Suspense fallback={<div className="h-screen w-full bg-slate-50 dark:bg-[#0a0a0a]" />}>
+              <TaxiHomePage embedded />
+            </Suspense>
+          </motion.div>
         ) : (
           <motion.div
             key="porter-content"
@@ -623,8 +658,12 @@ export default function Home() {
         )}
       </AnimatePresence>
 
-      {hasFoodCartItems && <Suspense fallback={null}><MiniCart /></Suspense>}
-      <Suspense fallback={null}><OrderTrackingCard hasBottomNav /></Suspense>
+      {hasFoodCartItems && activeTab !== "taxi" && (
+        <Suspense fallback={null}><MiniCart /></Suspense>
+      )}
+      {activeTab !== "taxi" ? (
+        <Suspense fallback={null}><OrderTrackingCard hasBottomNav /></Suspense>
+      ) : null}
     </div>
   );
 }

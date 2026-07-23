@@ -22,6 +22,7 @@ const FoodApp = lazy(() => import('../modules/Food/routes'))
 const AuthApp = lazy(() => import('../modules/auth/routes'))
 const QuickCommerceApp = lazy(() => import('../modules/quickCommerce/routes'))
 const PorterApp = lazy(() => import('../modules/porter/routes'))
+const TaxiApp = lazy(() => import('../modules/taxi/routes'))
 const SellerApp = lazy(() => import('../modules/seller/routes'))
 
 
@@ -217,6 +218,16 @@ const AppRoutes = () => {
             }
           />
 
+          {/* Taxi landing keeps the shared food layout (embedded Taxi home via tab) */}
+          <Route
+            path="/taxi"
+            element={
+              <ModuleAccessGuard moduleKey="taxi">
+                <SharedFoodHomeRoute />
+              </ModuleAccessGuard>
+            }
+          />
+
           {/* Global shared cart */}
           <Route
             element={
@@ -263,6 +274,18 @@ const AppRoutes = () => {
               <ModuleAccessGuard moduleKey="porter">
                 <Suspense fallback={<PageLoader />}>
                   <PorterApp />
+                </Suspense>
+              </ModuleAccessGuard>
+            }
+          />
+
+          {/* Taxi storefront */}
+          <Route
+            path="/taxi/*"
+            element={
+              <ModuleAccessGuard moduleKey="taxi">
+                <Suspense fallback={<PageLoader />}>
+                  <TaxiApp />
                 </Suspense>
               </ModuleAccessGuard>
             }

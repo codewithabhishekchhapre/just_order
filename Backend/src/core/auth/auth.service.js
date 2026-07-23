@@ -11,7 +11,7 @@ import { FoodReferralSettings } from "../../modules/food/admin/models/referralSe
 import { FoodReferralLog } from "../../modules/food/admin/models/referralLog.model.js";
 import { FoodUserWallet } from "../../modules/food/user/models/userWallet.model.js";
 import { createOrUpdateOtp, verifyOtp } from "../otp/otp.service.js";
-import { signAccessToken, signRefreshToken, verifyRefreshToken, signDeliveryDocsResubmitToken } from "./token.util.js";
+import { signAccessToken, signRefreshToken, verifyRefreshToken, signDeliveryDocsResubmitToken, signDriverOnboardingToken } from "./token.util.js";
 import { FoodRefreshToken } from "../refreshTokens/refreshToken.model.js";
 import { ValidationError, AuthError } from "./errors.js";
 import { config } from "../../config/env.js";
@@ -563,7 +563,65 @@ export const verifyDeliveryOtpAndLogin = async (phone, otp, fcmToken, platform) 
   });
 
   if (!deliveryPartner) {
-    return { needsRegistration: true, phone };
+    // Create a phone-scoped draft stub so onboarding progress is stored in DB
+    // (never shared via client storage across mobile numbers).
+    let stub;
+    try {
+      stub = await Driver.create({
+        name: "",
+        phone: normalized,
+        countryCode: "+91",
+        status: "pending",
+        isActive: false,
+        onboardingStep: "details",
+        onboardingDraft: {
+          selectedModules: [],
+          moduleVehicles: {},
+          partnerAgreement: false,
+          termsAccepted: false,
+          privacyAccepted: false,
+          updatedAt: new Date(),
+        },
+      });
+    } catch (err) {
+      // Concurrent OTP verify — reuse the row created by the other request
+      if (err?.code === 11000) {
+        stub = await Driver.findOne({ phone: normalized });
+      }
+      if (!stub) throw err;
+    }
+
+    if (fcmToken) {
+      if (platform === "mobile") {
+        stub.fcmTokenMobile = Array.isArray(stub.fcmTokenMobile)
+          ? stub.fcmTokenMobile
+          : [];
+        if (!stub.fcmTokenMobile.includes(fcmToken)) {
+          stub.fcmTokenMobile.push(fcmToken);
+        }
+      } else {
+        stub.fcmTokens = Array.isArray(stub.fcmTokens) ? stub.fcmTokens : [];
+        if (!stub.fcmTokens.includes(fcmToken)) {
+          stub.fcmTokens.push(fcmToken);
+        }
+      }
+      await stub.save();
+    }
+
+    const {
+      serializeDriverOnboarding,
+    } = await import("../../modules/common/services/driverOnboarding.service.js");
+
+    const onboardingToken = signDriverOnboardingToken(stub._id);
+    return {
+      needsRegistration: true,
+      onboardingOnly: true,
+      accessToken: onboardingToken,
+      scope: "onboarding",
+      user: serializeDriverOnboarding(stub),
+      phone: normalized,
+      message: "Continue onboarding for this mobile number.",
+    };
   }
 
   if (deliveryPartner.isActive === false || deliveryPartner.isDeleted === true || deliveryPartner.accountStatus === 'deleted') {
@@ -596,40 +654,74 @@ export const verifyDeliveryOtpAndLogin = async (phone, otp, fcmToken, platform) 
     }
   }
 
-  if (deliveryPartner.status && deliveryPartner.status !== "approved") {
-    const isRejected = deliveryPartner.status === "rejected";
-    const documentsRequired = deliveryPartner.status === "documents_required";
-    if (isRejected || documentsRequired) {
-      const docsResubmitToken = documentsRequired
-        ? signDeliveryDocsResubmitToken(deliveryPartner.phone || normalized)
-        : undefined;
-      return {
-        pendingApproval: true,
-        isRejected: !documentsRequired,
-        documentsRequired,
-        documentsRequested: deliveryPartner.documentsRequested || [],
-        docsResubmitToken,
-        rejectionReason:
-          deliveryPartner.rejectionReason ||
-          (documentsRequired
-            ? "Please re-upload the requested documents"
-            : "Application rejected by admin"),
-        message: documentsRequired
-          ? "Please re-upload the requested documents."
-          : "Your application was rejected.",
-      };
-    }
+  const {
+    listEnrollments,
+    serializeEnrollment,
+    getApprovedModules,
+    syncAuthorizedServices,
+    syncGlobalDriverStatus,
+    ensureRegisteredServices,
+  } = await import("../../modules/common/utils/driverEnrollment.js");
+  const {
+    serializeDriverOnboarding,
+  } = await import("../../modules/common/services/driverOnboarding.service.js");
+
+  ensureRegisteredServices(deliveryPartner);
+  // Keep entitlement fields consistent — registeredServices is source of truth
+  const approvedModules = getApprovedModules(deliveryPartner);
+  const currentAuthorized = Array.isArray(deliveryPartner.authorizedServices)
+    ? deliveryPartner.authorizedServices.map(String)
+    : [];
+  const authorizedOutOfSync =
+    approvedModules.length !== currentAuthorized.length ||
+    approvedModules.some((key) => !currentAuthorized.includes(key));
+  if (authorizedOutOfSync) {
+    syncAuthorizedServices(deliveryPartner);
+    syncGlobalDriverStatus(deliveryPartner);
+    await deliveryPartner.save();
+  }
+
+  const enrollments = listEnrollments(deliveryPartner).map((item) =>
+    serializeEnrollment(item.module, item),
+  );
+  const hasApproved =
+    (deliveryPartner.authorizedServices || []).length > 0 ||
+    approvedModules.length > 0;
+
+  if (!hasApproved) {
+    const onboardingToken = signDriverOnboardingToken(deliveryPartner._id);
+    const rejected = enrollments.filter((item) => item.status === "rejected");
+    const docsRequired = enrollments.filter(
+      (item) => item.status === "documents_required",
+    );
     return {
       pendingApproval: true,
-      isRejected: false,
-      rejectionReason: null,
-      message: "Your account is pending admin verification. You will be notified once approved.",
+      onboardingOnly: true,
+      accessToken: onboardingToken,
+      scope: "onboarding",
+      isRejected: rejected.length > 0 && enrollments.every(
+        (item) => item.status === "rejected" || item.status === "not_registered",
+      ),
+      documentsRequired: docsRequired.length > 0,
+      documentsRequested: docsRequired.flatMap(
+        (item) => item.documentsRequested || [],
+      ),
+      docsResubmitToken:
+        docsRequired.length > 0
+          ? signDeliveryDocsResubmitToken(deliveryPartner.phone || normalized)
+          : undefined,
+      rejectionReason: rejected[0]?.rejectionReason || null,
+      enrollments,
+      user: serializeDriverOnboarding(deliveryPartner),
+      message:
+        "Complete module onboarding. You can track status and resubmit rejected modules.",
     };
   }
 
   const payload = {
     userId: deliveryPartner._id.toString(),
     role: ROLES.DELIVERY_PARTNER,
+    authorizedServices: deliveryPartner.authorizedServices || approvedModules,
   };
   const accessToken = signAccessToken(payload);
   const refreshToken = signRefreshToken(payload);
@@ -645,7 +737,9 @@ export const verifyDeliveryOtpAndLogin = async (phone, otp, fcmToken, platform) 
   return {
     accessToken,
     refreshToken,
-    user: deliveryPartner,
+    user: serializeDriverOnboarding(deliveryPartner),
+    enrollments,
+    authorizedServices: deliveryPartner.authorizedServices || approvedModules,
     needsRegistration: false,
   };
 };
@@ -819,6 +913,15 @@ export const getProfile = async (userId, role) => {
       const deliveryId = partner._id
         ? `DP-${partner._id.toString().slice(-8).toUpperCase()}`
         : null;
+      const {
+        listEnrollments,
+        serializeEnrollment,
+        getApprovedModules,
+      } = await import("../../modules/common/utils/driverEnrollment.js");
+      const enrollments = listEnrollments(partner).map((item) =>
+        serializeEnrollment(item.module, item),
+      );
+      const approvedModules = getApprovedModules(partner);
       profile = {
         ...partner,
         email: partner.email || null,
@@ -882,6 +985,10 @@ export const getProfile = async (userId, role) => {
                 number: partner.vehicleNumber,
               }
             : null,
+        authorizedServices: approvedModules.length
+          ? approvedModules
+          : partner.authorizedServices || [],
+        enrollments,
       };
       break;
     }
@@ -924,7 +1031,7 @@ export const getProfile = async (userId, role) => {
   return { user: profile };
 };
 
-const ADMIN_SERVICES_ALLOWED = ["food", "quickCommerce"];
+const ADMIN_SERVICES_ALLOWED = ["food", "quickCommerce", "taxi"];
 
 /** Update admin profile (name, email, phone, profileImage). Only for ADMIN role. */
 export const updateAdminProfile = async (userId, body) => {

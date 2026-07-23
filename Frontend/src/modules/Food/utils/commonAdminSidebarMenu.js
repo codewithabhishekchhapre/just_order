@@ -30,9 +30,23 @@ export const commonAdminSidebarMenu = [
             permissionKey: "modules",
             path: "/admin/global-settings/modules",
             icon: "LayoutGrid",
-          }
-        ]
-      }
-    ]
-  }
+          },
+          {
+            type: "link",
+            label: "Vehicle Configuration",
+            permissionKey: "vehicle_configuration",
+            path: "/admin/global-settings/vehicle-configuration",
+            icon: "Truck",
+          },
+          {
+            type: "link",
+            label: "Module Vehicle Mapping",
+            permissionKey: "module_vehicle_mapping",
+            path: "/admin/global-settings/module-vehicle-mapping",
+            icon: "Car",
+          },
+        ],
+      },
+    ],
+  },
 ];

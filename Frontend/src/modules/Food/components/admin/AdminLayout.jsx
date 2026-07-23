@@ -12,6 +12,7 @@ import { canAccessAdminPath, extractAdminPermissions, extractAdminRoleId, fetchA
 import { adminSidebarMenu } from "@food/utils/adminSidebarMenu"
 import { quickAdminSidebarMenu } from "@food/utils/quickAdminSidebarMenu"
 import { commonAdminSidebarMenu } from "@food/utils/commonAdminSidebarMenu"
+import { taxiAdminSidebarMenu } from "@/modules/taxi/admin/utils/taxiAdminSidebarMenu"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -81,7 +82,9 @@ export default function AdminLayout() {
         ? quickAdminSidebarMenu
         : rootKey === "global"
           ? commonAdminSidebarMenu
-          : adminSidebarMenu;
+          : rootKey === "taxi"
+            ? taxiAdminSidebarMenu
+            : adminSidebarMenu;
 
     const fallbackPath = getFirstAccessibleAdminPath(menu, resolvedPermissions, rootKey);
     if (!fallbackPath) return;

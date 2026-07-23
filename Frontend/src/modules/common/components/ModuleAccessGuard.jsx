@@ -25,14 +25,7 @@ export default function ModuleAccessGuard({ moduleKey, children }) {
     if (`${location.pathname}${location.search}` !== nextPath) {
       navigate(nextPath, { replace: true });
     }
-  }, [
-    allowed,
-    loading,
-    location.pathname,
-    location.search,
-    modules,
-    navigate,
-  ]);
+  }, [allowed, loading, location.pathname, location.search, modules, navigate]);
 
   if (loading) {
     return <AppShellSkeleton />;
