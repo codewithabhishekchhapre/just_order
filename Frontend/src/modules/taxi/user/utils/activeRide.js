@@ -59,6 +59,7 @@ export function phaseFromRideStatus(status) {
   if (["requested", "searching"].includes(s)) return "finding";
   if (["assigned", "arriving", "arrived"].includes(s)) return "driver";
   if (s === "in_progress") return "trip";
+  if (s === "awaiting_payment") return "payment";
   return null;
 }
 
@@ -69,4 +70,5 @@ export const ACTIVE_RIDE_STATUSES = new Set([
   "arriving",
   "arrived",
   "in_progress",
+  "awaiting_payment",
 ]);

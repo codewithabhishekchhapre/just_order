@@ -1,6 +1,24 @@
 import mongoose from 'mongoose';
 import { actionPerformerSchema } from '../../../core/models/actionPerformer.schema.js';
 
+/** One distance band with a full rate card (whole-trip pricing). */
+const distanceSlabSchema = new mongoose.Schema(
+    {
+        fromKm: { type: Number, required: true, min: 0, default: 0 },
+        /** null = unlimited (this slab and above) */
+        toKm: { type: Number, default: null, min: 0 },
+        baseFare: { type: Number, default: 0, min: 0 },
+        baseDistanceKm: { type: Number, default: 0, min: 0 },
+        perKmRate: { type: Number, default: 0, min: 0 },
+        perMinRate: { type: Number, default: 0, min: 0 },
+        freeWaitMinutes: { type: Number, default: 0, min: 0 },
+        perMinWaitRate: { type: Number, default: 0, min: 0 },
+        platformFee: { type: Number, default: 0, min: 0 },
+        surgeMultiplier: { type: Number, default: 1, min: 0 },
+    },
+    { _id: false },
+);
+
 const taxiPricingSchema = new mongoose.Schema(
     {
         vehicleTypeId: {
@@ -15,46 +33,23 @@ const taxiPricingSchema = new mongoose.Schema(
             default: null,
             index: true,
         },
-        baseFare: {
-            type: Number,
-            default: 0,
-            min: 0,
+        /**
+         * Distance slabs. Fare uses the single matching slab for the whole trip
+         * (fromKm ≤ distance ≤ toKm; at boundaries the higher fromKm wins).
+         */
+        slabs: {
+            type: [distanceSlabSchema],
+            default: [],
         },
-        baseDistanceKm: {
-            type: Number,
-            default: 0,
-            min: 0,
-        },
-        perKmRate: {
-            type: Number,
-            default: 0,
-            min: 0,
-        },
-        perMinRate: {
-            type: Number,
-            default: 0,
-            min: 0,
-        },
-        freeWaitMinutes: {
-            type: Number,
-            default: 0,
-            min: 0,
-        },
-        perMinWaitRate: {
-            type: Number,
-            default: 0,
-            min: 0,
-        },
-        platformFee: {
-            type: Number,
-            default: 0,
-            min: 0,
-        },
-        surgeMultiplier: {
-            type: Number,
-            default: 1,
-            min: 0,
-        },
+        // Legacy flat fields — kept in sync with first slab for older clients / list stats
+        baseFare: { type: Number, default: 0, min: 0 },
+        baseDistanceKm: { type: Number, default: 0, min: 0 },
+        perKmRate: { type: Number, default: 0, min: 0 },
+        perMinRate: { type: Number, default: 0, min: 0 },
+        freeWaitMinutes: { type: Number, default: 0, min: 0 },
+        perMinWaitRate: { type: Number, default: 0, min: 0 },
+        platformFee: { type: Number, default: 0, min: 0 },
+        surgeMultiplier: { type: Number, default: 1, min: 0 },
         status: {
             type: String,
             enum: ['active', 'inactive'],

@@ -8,6 +8,7 @@ export const RIDE_STATUSES = {
   arriving: { label: "Driver Arriving", tone: "info" },
   arrived: { label: "Arrived", tone: "info" },
   in_progress: { label: "In Progress", tone: "primary" },
+  awaiting_payment: { label: "Awaiting Payment", tone: "warning" },
   completed: { label: "Completed", tone: "success" },
   cancelled: { label: "Cancelled", tone: "danger" },
   cancelled_by_rider: { label: "Cancelled by rider", tone: "danger" },

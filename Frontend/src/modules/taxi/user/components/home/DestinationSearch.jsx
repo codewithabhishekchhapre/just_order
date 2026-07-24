@@ -14,6 +14,8 @@ export default function DestinationSearch({
   onUseCurrentLocation,
   biasLocation = null,
   placeholder = "Where are you going?",
+  placeSelected = false,
+  disabled = false,
 }) {
   const wrapRef = useRef(null);
   const inputRef = useRef(null);
@@ -31,6 +33,25 @@ export default function DestinationSearch({
   const [isSearching, setIsSearching] = useState(false);
   const [error, setError] = useState("");
   const [resolvingId, setResolvingId] = useState(null);
+
+  // Keep selected lock in sync when parent sets place (e.g. after book / hydrate)
+  useEffect(() => {
+    if (placeSelected && value) {
+      selectedAddressRef.current = String(value).trim();
+      setPredictions([]);
+      setIsSearching(false);
+      setIsFocused(false);
+      setError("");
+    }
+  }, [placeSelected, value]);
+
+  useEffect(() => {
+    if (!disabled) return;
+    setPredictions([]);
+    setIsSearching(false);
+    setIsFocused(false);
+    setError("");
+  }, [disabled]);
 
   const resetSession = useCallback(() => {
     sessionTokenRef.current = null;
@@ -91,8 +112,10 @@ export default function DestinationSearch({
     return undefined;
   }, [isFocused, initGooglePlaces]);
 
-  // Debounced predictions (works while typing even before focus settles)
+  // Debounced predictions — only while actively typing a new query
   useEffect(() => {
+    if (disabled) return undefined;
+
     const query = String(value || "").trim();
 
     if (query.length < MIN_QUERY_LENGTH) {
@@ -104,11 +127,17 @@ export default function DestinationSearch({
     }
 
     // Don't re-open suggestions for an already selected place address
-    if (query === selectedAddressRef.current) {
+    if (
+      placeSelected ||
+      (selectedAddressRef.current && query === selectedAddressRef.current)
+    ) {
+      latestRequestRef.current += 1;
       setPredictions([]);
       setIsSearching(false);
       return undefined;
     }
+
+    if (!isFocused) return undefined;
 
     const timer = setTimeout(async () => {
       const ready = await initGooglePlaces();
@@ -143,7 +172,6 @@ export default function DestinationSearch({
 
           if (ok && Array.isArray(results)) {
             setPredictions(results.slice(0, MAX_SUGGESTIONS));
-            setIsFocused(true);
           } else {
             setPredictions([]);
             if (!zero) setError("Unable to fetch location suggestions");
@@ -153,7 +181,15 @@ export default function DestinationSearch({
     }, SEARCH_DEBOUNCE_MS);
 
     return () => clearTimeout(timer);
-  }, [value, biasLocation, getSessionToken, initGooglePlaces]);
+  }, [
+    value,
+    biasLocation,
+    getSessionToken,
+    initGooglePlaces,
+    placeSelected,
+    disabled,
+    isFocused,
+  ]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -268,12 +304,20 @@ export default function DestinationSearch({
     [getSessionToken, onChange, onSelectPlace, resetSession],
   );
 
+  const queryTrimmed = String(value || "").trim();
+  const isLockedSelection =
+    placeSelected ||
+    (Boolean(selectedAddressRef.current) &&
+      queryTrimmed === selectedAddressRef.current);
+
   const showDropdown =
+    !disabled &&
     isFocused &&
+    !isLockedSelection &&
     (isSearching ||
       predictions.length > 0 ||
       error ||
-      String(value || "").trim().length >= MIN_QUERY_LENGTH);
+      queryTrimmed.length >= MIN_QUERY_LENGTH);
 
   return (
     <div className="relative" ref={wrapRef}>
@@ -283,18 +327,22 @@ export default function DestinationSearch({
           ref={inputRef}
           type="search"
           value={value}
+          disabled={disabled}
           onChange={(e) => {
             selectedAddressRef.current = "";
             onChange?.(e.target.value);
             setIsFocused(true);
           }}
-          onFocus={() => setIsFocused(true)}
+          onFocus={() => {
+            if (disabled) return;
+            setIsFocused(true);
+          }}
           placeholder={placeholder}
           autoComplete="off"
-          className="h-12 w-full rounded-2xl border border-gray-200 bg-white pl-10 pr-20 text-sm font-medium text-gray-900 shadow-sm placeholder:text-gray-400 outline-none focus:border-[#FF6A00]/40 focus:ring-2 focus:ring-[#FF6A00]/15"
+          className="h-12 w-full rounded-2xl border border-gray-200 bg-white pl-10 pr-20 text-sm font-medium text-gray-900 shadow-sm placeholder:text-gray-400 outline-none focus:border-[#FF6A00]/40 focus:ring-2 focus:ring-[#FF6A00]/15 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-500"
         />
         <div className="absolute right-2 flex items-center gap-1">
-          {value ? (
+          {value && !disabled ? (
             <button
               type="button"
               onClick={() => {
@@ -314,7 +362,8 @@ export default function DestinationSearch({
           <button
             type="button"
             onClick={onUseCurrentLocation}
-            className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#FF6A00]/10 text-[#FF6A00] active:scale-95"
+            disabled={disabled}
+            className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#FF6A00]/10 text-[#FF6A00] active:scale-95 disabled:opacity-40"
             aria-label="Use current location"
             title="Use current location"
           >

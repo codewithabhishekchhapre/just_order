@@ -138,6 +138,30 @@ export const handleRazorpayWebhook = async (req, res) => {
                 return res.status(200).json({ status: 'ok' });
             }
 
+            // CASE A-3: Taxi ride (checkout order or QR payment link)
+            if (
+                effectiveNotes.type === 'taxi_ride' ||
+                effectiveNotes.type === 'taxi_ride_qr' ||
+                effectiveNotes.module === 'taxi'
+            ) {
+                try {
+                    const { markPaidFromWebhook } = await import(
+                        '../../../modules/taxi/services/ridePayment.service.js'
+                    );
+                    await markPaidFromWebhook({
+                        rideId: effectiveNotes.rideId,
+                        razorpayOrderId: rzOrderId,
+                        razorpayPaymentId: rzPaymentId,
+                        paymentLinkId: paymentObj.payment_link_id || effectiveNotes.paymentLinkId || null,
+                        method: effectiveNotes.type === 'taxi_ride_qr' ? 'razorpay_qr' : 'razorpay',
+                    });
+                    logger.info(`Webhook [payment.captured]: Taxi ride paid ${effectiveNotes.rideId || rzOrderId}`);
+                } catch (taxiErr) {
+                    logger.error(`Webhook Taxi Payment Error: ${taxiErr.message}`);
+                }
+                return res.status(200).json({ status: 'ok' });
+            }
+
             // CASE B: Regular Food Order
             const order = await FoodOrder.findOneAndUpdate(
                 {

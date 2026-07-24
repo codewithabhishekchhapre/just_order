@@ -7,7 +7,7 @@ import { assertModuleEnabled } from '../../../core/modules/moduleEnabled.service
 import { getRoadDistance, haversineKm } from '../../../core/location/location.service.js';
 import { parseListQuery, buildDateRangeFilter, toTaxiPagination, escapeRegex } from '../utils/pagination.util.js';
 import { mapRide, mapVehicleType } from '../utils/mappers.util.js';
-import { computeFare, round2 } from '../utils/fare.util.js';
+import { computeFare, round2, selectPricingSlab } from '../utils/fare.util.js';
 import {
     validateQuoteDto,
     validateCreateRideDto,
@@ -185,7 +185,7 @@ export async function createRide(userId, body) {
 export async function getActiveRideForUser(userId) {
     if (!userId) throw new ValidationError('User is required');
 
-    const ACTIVE = ['requested', 'searching', 'assigned', 'arriving', 'arrived', 'in_progress'];
+    const ACTIVE = ['requested', 'searching', 'assigned', 'arriving', 'arrived', 'in_progress', 'awaiting_payment'];
     const doc = await TaxiRide.findOne({
         ...baseFilter,
         userId,
@@ -268,9 +268,30 @@ export async function getRideById(id, { userId = null, includeOtp = false, inclu
         vehicleType: vehicleType ? mapVehicleType(vehicleType) : null,
         driver,
     });
+
+    // Waiting policy for arrived → OTP (free wait from matching distance slab)
+    let waitPolicy = null;
+    if (['assigned', 'arriving', 'arrived'].includes(String(doc.status || ''))) {
+        try {
+            const pricing = await loadActivePricing(doc.vehicleTypeId, doc.zoneId);
+            if (pricing) {
+                const slab = selectPricingSlab(pricing, doc.distanceKm);
+                waitPolicy = {
+                    freeWaitMinutes: Number(slab.freeWaitMinutes || 0),
+                    perMinWaitRate: Number(slab.perMinWaitRate || 0),
+                    slabFromKm: slab.fromKm ?? 0,
+                    slabToKm: slab.toKm ?? null,
+                };
+            }
+        } catch {
+            /* pricing optional for tracking */
+        }
+    }
+
     return {
         ...mapped,
         lastDriverLocation: lastDriverLocation || mapped.lastDriverLocation || null,
+        waitPolicy,
     };
 }
 

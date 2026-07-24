@@ -2,6 +2,7 @@ import { sendResponse } from '../../../utils/response.js';
 import { asyncHandler } from '../../../utils/asyncHandler.js';
 import * as rideService from '../services/ride.service.js';
 import * as rideDispatchService from '../services/rideDispatch.service.js';
+import * as ridePaymentService from '../services/ridePayment.service.js';
 
 export const quoteRide = asyncHandler(async (req, res) => {
     const quote = await rideService.quoteRide(req.body);
@@ -52,6 +53,11 @@ export const getActivePartnerRide = asyncHandler(async (req, res) => {
     return sendResponse(res, 200, 'Active ride fetched successfully', { ride });
 });
 
+export const listPartnerRides = asyncHandler(async (req, res) => {
+    const rides = await ridePaymentService.listPartnerRides(req.user?.userId, req.query);
+    return sendResponse(res, 200, 'Partner rides fetched successfully', { rides });
+});
+
 export const acceptRide = asyncHandler(async (req, res) => {
     const ride = await rideDispatchService.acceptRide(req.user?.userId, req.params.id);
     return sendResponse(res, 200, 'Ride accepted successfully', { ride });
@@ -67,7 +73,55 @@ export const startRide = asyncHandler(async (req, res) => {
     return sendResponse(res, 200, 'Ride started successfully', { ride });
 });
 
+export const reachDrop = asyncHandler(async (req, res) => {
+    const ride = await ridePaymentService.reachDrop(req.user?.userId, req.params.id, req.body);
+    return sendResponse(res, 200, 'Reached drop — awaiting payment', { ride });
+});
+
+export const createCollectQr = asyncHandler(async (req, res) => {
+    const data = await ridePaymentService.createDriverCollectQr(req.user?.userId, req.params.id);
+    return sendResponse(res, 200, 'Collect QR created', data);
+});
+
+export const collectCash = asyncHandler(async (req, res) => {
+    const ride = await ridePaymentService.collectCash(req.user?.userId, req.params.id);
+    return sendResponse(res, 200, 'Cash collected and ride completed', { ride });
+});
+
+export const partnerPaymentStatus = asyncHandler(async (req, res) => {
+    const ride = await ridePaymentService.getPaymentStatus(req.user?.userId, req.params.id, {
+        asPartner: true,
+    });
+    return sendResponse(res, 200, 'Payment status', { ride });
+});
+
 export const completeRide = asyncHandler(async (req, res) => {
-    const ride = await rideDispatchService.completeRide(req.user?.userId, req.params.id, req.body);
+    const ride = await ridePaymentService.completePaidRide(req.user?.userId, req.params.id);
     return sendResponse(res, 200, 'Ride completed successfully', { ride });
+});
+
+export const payWithWallet = asyncHandler(async (req, res) => {
+    const ride = await ridePaymentService.payWithWallet(req.user?.userId, req.params.id);
+    return sendResponse(res, 200, 'Paid with wallet', { ride });
+});
+
+export const createUserRazorpayOrder = asyncHandler(async (req, res) => {
+    const data = await ridePaymentService.createUserRazorpayOrder(req.user?.userId, req.params.id);
+    return sendResponse(res, 200, 'Razorpay order created', data);
+});
+
+export const verifyUserRazorpayPayment = asyncHandler(async (req, res) => {
+    const ride = await ridePaymentService.verifyUserRazorpayPayment(
+        req.user?.userId,
+        req.params.id,
+        req.body,
+    );
+    return sendResponse(res, 200, 'Payment verified', { ride });
+});
+
+export const userPaymentStatus = asyncHandler(async (req, res) => {
+    const ride = await ridePaymentService.getPaymentStatus(req.user?.userId, req.params.id, {
+        asPartner: false,
+    });
+    return sendResponse(res, 200, 'Payment status', { ride });
 });

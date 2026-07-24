@@ -22,6 +22,61 @@ const fareSchema = new mongoose.Schema(
         subtotal: { type: Number, default: 0, min: 0 },
         total: { type: Number, default: 0, min: 0 },
         currency: { type: String, default: 'INR', trim: true },
+        slab: {
+            fromKm: { type: Number, default: null },
+            toKm: { type: Number, default: null },
+        },
+    },
+    { _id: false },
+);
+
+const fareBreakdownSchema = new mongoose.Schema(
+    {
+        base: { type: Number, default: 0 },
+        distance: { type: Number, default: 0 },
+        time: { type: Number, default: 0 },
+        waiting: { type: Number, default: 0 },
+        platformFee: { type: Number, default: 0 },
+        surgeMultiplier: { type: Number, default: 1 },
+        subtotal: { type: Number, default: 0 },
+        total: { type: Number, default: 0 },
+        currency: { type: String, default: 'INR' },
+        distanceKm: { type: Number, default: 0 },
+        durationMin: { type: Number, default: 0 },
+        waitingMin: { type: Number, default: 0 },
+        slabFromKm: { type: Number, default: null },
+        slabToKm: { type: Number, default: null },
+    },
+    { _id: false },
+);
+
+const paymentSchema = new mongoose.Schema(
+    {
+        method: {
+            type: String,
+            enum: ['cash', 'wallet', 'razorpay', 'razorpay_qr', 'upi', 'card'],
+            default: 'cash',
+            trim: true,
+        },
+        status: {
+            type: String,
+            enum: ['pending', 'pending_qr', 'paid', 'failed', 'refunded'],
+            default: 'pending',
+        },
+        paymentId: { type: String, default: null },
+        razorpayOrderId: { type: String, default: null },
+        razorpayPaymentId: { type: String, default: null },
+        paymentLinkId: { type: String, default: null },
+        shortUrl: { type: String, default: null },
+        qr: {
+            paymentLinkId: { type: String, default: null },
+            shortUrl: { type: String, default: null },
+            status: { type: String, default: null },
+            amountPaise: { type: Number, default: null },
+            createdAt: { type: Date, default: null },
+        },
+        paidAt: { type: Date, default: null },
+        collectedBy: { type: String, default: null, trim: true },
     },
     { _id: false },
 );
@@ -42,6 +97,7 @@ export const TAXI_RIDE_STATUSES = [
     'arriving',
     'arrived',
     'in_progress',
+    'awaiting_payment',
     'completed',
     'cancelled_by_rider',
     'cancelled_by_driver',
@@ -79,17 +135,11 @@ const taxiRideSchema = new mongoose.Schema(
         drop: { type: placeSchema, required: true },
         distanceKm: { type: Number, default: 0, min: 0 },
         durationMin: { type: Number, default: 0, min: 0 },
+        waitingMin: { type: Number, default: 0, min: 0 },
         fare: { type: fareSchema, default: () => ({}) },
+        fareBreakdown: { type: fareBreakdownSchema, default: null },
         fareEstimateTotal: { type: Number, default: 0, min: 0 },
-        payment: {
-            method: { type: String, default: 'cash', trim: true },
-            status: {
-                type: String,
-                enum: ['pending', 'paid', 'failed', 'refunded'],
-                default: 'pending',
-            },
-            paymentId: { type: String, default: null },
-        },
+        payment: { type: paymentSchema, default: () => ({}) },
         status: {
             type: String,
             enum: TAXI_RIDE_STATUSES,
@@ -115,9 +165,11 @@ const taxiRideSchema = new mongoose.Schema(
         assignedAt: { type: Date, default: null },
         arrivedAt: { type: Date, default: null },
         startedAt: { type: Date, default: null },
+        reachedDropAt: { type: Date, default: null },
         completedAt: { type: Date, default: null },
         cancelledAt: { type: Date, default: null },
         cancelReason: { type: String, default: '', trim: true },
+        earningsCreditedAt: { type: Date, default: null },
         driverRating: { type: Number, default: null, min: 1, max: 5 },
         userRating: { type: Number, default: null, min: 1, max: 5 },
         lastDriverLocation: {
@@ -150,6 +202,8 @@ taxiRideSchema.index({ status: 1, createdAt: -1 });
 taxiRideSchema.index({ userId: 1, status: 1, createdAt: -1 });
 taxiRideSchema.index({ 'dispatch.deliveryPartnerId': 1, status: 1 });
 taxiRideSchema.index({ isDeleted: 1, status: 1, createdAt: -1 });
+taxiRideSchema.index({ 'payment.razorpayOrderId': 1 });
+taxiRideSchema.index({ 'payment.paymentLinkId': 1 });
 taxiRideSchema.index(
     { rideNumber: 1 },
     { unique: true, partialFilterExpression: { isDeleted: false } },

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Car, Clock3, MapPin } from "lucide-react";
+import { ArrowLeft, Car, ChevronDown, ChevronUp, Clock3, MapPin } from "lucide-react";
 import { toast } from "sonner";
 import TaxiBottomNav from "../components/layout/BottomNav";
 import { getTaxiHomePath } from "../utils/routes";
@@ -19,7 +19,82 @@ const ACTIVE_STATUSES = new Set([
   "arriving",
   "arrived",
   "in_progress",
+  "awaiting_payment",
 ]);
+
+function formatInr(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "—";
+  return `₹${Math.round(n)}`;
+}
+
+function RideCard({ ride }) {
+  const [open, setOpen] = useState(false);
+  const breakdown = ride.fareBreakdown || ride.fare;
+  const total = Number(ride.fare?.total ?? ride.fareEstimateTotal ?? 0);
+  const payment = ride.payment;
+
+  return (
+    <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="text-sm font-extrabold text-gray-900">
+            {ride.rideNumber || ride.id}
+          </p>
+          <p className="mt-1 text-xs capitalize text-gray-500">
+            {ride.status?.replaceAll("_", " ")}
+          </p>
+        </div>
+        <p className="text-sm font-bold text-[#FF6A00]">{formatInr(total)}</p>
+      </div>
+      <div className="mt-3 space-y-1 text-xs text-gray-600">
+        <p className="flex gap-2">
+          <Clock3 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gray-400" />
+          <span className="line-clamp-2">{ride.pickup?.address || "Pickup"}</span>
+        </p>
+        <p className="flex gap-2">
+          <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#FF6A00]" />
+          <span className="line-clamp-2">{ride.drop?.address || "Drop"}</span>
+        </p>
+      </div>
+
+      {payment ? (
+        <p className="mt-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+          {payment.method?.replaceAll("_", " ") || "—"} · {payment.status || "—"}
+        </p>
+      ) : null}
+
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="mt-3 flex w-full items-center justify-center gap-1 rounded-xl bg-gray-50 py-2 text-[11px] font-bold text-gray-600"
+      >
+        Fare details
+        {open ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+      </button>
+
+      {open && breakdown ? (
+        <div className="mt-2 space-y-1 rounded-xl bg-gray-50 px-3 py-2.5 text-xs text-gray-600">
+          {[
+            ["Base", breakdown.base],
+            ["Distance", breakdown.distance],
+            ["Time", breakdown.time],
+            ["Waiting", breakdown.waiting],
+            ["Platform fee", breakdown.platformFee],
+            ["Total", breakdown.total ?? total],
+          ]
+            .filter(([, v]) => v != null && Number(v) !== 0)
+            .map(([label, value]) => (
+              <div key={label} className="flex justify-between gap-2">
+                <span>{label}</span>
+                <span className="font-semibold text-gray-900">{formatInr(value)}</span>
+              </div>
+            ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 export default function TaxiRides() {
   const navigate = useNavigate();
@@ -110,34 +185,7 @@ export default function TaxiRides() {
             </p>
           </div>
         ) : (
-          filtered.map((ride) => (
-            <div
-              key={ride.id}
-              className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="text-sm font-extrabold text-gray-900">
-                    {ride.rideNumber || ride.id}
-                  </p>
-                  <p className="mt-1 text-xs text-gray-500 capitalize">{ride.status?.replaceAll("_", " ")}</p>
-                </div>
-                <p className="text-sm font-bold text-[#FF6A00]">
-                  ₹{Number(ride.fareEstimateTotal || ride.fare?.total || 0).toFixed(0)}
-                </p>
-              </div>
-              <div className="mt-3 space-y-1 text-xs text-gray-600">
-                <p className="flex gap-2">
-                  <Clock3 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gray-400" />
-                  <span className="line-clamp-2">{ride.pickup?.address || "Pickup"}</span>
-                </p>
-                <p className="flex gap-2">
-                  <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#FF6A00]" />
-                  <span className="line-clamp-2">{ride.drop?.address || "Drop"}</span>
-                </p>
-              </div>
-            </div>
-          ))
+          filtered.map((ride) => <RideCard key={ride.id} ride={ride} />)
         )}
       </main>
 

@@ -15,9 +15,9 @@ import { mapRide, mapVehicleType } from '../utils/mappers.util.js';
 import { validateRideId, validateStartRideDto } from '../validators/ride.validator.js';
 import { assertTransition } from '../state/rideStateMachine.js';
 import { computeFare, generateRideOtp } from '../utils/fare.util.js';
+import { getSearchRadiusKm } from './settings.service.js';
 
 const baseFilter = { isDeleted: { $ne: true } };
-const DEFAULT_SEARCH_RADIUS_KM = 8;
 const STALE_GPS_MS = 10 * 60 * 1000;
 
 const allowedDriverStatuses =
@@ -25,9 +25,14 @@ const allowedDriverStatuses =
 
 /**
  * Find nearby taxi-eligible drivers near pickup.
+ * Radius comes from admin Taxi Settings (fallback 8 km).
  */
-export async function findNearbyTaxiDrivers(pickup, { maxKm = DEFAULT_SEARCH_RADIUS_KM } = {}) {
+export async function findNearbyTaxiDrivers(pickup, { maxKm } = {}) {
     if (pickup?.lat == null || pickup?.lng == null) return [];
+
+    const radiusKm = Number.isFinite(Number(maxKm))
+        ? Number(maxKm)
+        : await getSearchRadiusKm();
 
     const drivers = await Driver.find({
         availabilityStatus: 'online',
@@ -61,7 +66,7 @@ export async function findNearbyTaxiDrivers(pickup, { maxKm = DEFAULT_SEARCH_RAD
         })
         .filter((p) => {
             if (busyIds.has(String(p.partnerId))) return false;
-            if (p.distanceKm == null || p.distanceKm > maxKm) return false;
+            if (p.distanceKm == null || p.distanceKm > radiusKm) return false;
             if (!p.lastLocationAt || now - new Date(p.lastLocationAt).getTime() > STALE_GPS_MS) {
                 return false;
             }
@@ -112,7 +117,10 @@ export async function tryAssignRide(rideId) {
 
     const partners = await findNearbyTaxiDrivers(ride.pickup);
     if (!partners.length) {
-        logger.info(`[TaxiDispatch] No nearby taxi drivers for ride ${id}`);
+        const radiusKm = await getSearchRadiusKm();
+        logger.info(
+            `[TaxiDispatch] No nearby taxi drivers for ride ${id} within ${radiusKm} km`,
+        );
         return { offered: 0, partners: [] };
     }
 
@@ -311,7 +319,7 @@ export async function startRide(driverId, rideId, body = {}) {
     return mapRide(ride.toObject());
 }
 
-const PARTNER_ACTIVE_STATUSES = ['assigned', 'arriving', 'arrived', 'in_progress'];
+const PARTNER_ACTIVE_STATUSES = ['assigned', 'arriving', 'arrived', 'in_progress', 'awaiting_payment'];
 
 /**
  * Active ride for the signed-in delivery partner (for app hydrate / resume).
@@ -332,9 +340,11 @@ export async function getActiveRideForPartner(driverId) {
 }
 
 export async function completeRide(driverId, rideId, body = {}) {
-    if (!driverId) throw new ValidationError('Driver is required');
-    const id = validateRideId(rideId);
+    // Legacy callers: if still in_progress, reach drop first then require payment.
+    // Preferred path: reachDrop → pay → completePaidRide / collectCash.
+    const { reachDrop, completePaidRide, collectCash } = await import('./ridePayment.service.js');
 
+    const id = validateRideId(rideId);
     const ride = await TaxiRide.findOne({
         _id: id,
         ...baseFilter,
@@ -342,86 +352,23 @@ export async function completeRide(driverId, rideId, body = {}) {
     });
     if (!ride) throw new NotFoundError('Ride not found');
 
-    assertTransition(ride.status, 'completed');
-
-    const waitingMin = Number(body.waitingMin || 0);
-    const distanceKm = Number(body.distanceKm ?? ride.distanceKm ?? 0);
-    const durationMin = Number(
-        body.durationMin
-        ?? (ride.startedAt
-            ? Math.max(1, Math.round((Date.now() - new Date(ride.startedAt).getTime()) / 60000))
-            : ride.durationMin || 0),
-    );
-
-    let pricing = null;
-    if (ride.zoneId) {
-        pricing = await TaxiPricing.findOne({
-            vehicleTypeId: ride.vehicleTypeId,
-            zoneId: ride.zoneId,
-            isDeleted: { $ne: true },
-        }).lean();
-    }
-    if (!pricing) {
-        pricing = await TaxiPricing.findOne({
-            vehicleTypeId: ride.vehicleTypeId,
-            zoneId: null,
-            isDeleted: { $ne: true },
-        }).lean();
+    if (ride.status === 'in_progress') {
+        await reachDrop(driverId, rideId, body);
+        throw new ValidationError(
+            'Drop reached. Collect payment (QR / cash / wait for rider online pay), then complete.',
+        );
     }
 
-    const fare = pricing
-        ? computeFare({ distanceKm, durationMin, waitingMin, pricing })
-        : {
-            ...(ride.fare?.toObject?.() || ride.fare || {}),
-            total: ride.fareEstimateTotal || ride.fare?.total || 0,
-        };
-
-    ride.status = 'completed';
-    ride.completedAt = new Date();
-    ride.distanceKm = distanceKm;
-    ride.durationMin = durationMin;
-    ride.fare = fare;
-    if (ride.payment) {
-        ride.payment.status = ride.payment.method === 'cash' ? 'paid' : (ride.payment.status || 'pending');
-    }
-    await ride.save();
-
-    await clearDriverBusy(driverId);
-
-    // Optional wallet credit stub — best effort, non-blocking failure
-    try {
-        const { creditWallet } = await import('../../../core/payments/wallet.service.js');
-        const driverShare = Math.max(0, Number(fare.total || 0) - Number(fare.platformFee || 0));
-        if (driverShare > 0) {
-            await creditWallet({
-                entityType: 'deliveryBoy',
-                entityId: driverId,
-                amount: driverShare,
-                description: `Taxi ride ${ride.rideNumber} earnings`,
-                category: 'delivery_earning',
-                orderId: String(ride._id),
-                metadata: { module: 'taxi', rideId: String(ride._id), rideNumber: ride.rideNumber },
-            });
+    if (ride.status === 'awaiting_payment') {
+        if (String(body.paymentMode || body.method || '').toLowerCase() === 'cash') {
+            return collectCash(driverId, rideId);
         }
-    } catch (err) {
-        logger.warn(`[TaxiDispatch] wallet credit stub failed: ${err?.message || err}`);
+        return completePaidRide(driverId, rideId);
     }
 
-    const io = getIO();
-    if (io) {
-        const payload = {
-            module: 'taxi',
-            jobType: 'ride',
-            rideId: String(ride._id),
-            status: 'completed',
-            fare,
-        };
-        if (ride.userId) {
-            io.to(rooms.user(ride.userId)).emit('ride_status_update', payload);
-            io.to(rooms.user(ride.userId)).emit('ride_completed', payload);
-        }
-        io.to(rooms.delivery(driverId)).emit('ride_completed', payload);
+    if (ride.status === 'completed') {
+        return mapRide(ride.toObject());
     }
 
-    return mapRide(ride.toObject());
+    throw new ValidationError(`Cannot complete ride from status ${ride.status}`);
 }

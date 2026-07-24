@@ -30,6 +30,7 @@ export default function PickupMapCard({
   onConfirm,
   onPickupChange,
   confirming = false,
+  locked = false,
 }) {
   const mapHostRef = useRef(null);
   const mapRef = useRef(null);
@@ -282,13 +283,23 @@ export default function PickupMapCard({
         const formatted =
           place.formatted_address || place.name || prediction.description;
         setAddress(formatted);
-        setSearchQuery(formatted);
+        // Clear search box so last query / dropdown don't stick after selection
+        setSearchQuery("");
         setPredictions([]);
         setSearchOpen(false);
         placeMarker(pos, { pan: true, geocode: false });
       },
     );
   };
+
+  // After pickup is confirmed / during live ride — no leftover search UI
+  useEffect(() => {
+    if (!locked) return;
+    setSearchQuery("");
+    setPredictions([]);
+    setSearchOpen(false);
+    setIsSearching(false);
+  }, [locked]);
 
   const useCurrentLocation = () => {
     if (!navigator.geolocation) {
@@ -338,6 +349,9 @@ export default function PickupMapCard({
 
     onPickupChange?.(payload);
     onConfirm?.(payload);
+    setSearchQuery("");
+    setPredictions([]);
+    setSearchOpen(false);
   };
 
   return (
@@ -349,21 +363,27 @@ export default function PickupMapCard({
           <input
             type="search"
             value={searchQuery}
+            disabled={locked}
             onChange={(e) => {
+              if (locked) return;
               setSearchQuery(e.target.value);
               setSearchOpen(true);
             }}
-            onFocus={() => setSearchOpen(true)}
-            placeholder="Search pickup area…"
+            onFocus={() => {
+              if (locked) return;
+              setSearchOpen(true);
+            }}
+            placeholder={locked ? "Pickup selected" : "Search pickup area…"}
             autoComplete="off"
-            className="h-10 w-full rounded-xl border border-gray-200 bg-white pl-9 pr-10 text-sm font-medium text-gray-900 outline-none placeholder:text-gray-400 focus:border-[#FF6A00]/40 focus:ring-2 focus:ring-[#FF6A00]/15"
+            className="h-10 w-full rounded-xl border border-gray-200 bg-white pl-9 pr-10 text-sm font-medium text-gray-900 outline-none placeholder:text-gray-400 focus:border-[#FF6A00]/40 focus:ring-2 focus:ring-[#FF6A00]/15 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-500"
           />
-          {searchQuery ? (
+          {searchQuery && !locked ? (
             <button
               type="button"
               onClick={() => {
                 setSearchQuery("");
                 setPredictions([]);
+                setSearchOpen(false);
               }}
               className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100"
               aria-label="Clear search"
@@ -372,7 +392,7 @@ export default function PickupMapCard({
             </button>
           ) : null}
 
-          {searchOpen && (isSearching || predictions.length > 0) ? (
+          {!locked && searchOpen && (isSearching || predictions.length > 0) ? (
             <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] overflow-hidden rounded-xl border border-gray-100 bg-white shadow-lg">
               {isSearching ? (
                 <div className="flex items-center gap-2 px-3 py-2.5 text-xs text-gray-500">
@@ -409,7 +429,7 @@ export default function PickupMapCard({
         <button
           type="button"
           onClick={useCurrentLocation}
-          disabled={isLocating || !mapReady}
+          disabled={locked || isLocating || !mapReady}
           className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white text-xs font-bold text-gray-700 active:scale-[0.99] disabled:opacity-60"
         >
           {isLocating ? (
@@ -471,11 +491,11 @@ export default function PickupMapCard({
         <button
           type="button"
           onClick={handleConfirm}
-          disabled={confirming || !pin}
+          disabled={locked || confirming || !pin}
           className="inline-flex h-8 items-center gap-1 rounded-xl bg-[#FF6A00] px-3 text-[11px] font-bold text-white shadow-sm shadow-[#FF6A00]/25 active:scale-95 disabled:opacity-60"
         >
           <Check className="h-3.5 w-3.5" />
-          Confirm
+          {locked ? "Locked" : "Confirm"}
         </button>
       </div>
     </div>

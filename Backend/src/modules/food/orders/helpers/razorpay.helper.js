@@ -79,19 +79,37 @@ export function createRazorpayOrder(amountPaise, currency = 'INR', receipt = '',
     });
 }
 
-export function createPaymentLink({ amountPaise, currency = 'INR', description, orderId, customerName, customerEmail, customerPhone }) {
+export function createPaymentLink({
+    amountPaise,
+    currency = 'INR',
+    description,
+    orderId,
+    customerName,
+    customerEmail,
+    customerPhone,
+    notes = {},
+}) {
     const instance = getRazorpayInstance();
     if (!instance) return Promise.reject(new Error('Razorpay not configured'));
-    return instance.paymentLink.create({
+    const payload = {
         amount: Math.round(amountPaise),
         currency,
         description: description || `Order ${orderId}`,
         customer: {
             name: customerName || 'Customer',
             email: customerEmail || 'customer@example.com',
-            contact: customerPhone ? String(customerPhone).replace(/\D/g, '').slice(-10) : '9999999999'
+            contact: customerPhone ? String(customerPhone).replace(/\D/g, '').slice(-10) : '9999999999',
+        },
+    };
+    if (notes && typeof notes === 'object' && Object.keys(notes).length > 0) {
+        const normalizedNotes = {};
+        for (const [k, v] of Object.entries(notes)) {
+            if (v == null) continue;
+            normalizedNotes[String(k)] = String(v).slice(0, 256);
         }
-    });
+        if (Object.keys(normalizedNotes).length) payload.notes = normalizedNotes;
+    }
+    return instance.paymentLink.create(payload);
 }
 
 export function verifyPaymentSignature(orderId, paymentId, signature) {

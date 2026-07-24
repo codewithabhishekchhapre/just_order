@@ -13,7 +13,6 @@ import {
 } from '../validators/pricing.validator.js';
 import { validateListQuery } from '../validators/listQuery.validator.js';
 import { validateVehicleTypeId } from '../validators/vehicleType.validator.js';
-import { applySoftDelete } from '../utils/softDelete.util.js';
 
 const baseFilter = { isDeleted: { $ne: true } };
 
@@ -195,12 +194,22 @@ export async function updatePricingStatus(id, body, reqUser) {
 
 export async function deletePricing(id, reqUser) {
     const pricingId = validatePricingId(id);
-    const doc = await TaxiPricing.findOne({ _id: pricingId, ...baseFilter });
+    const performer = await resolveActionPerformerSnapshot(reqUser);
+
+    const doc = await TaxiPricing.findOneAndUpdate(
+        { _id: pricingId, ...baseFilter },
+        {
+            $set: {
+                isDeleted: true,
+                deletedAt: new Date(),
+                deletedBy: performer || null,
+                updatedBy: performer || null,
+            },
+        },
+        { new: true },
+    );
+
     if (!doc) throw new NotFoundError('Pricing not found');
 
-    const performer = await resolveActionPerformerSnapshot(reqUser);
-    applySoftDelete(doc, performer);
-    await doc.save();
-
-    return { id: pricingId };
+    return { id: pricingId, deleted: true };
 }

@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import useDeliveryBackNavigation from '../hooks/useDeliveryBackNavigation';
 import { useDeliveryStore } from '@/modules/DeliveryV2/store/useDeliveryStore';
 import { getModuleShortLabel } from '@/modules/DeliveryV2/utils/driverModuleAccess';
+import { taxiPartnerApi } from '@/modules/taxi/services/api';
 
 /**
  * HistoryV2 - EXACT 1:1 Match with User Screenshot.
@@ -16,6 +17,49 @@ import { getModuleShortLabel } from '@/modules/DeliveryV2/utils/driverModuleAcce
  * Accent: Emerald Green (#10B981)
  * Font: Poppins
  */
+function mapTaxiRideToTrip(ride) {
+  const status = String(ride.status || '').toLowerCase();
+  const fareTotal = Number(ride.fare?.total ?? ride.fareEstimateTotal ?? 0);
+  const platformFee = Number(ride.fareBreakdown?.platformFee ?? ride.fare?.platformFee ?? 0);
+  const earning = Math.max(0, fareTotal - platformFee);
+  const paymentMethod = ride.payment?.method || 'cash';
+  const isCash = String(paymentMethod).toLowerCase() === 'cash';
+  const completedLabel =
+    status === 'completed'
+      ? 'Completed'
+      : status === 'awaiting_payment'
+        ? 'Pending'
+        : status.startsWith('cancelled')
+          ? 'Cancelled'
+          : 'Pending';
+  const when = ride.completedAt || ride.reachedDropAt || ride.updatedAt || ride.createdAt;
+  const time = when
+    ? new Date(when).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+    : '--:--';
+
+  return {
+    orderId: ride.rideNumber || ride.id,
+    module: 'taxi',
+    moduleKey: 'taxi',
+    status: completedLabel,
+    restaurant: 'Taxi ride',
+    restaurantName: 'Taxi',
+    items: [{ name: `${ride.pickup?.address || 'Pickup'} → ${ride.drop?.address || 'Drop'}`, quantity: 1 }],
+    paymentMethod: isCash ? 'cash' : paymentMethod,
+    deliveryEarning: earning,
+    earningAmount: earning,
+    amount: earning,
+    orderTotal: fareTotal,
+    totalAmount: fareTotal,
+    codCollectedAmount: isCash && status === 'completed' ? fareTotal : 0,
+    time,
+    fareBreakdown: ride.fareBreakdown || ride.fare || null,
+    paymentStatus: ride.payment?.status || '',
+    distanceKm: ride.distanceKm,
+    _sortAt: when ? new Date(when).getTime() : 0,
+  };
+}
+
 export const HistoryV2 = () => {
   const goBack = useDeliveryBackNavigation();
   const [activeTab, setActiveTab] = useState("daily");
@@ -52,19 +96,49 @@ export const HistoryV2 = () => {
         const month = String(selectedDate.getMonth() + 1).padStart(2, "0");
         const day = String(selectedDate.getDate()).padStart(2, "0");
         const dateStr = `${year}-${month}-${day}`;
+        const dayStart = new Date(`${dateStr}T00:00:00`).getTime();
+        const dayEnd = new Date(`${dateStr}T23:59:59`).getTime();
 
         const params = {
           period: activeTab,
           date: dateStr,
           status: selectedTripType !== "ALL TRIPS" ? selectedTripType : undefined,
-          module: activeModuleFilter !== 'all' ? activeModuleFilter : undefined,
+          module: activeModuleFilter !== 'all' && activeModuleFilter !== 'taxi' ? activeModuleFilter : undefined,
           limit: 1000
         };
-        
-        const response = await deliveryAPI.getTripHistory(params);
-        if (response.data?.success) {
-          setTrips(response.data.data.trips || []);
+
+        const wantFood = activeModuleFilter !== 'taxi';
+        const wantTaxi = activeModuleFilter === 'all' || activeModuleFilter === 'taxi';
+
+        const [foodRes, taxiRides] = await Promise.all([
+          wantFood
+            ? deliveryAPI.getTripHistory(params).catch(() => null)
+            : Promise.resolve(null),
+          wantTaxi
+            ? taxiPartnerApi.listRides({ limit: 100 }).catch(() => [])
+            : Promise.resolve([]),
+        ]);
+
+        let next = [];
+        if (foodRes?.data?.success) {
+          next = foodRes.data.data.trips || [];
         }
+
+        const taxiTrips = (Array.isArray(taxiRides) ? taxiRides : [])
+          .map(mapTaxiRideToTrip)
+          .filter((t) => {
+            if (activeTab === 'daily' && t._sortAt) {
+              return t._sortAt >= dayStart && t._sortAt <= dayEnd;
+            }
+            return true;
+          })
+          .filter((t) => {
+            if (selectedTripType === 'ALL TRIPS') return true;
+            return String(t.status).toLowerCase() === String(selectedTripType).toLowerCase();
+          });
+
+        next = [...next, ...taxiTrips].sort((a, b) => (b._sortAt || 0) - (a._sortAt || 0));
+        setTrips(next);
       } catch (error) {
         toast.error("Failed to load history");
       } finally {
@@ -294,9 +368,19 @@ export const HistoryV2 = () => {
                                  Return Pickup
                                </span>
                              )}
+                             {(trip.module === 'taxi' || trip.moduleKey === 'taxi') && (
+                               <span className="text-[10px] font-bold px-3 py-1 rounded-full bg-orange-50 text-[#FF6A00]">
+                                 Taxi
+                               </span>
+                             )}
                              <span className={`text-[10px] font-bold px-3 py-1 rounded-full ${isCOD ? 'bg-red-50 text-red-600' : 'bg-green-50 text-[#10B981]'}`}>
                                 {isCOD ? 'COD' : 'Online'}
                              </span>
+                             {trip.paymentStatus ? (
+                               <span className="text-[10px] font-bold px-3 py-1 rounded-full bg-gray-50 text-gray-600 capitalize">
+                                 {trip.paymentStatus}
+                               </span>
+                             ) : null}
                          </div>
 
                          <div className="grid grid-cols-3 gap-4 pt-4 border-t border-gray-50">
@@ -313,6 +397,25 @@ export const HistoryV2 = () => {
                                 <p className="text-sm font-bold text-gray-950">₹{payout.toFixed(2)}</p>
                              </div>
                          </div>
+
+                         {trip.fareBreakdown && (trip.module === 'taxi' || trip.moduleKey === 'taxi') ? (
+                           <div className="mt-3 space-y-1 border-t border-gray-50 pt-3 text-xs text-gray-600">
+                             {[
+                               ['Base', trip.fareBreakdown.base],
+                               ['Distance', trip.fareBreakdown.distance],
+                               ['Time', trip.fareBreakdown.time],
+                               ['Waiting', trip.fareBreakdown.waiting],
+                               ['Platform fee', trip.fareBreakdown.platformFee],
+                             ]
+                               .filter(([, v]) => v != null && Number(v) !== 0)
+                               .map(([label, value]) => (
+                                 <div key={label} className="flex justify-between gap-2">
+                                   <span>{label}</span>
+                                   <span className="font-semibold text-gray-900">₹{Number(value).toFixed(0)}</span>
+                                 </div>
+                               ))}
+                           </div>
+                         ) : null}
 
                          {isReturnPickup && (trip.pickupPricingBreakdown || Number(trip.distanceKm || trip.pickupDistanceKm) > 0) && (
                            <div className="mt-3 pt-3 border-t border-gray-50 grid grid-cols-2 gap-x-4 gap-y-2 text-xs">

@@ -276,7 +276,7 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
     return Boolean(useDeliveryStore.getState().resolveActiveVehicleId());
   }, [seedVehicleFromProfile]);
   const { isWithinRange, distanceToTarget } = useProximityCheck();
-  const { acceptOrder, reachPickup, pickUpOrder, reachDrop, completeDelivery, resetTrip, taxiArrivePickup, taxiStartTrip, taxiCompleteTrip } = useOrderManager();
+  const { acceptOrder, reachPickup, pickUpOrder, reachDrop, completeDelivery, resetTrip, taxiArrivePickup, taxiStartTrip, taxiCompleteTrip, taxiReachDrop, taxiCreateCollectQr, taxiCollectCash, taxiRefreshPayment } = useOrderManager();
   const isTaxiTrip = isTaxiActiveOrder(activeOrder);
   const realtime = useDeliveryRealtimeOptional();
   const {
@@ -1339,7 +1339,8 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                   (tripStatus === 'PICKING_UP' ||
                     tripStatus === 'REACHED_PICKUP' ||
                     tripStatus === 'PICKED_UP' ||
-                    tripStatus === 'REACHED_DROP') && (
+                    tripStatus === 'REACHED_DROP' ||
+                    tripStatus === 'AWAITING_PAYMENT') && (
                     <TaxiRideActionModal
                       order={activeOrder}
                       status={tripStatus}
@@ -1348,7 +1349,11 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                       eta={eta}
                       onArrivedPickup={taxiArrivePickup}
                       onStartTrip={taxiStartTrip}
+                      onReachDrop={taxiReachDrop}
                       onCompleteTrip={taxiCompleteTrip}
+                      onCreateQr={taxiCreateCollectQr}
+                      onCollectCash={taxiCollectCash}
+                      onRefreshPayment={taxiRefreshPayment}
                       onMinimize={() => setIsModalMinimized(true)}
                     />
                   )

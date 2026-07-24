@@ -124,6 +124,23 @@ export const taxiAdminApi = {
     const response = await axiosInstance.get('/taxi/admin/vehicle-types/dropdown');
     return unwrap(response).vehicleTypes || [];
   },
+
+  getSettings: async () => {
+    const response = await axiosInstance.get('/taxi/admin/settings');
+    return unwrap(response).settings || unwrap(response);
+  },
+  updateSettings: async (body) => {
+    const response = await axiosInstance.put('/taxi/admin/settings', body);
+    return unwrap(response).settings || unwrap(response);
+  },
+  getCashLimit: async () => {
+    const response = await axiosInstance.get('/taxi/admin/cash-limit');
+    return unwrap(response).settings || unwrap(response);
+  },
+  updateCashLimit: async (body) => {
+    const response = await axiosInstance.put('/taxi/admin/cash-limit', body);
+    return unwrap(response).settings || unwrap(response);
+  },
 };
 
 export const taxiUserApi = {
@@ -155,12 +172,32 @@ export const taxiUserApi = {
     const response = await axiosInstance.post(`/taxi/rides/${id}/cancel`, body);
     return unwrap(response).ride || unwrap(response);
   },
+  payWithWallet: async (id) => {
+    const response = await axiosInstance.post(`/taxi/rides/${id}/pay/wallet`);
+    return unwrap(response).ride || unwrap(response);
+  },
+  createRazorpayOrder: async (id) => {
+    const response = await axiosInstance.post(`/taxi/rides/${id}/pay/razorpay/order`);
+    return unwrap(response);
+  },
+  verifyRazorpayPayment: async (id, body) => {
+    const response = await axiosInstance.post(`/taxi/rides/${id}/pay/razorpay/verify`, body);
+    return unwrap(response).ride || unwrap(response);
+  },
+  getPaymentStatus: async (id) => {
+    const response = await axiosInstance.get(`/taxi/rides/${id}/payment-status`);
+    return unwrap(response).ride || unwrap(response);
+  },
 };
 
 export const taxiPartnerApi = {
   getActiveRide: async () => {
     const response = await axiosInstance.get(`/taxi/partner/rides/active`);
     return unwrap(response).ride || unwrap(response) || null;
+  },
+  listRides: async (params = {}) => {
+    const response = await axiosInstance.get('/taxi/partner/rides', { params });
+    return unwrap(response).rides || [];
   },
   acceptRide: async (id) => {
     const response = await axiosInstance.post(`/taxi/partner/rides/${id}/accept`);
@@ -172,6 +209,22 @@ export const taxiPartnerApi = {
   },
   startRide: async (id, otp) => {
     const response = await axiosInstance.post(`/taxi/partner/rides/${id}/start`, { otp });
+    return unwrap(response).ride || unwrap(response);
+  },
+  reachDrop: async (id, body = {}) => {
+    const response = await axiosInstance.post(`/taxi/partner/rides/${id}/reach-drop`, body);
+    return unwrap(response).ride || unwrap(response);
+  },
+  createCollectQr: async (id) => {
+    const response = await axiosInstance.post(`/taxi/partner/rides/${id}/collect/qr`);
+    return unwrap(response);
+  },
+  collectCash: async (id) => {
+    const response = await axiosInstance.post(`/taxi/partner/rides/${id}/collect/cash`);
+    return unwrap(response).ride || unwrap(response);
+  },
+  getPaymentStatus: async (id) => {
+    const response = await axiosInstance.get(`/taxi/partner/rides/${id}/payment-status`);
     return unwrap(response).ride || unwrap(response);
   },
   completeRide: async (id, body = {}) => {

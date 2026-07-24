@@ -17,7 +17,10 @@ export function toTaxiLatLng(point) {
 
 export function mapTaxiRideStatusToTripStatus(status) {
   const s = String(status || "").toLowerCase();
-  if (["completed", "cancelled"].includes(s)) return "COMPLETED";
+  if (["completed", "cancelled", "cancelled_by_rider", "cancelled_by_driver", "cancelled_by_system"].includes(s)) {
+    return "COMPLETED";
+  }
+  if (s === "awaiting_payment") return "AWAITING_PAYMENT";
   if (s === "in_progress") return "PICKED_UP";
   if (s === "arrived") return "REACHED_PICKUP";
   if (["arriving", "assigned", "accepted", "searching", "requested"].includes(s)) {
@@ -32,7 +35,7 @@ export function buildTaxiActiveOrder(ride, fallbackRideId = null) {
   const pickupLoc = toTaxiLatLng(ride.pickup);
   const dropLoc = toTaxiLatLng(ride.drop);
   const fareTotal = Number(
-    ride.fareEstimateTotal ?? ride.fare?.total ?? ride.total ?? 0,
+    ride.fare?.total ?? ride.fareEstimateTotal ?? ride.total ?? 0,
   );
 
   return {
@@ -49,11 +52,16 @@ export function buildTaxiActiveOrder(ride, fallbackRideId = null) {
     customerLocation: dropLoc,
     total: Number.isFinite(fareTotal) ? fareTotal : 0,
     fareEstimateTotal: Number.isFinite(fareTotal) ? fareTotal : 0,
-    earnings: Number.isFinite(fareTotal) ? fareTotal : 0,
+    earnings: Number.isFinite(fareTotal)
+      ? Math.max(0, fareTotal - Number(ride.fare?.platformFee || 0))
+      : 0,
     distanceKm: Number(ride.distanceKm || 0),
     durationMin: Number(ride.durationMin || 0),
     tripDistanceKm: Number(ride.distanceKm || 0),
     estimatedTime: Number(ride.durationMin || 0),
+    payment: ride.payment || null,
+    fareBreakdown: ride.fareBreakdown || null,
+    fare: ride.fare || null,
   };
 }
 

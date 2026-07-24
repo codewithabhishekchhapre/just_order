@@ -225,13 +225,25 @@ export const useOrderManager = () => {
       throw new Error('Invalid ride');
     }
     try {
-      const ride = await taxiPartnerApi.completeRide(rideId, {
-        distanceKm: activeOrder?.distanceKm,
-        durationMin: activeOrder?.durationMin,
-      });
+      // If still on trip, reach drop first (opens payment).
+      if (String(activeOrder?.status || '').toLowerCase() === 'in_progress' || tripStatus === 'PICKED_UP') {
+        const ride = await taxiPartnerApi.reachDrop(rideId, {
+          distanceKm: activeOrder?.distanceKm,
+          durationMin: activeOrder?.durationMin,
+        });
+        setActiveOrder(buildTaxiActiveOrder(ride, rideId));
+        updateTripStatus('AWAITING_PAYMENT');
+        toast.message('Collect payment to finish');
+        return ride;
+      }
+
+      const ride = await taxiPartnerApi.completeRide(rideId);
       setActiveOrder(buildTaxiActiveOrder({
         ...ride,
-        earnings: Number(ride?.fare?.total ?? ride?.fareEstimateTotal ?? activeOrder?.total ?? 0),
+        earnings: Math.max(
+          0,
+          Number(ride?.fare?.total ?? 0) - Number(ride?.fare?.platformFee ?? 0),
+        ),
       }, rideId));
       updateTripStatus('COMPLETED');
       toast.success('Ride completed');
@@ -240,6 +252,64 @@ export const useOrderManager = () => {
       toast.error(error?.response?.data?.message || 'Failed to complete ride');
       throw error;
     }
+  };
+
+  const taxiReachDrop = async () => {
+    const rideId = getTaxiRideId(activeOrder);
+    if (!rideId) {
+      toast.error('Invalid ride');
+      throw new Error('Invalid ride');
+    }
+    try {
+      const ride = await taxiPartnerApi.reachDrop(rideId, {
+        distanceKm: activeOrder?.distanceKm,
+        durationMin: activeOrder?.durationMin,
+      });
+      setActiveOrder(buildTaxiActiveOrder(ride, rideId));
+      updateTripStatus('AWAITING_PAYMENT');
+      toast.message('Awaiting payment');
+      return ride;
+    } catch (error) {
+      toast.error(error?.response?.data?.message || 'Failed to mark drop reached');
+      throw error;
+    }
+  };
+
+  const taxiCreateCollectQr = async () => {
+    const rideId = getTaxiRideId(activeOrder);
+    if (!rideId) throw new Error('Invalid ride');
+    const data = await taxiPartnerApi.createCollectQr(rideId);
+    if (data?.ride) setActiveOrder(buildTaxiActiveOrder(data.ride, rideId));
+    return data;
+  };
+
+  const taxiCollectCash = async () => {
+    const rideId = getTaxiRideId(activeOrder);
+    if (!rideId) throw new Error('Invalid ride');
+    const ride = await taxiPartnerApi.collectCash(rideId);
+    setActiveOrder(buildTaxiActiveOrder({
+      ...ride,
+      earnings: Math.max(
+        0,
+        Number(ride?.fare?.total ?? 0) - Number(ride?.fare?.platformFee ?? 0),
+      ),
+    }, rideId));
+    updateTripStatus('COMPLETED');
+    toast.success('Cash collected · ride completed');
+    return ride;
+  };
+
+  const taxiRefreshPayment = async () => {
+    const rideId = getTaxiRideId(activeOrder);
+    if (!rideId) return null;
+    const ride = await taxiPartnerApi.getPaymentStatus(rideId);
+    setActiveOrder(buildTaxiActiveOrder(ride, rideId));
+    if (String(ride?.status || '').toLowerCase() === 'completed') {
+      updateTripStatus('COMPLETED');
+    } else if (String(ride?.status || '').toLowerCase() === 'awaiting_payment') {
+      updateTripStatus('AWAITING_PAYMENT');
+    }
+    return ride;
   };
 
   /**
@@ -311,8 +381,7 @@ export const useOrderManager = () => {
    */
   const reachDrop = async () => {
     if (isTaxiActiveOrder(activeOrder)) {
-      // Taxi completes via taxiCompleteTrip — no separate reached-drop API.
-      return;
+      return taxiReachDrop();
     }
 
     const orderId = getDeliveryDocumentId(activeOrder);
@@ -408,5 +477,9 @@ export const useOrderManager = () => {
     taxiArrivePickup,
     taxiStartTrip,
     taxiCompleteTrip,
+    taxiReachDrop,
+    taxiCreateCollectQr,
+    taxiCollectCash,
+    taxiRefreshPayment,
   };
 };

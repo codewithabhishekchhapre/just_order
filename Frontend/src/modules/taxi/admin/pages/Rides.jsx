@@ -22,8 +22,8 @@ const PAGE_CONFIG = {
   },
   active: {
     title: "Active Rides",
-    description: "Rides currently assigned, arriving or in progress",
-    statuses: ["assigned", "arriving", "arrived", "in_progress"],
+    description: "Rides currently assigned, arriving, in progress or awaiting payment",
+    statuses: ["assigned", "arriving", "arrived", "in_progress", "awaiting_payment"],
   },
   completed: {
     title: "Completed Rides",
@@ -45,6 +45,16 @@ const buildTimeline = (r) => {
   if (r.assignedAt) steps.push({ label: "Driver assigned", status: "completed", at: r.assignedAt });
   if (r.arrivedAt) steps.push({ label: "Driver arrived", status: "completed", at: r.arrivedAt });
   if (r.startedAt) steps.push({ label: "Trip started", status: "completed", at: r.startedAt });
+  if (r.reachedDropAt) steps.push({ label: "Reached drop · awaiting payment", status: "completed", at: r.reachedDropAt });
+  if (r.payment?.paidAt) {
+    steps.push({
+      label: `Payment ${r.payment?.method ? `(${r.payment.method})` : ""}`.trim(),
+      status: "completed",
+      at: r.payment.paidAt,
+    });
+  } else if (r.status === "awaiting_payment") {
+    steps.push({ label: "Awaiting payment", status: "pending", at: null });
+  }
   if (r.completedAt) steps.push({ label: "Completed", status: "completed", at: r.completedAt });
   if (r.cancelledAt) steps.push({ label: "Cancelled", status: "cancelled", at: r.cancelledAt });
   if (!steps.length) steps.push({ label: rideStatusMeta(r.status).label, status: "pending", at: null });
@@ -84,9 +94,11 @@ const Rides = ({ statusKey = "requests" }) => {
           pickup: r.pickup?.address || "",
           drop: r.drop?.address || "",
           status: r.status,
-          fare: Number(r.fareEstimateTotal || r.fare?.total || 0),
+          fare: Number(r.fare?.total ?? r.fareEstimateTotal ?? 0),
+          fareBreakdown: r.fareBreakdown || r.fare || null,
           distanceKm: Number(r.distanceKm || 0),
           durationMin: Number(r.durationMin || 0),
+          waitingMin: Number(r.waitingMin || 0),
           vehicleType: r.vehicleType?.name || r.vehicleTypeId || "—",
           paymentMethod: r.payment?.method || "cash",
           paymentStatus: r.payment?.status || "",
@@ -98,6 +110,7 @@ const Rides = ({ statusKey = "requests" }) => {
           assignedAt: r.assignedAt,
           arrivedAt: r.arrivedAt,
           startedAt: r.startedAt,
+          reachedDropAt: r.reachedDropAt,
           completedAt: r.completedAt,
           cancelledAt: r.cancelledAt,
           timeline: buildTimeline(r),
@@ -155,7 +168,16 @@ const Rides = ({ statusKey = "requests" }) => {
     { key: "vehicleType", header: "Vehicle" },
     { key: "distanceKm", header: "Distance", cell: (row) => `${row.distanceKm} km` },
     { key: "fare", header: "Fare", cell: (row) => formatCurrency(row.fare) },
-    { key: "paymentMethod", header: "Payment", cell: (row) => <span className="uppercase text-xs font-semibold text-gray-600">{row.paymentMethod}</span> },
+    {
+      key: "paymentMethod",
+      header: "Payment",
+      cell: (row) => (
+        <span className="text-xs font-semibold uppercase text-gray-600">
+          {row.paymentMethod}
+          {row.paymentStatus ? ` · ${row.paymentStatus}` : ""}
+        </span>
+      ),
+    },
     {
       key: "status", header: "Status",
       cell: (row) => {
@@ -245,6 +267,12 @@ const Rides = ({ statusKey = "requests" }) => {
                   <StatusBadge tone={rideStatusMeta(selected.status).tone} label={rideStatusMeta(selected.status).label} />
                   <StatusBadge status="neutral" label={selected.vehicleType} />
                   <StatusBadge status="neutral" label={(selected.paymentMethod || "cash").toUpperCase()} />
+                  {selected.paymentStatus ? (
+                    <StatusBadge
+                      tone={selected.paymentStatus === "paid" ? "success" : "warning"}
+                      label={`Payment ${selected.paymentStatus}`}
+                    />
+                  ) : null}
                 </div>
 
                 <FormSection title="Ride Summary">
@@ -253,7 +281,12 @@ const Rides = ({ statusKey = "requests" }) => {
                     <FormField label="Driver"><div className="text-sm font-mono">{selected.driverName}</div></FormField>
                   </FormRow>
                   <FormRow>
-                    <FormField label="Distance"><div className="text-sm font-medium">{selected.distanceKm} km · {selected.durationMin} min</div></FormField>
+                    <FormField label="Distance">
+                      <div className="text-sm font-medium">
+                        {selected.distanceKm} km · {selected.durationMin} min
+                        {selected.waitingMin ? ` · wait ${selected.waitingMin} min` : ""}
+                      </div>
+                    </FormField>
                     <FormField label="Fare"><div className="text-sm font-medium text-emerald-600">{formatCurrency(selected.fare)}</div></FormField>
                   </FormRow>
                   {selected.cancelReason ? (
@@ -262,6 +295,39 @@ const Rides = ({ statusKey = "requests" }) => {
                     </FormRow>
                   ) : null}
                 </FormSection>
+
+                {selected.fareBreakdown ? (
+                  <FormSection title="Fare breakdown">
+                    <div className="space-y-1.5 rounded-lg border bg-gray-50/80 px-3 py-3 text-sm">
+                      {[
+                        ["Base", selected.fareBreakdown.base],
+                        ["Distance", selected.fareBreakdown.distance],
+                        ["Time", selected.fareBreakdown.time],
+                        ["Waiting", selected.fareBreakdown.waiting],
+                        ["Surge", selected.fareBreakdown.surgeMultiplier != null && selected.fareBreakdown.surgeMultiplier !== 1
+                          ? `×${selected.fareBreakdown.surgeMultiplier}`
+                          : null],
+                        ["Subtotal", selected.fareBreakdown.subtotal],
+                        ["Platform fee", selected.fareBreakdown.platformFee],
+                        ["Total", selected.fareBreakdown.total ?? selected.fare],
+                      ]
+                        .filter(([, v]) => v != null && v !== "")
+                        .map(([label, value]) => (
+                          <div key={label} className="flex justify-between gap-3">
+                            <span className="text-muted-foreground">{label}</span>
+                            <span className="font-medium text-gray-900">
+                              {typeof value === "string" ? value : formatCurrency(value)}
+                            </span>
+                          </div>
+                        ))}
+                      {selected.fareBreakdown.slabLabel || selected.fareBreakdown.slabRange ? (
+                        <p className="pt-1 text-xs text-muted-foreground">
+                          Slab: {selected.fareBreakdown.slabLabel || selected.fareBreakdown.slabRange}
+                        </p>
+                      ) : null}
+                    </div>
+                  </FormSection>
+                ) : null}
 
                 <FormSection title="Route">
                   <div className="space-y-3">

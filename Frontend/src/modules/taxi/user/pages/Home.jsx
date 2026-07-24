@@ -22,6 +22,7 @@ import {
   isTaxiUserLoggedIn,
   redirectToTaxiLogin,
 } from "../utils/authUser";
+import { initRazorpayPayment } from "@food/utils/razorpay";
 import { taxiUserApi } from "../../services/api";
 import { saveBookingDraft } from "@/shared/utils/bookingDraft";
 import {
@@ -65,10 +66,11 @@ export default function TaxiHome({ embedded = false }) {
 
   const [sheetOpen, setSheetOpen] = useState(false);
   const [sheetMinimized, setSheetMinimized] = useState(false);
-  const [sheetPhase, setSheetPhase] = useState("vehicles"); // vehicles | confirm | finding | driver | trip
+  const [sheetPhase, setSheetPhase] = useState("vehicles"); // vehicles | confirm | finding | driver | trip | payment
   const [quotesByVehicle, setQuotesByVehicle] = useState({});
   const [quotesLoading, setQuotesLoading] = useState(false);
   const [booking, setBooking] = useState(false);
+  const [paymentBusy, setPaymentBusy] = useState(false);
   const [activeRide, setActiveRide] = useState(null);
   const [driverLocation, setDriverLocation] = useState(null);
   const [liveMetrics, setLiveMetrics] = useState({ distanceMeters: null, etaMinutes: null });
@@ -113,7 +115,9 @@ export default function TaxiHome({ embedded = false }) {
     return Boolean(destinationPlace?.address) && Number.isFinite(lat) && Number.isFinite(lng);
   }, [destinationPlace]);
 
-  const routeReady = Boolean(pickupCoords) && dropReady;
+  // Both pickup (confirmed on map) + drop must be set before vehicle sheet
+  const routeReady =
+    Boolean(pickupCoords) && dropReady && Boolean(pickupConfirmed);
 
   const pickupPayload = useMemo(() => {
     if (!pickupCoords) return null;
@@ -144,7 +148,7 @@ export default function TaxiHome({ embedded = false }) {
 
   const isLiveRide =
     Boolean(activeRide?.id) &&
-    ["finding", "driver", "trip"].includes(sheetPhase);
+    ["finding", "driver", "trip", "payment"].includes(sheetPhase);
 
   const rideStatus = String(activeRide?.status || "").toLowerCase();
 
@@ -332,7 +336,7 @@ export default function TaxiHome({ embedded = false }) {
     }
   }, [routeReady, pickupPayload, dropPayload, vehicles]);
 
-  // Open vehicle sheet when both pickup + drop ready (booking funnel only)
+  // Open vehicle sheet as soon as pickup + drop are both ready
   useEffect(() => {
     if (hydrating || isLiveRide) return;
     if (!routeReady) {
@@ -342,10 +346,18 @@ export default function TaxiHome({ embedded = false }) {
       }
       return;
     }
-    if (sheetPhase === "finding" || sheetPhase === "driver" || sheetPhase === "trip") return;
+    if (
+      sheetPhase === "finding" ||
+      sheetPhase === "driver" ||
+      sheetPhase === "trip" ||
+      sheetPhase === "payment"
+    ) {
+      return;
+    }
 
     setSheetPhase("vehicles");
     setSheetOpen(true);
+    setSheetMinimized(false);
     setSelectedVehicleId(null);
     loadQuotes();
   }, [routeReady, hydrating, isLiveRide]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -353,12 +365,15 @@ export default function TaxiHome({ embedded = false }) {
   // Poll active ride
   useEffect(() => {
     if (!activeRide?.id) return undefined;
-    if (!["finding", "driver", "trip"].includes(sheetPhase)) return undefined;
+    if (!["finding", "driver", "trip", "payment"].includes(sheetPhase)) return undefined;
 
     let cancelled = false;
     const poll = async () => {
       try {
-        const ride = await taxiUserApi.getRide(activeRide.id);
+        const ride =
+          sheetPhase === "payment"
+            ? await taxiUserApi.getPaymentStatus(activeRide.id)
+            : await taxiUserApi.getRide(activeRide.id);
         if (cancelled || !ride) return;
         setActiveRide(ride);
         persistActiveRideId(ride.id);
@@ -379,6 +394,7 @@ export default function TaxiHome({ embedded = false }) {
           }
           setSheetPhase(nextPhase);
           setSheetOpen(true);
+          if (nextPhase === "payment") setSheetMinimized(false);
         } else if (
           ["cancelled_by_rider", "cancelled_by_driver", "cancelled_by_system", "no_show", "completed"].includes(
             ride.status,
@@ -457,20 +473,58 @@ export default function TaxiHome({ embedded = false }) {
       }
     };
 
+    const refreshRide = () => {
+      taxiUserApi
+        .getRide(activeRide.id)
+        .then((ride) => {
+          if (!ride) return;
+          applyRide(ride);
+          if (ride.status === "awaiting_payment") {
+            setSheetMinimized(false);
+            setSheetOpen(true);
+          }
+        })
+        .catch(() => {});
+    };
+
+    const onStatus = (payload) => {
+      if (String(payload?.rideId || "") !== String(activeRide.id)) return;
+      refreshRide();
+    };
+
+    const onPayment = (payload) => {
+      if (String(payload?.rideId || "") !== String(activeRide.id)) return;
+      if (payload?.payment || payload?.fare) {
+        setActiveRide((prev) =>
+          prev
+            ? {
+                ...prev,
+                ...(payload.status ? { status: payload.status } : {}),
+                ...(payload.fare ? { fare: payload.fare } : {}),
+                ...(payload.payment ? { payment: { ...prev.payment, ...payload.payment } } : {}),
+              }
+            : prev,
+        );
+        if (payload.status === "awaiting_payment" || payload.payment) {
+          setSheetPhase("payment");
+          setSheetMinimized(false);
+          setSheetOpen(true);
+        }
+      }
+      refreshRide();
+    };
+
     socket.on("location-update", onLoc);
     socket.on("ride_location_update", onLoc);
-    socket.on("ride_status_update", (payload) => {
-      if (String(payload?.rideId || "") !== String(activeRide.id)) return;
-      taxiUserApi.getRide(activeRide.id).then((ride) => {
-        if (!ride) return;
-        applyRide(ride);
-      }).catch(() => {});
-    });
+    socket.on("ride_status_update", onStatus);
+    socket.on("ride_payment_update", onPayment);
 
     return () => {
       socket.off("connect", join);
       socket.off("location-update", onLoc);
       socket.off("ride_location_update", onLoc);
+      socket.off("ride_status_update", onStatus);
+      socket.off("ride_payment_update", onPayment);
       ids.forEach((id) => {
         socket.emit("leave-tracking", id);
         socket.emit("leave_order", id);
@@ -551,6 +605,100 @@ export default function TaxiHome({ embedded = false }) {
       setSheetPhase("vehicles");
       setSheetOpen(Boolean(routeReady));
       if (routeReady) loadQuotes();
+    }
+  };
+
+  const handlePayWallet = async () => {
+    if (!activeRide?.id || paymentBusy) return;
+    try {
+      setPaymentBusy(true);
+      const ride = await taxiUserApi.payWithWallet(activeRide.id);
+      applyRide(ride);
+      toast.success("Paid with wallet");
+      try {
+        const res = await userAPI.getWallet();
+        const data = res?.data?.data || res?.data || {};
+        const balance =
+          data?.wallet?.balance ??
+          data?.balance ??
+          data?.walletBalance ??
+          data?.totalBalance ??
+          null;
+        if (balance != null) setWalletBalance(Number(balance));
+      } catch {
+        /* ignore */
+      }
+    } catch (err) {
+      toast.error(err?.response?.data?.message || err?.message || "Wallet payment failed");
+    } finally {
+      setPaymentBusy(false);
+    }
+  };
+
+  const handlePayRazorpay = async () => {
+    if (!activeRide?.id || paymentBusy) return;
+    try {
+      setPaymentBusy(true);
+      const data = await taxiUserApi.createRazorpayOrder(activeRide.id);
+      const razorpay = data?.razorpay || data;
+      const key = razorpay?.keyId || razorpay?.key;
+      const orderId = razorpay?.orderId || razorpay?.order_id;
+      const amount = razorpay?.amount;
+      if (!key || !orderId || amount == null) {
+        throw new Error("Invalid Razorpay order response");
+      }
+
+      let prefill = {};
+      try {
+        const userResponse = await userAPI.getProfile();
+        const userInfo =
+          userResponse?.data?.data?.user || userResponse?.data?.user || {};
+        prefill = {
+          name: userInfo.name || "",
+          email: userInfo.email || "",
+          contact: String(userInfo.phone || "").replace(/\D/g, "").slice(-10),
+        };
+      } catch {
+        /* optional prefill */
+      }
+
+      await initRazorpayPayment({
+        key,
+        amount,
+        currency: razorpay.currency || "INR",
+        order_id: orderId,
+        name: "Just Order Taxi",
+        description: `Taxi fare · ${activeRide.rideNumber || ""}`,
+        prefill,
+        notes: { type: "taxi_ride", rideId: String(activeRide.id) },
+        handler: async (response) => {
+          try {
+            const ride = await taxiUserApi.verifyRazorpayPayment(activeRide.id, {
+              razorpayOrderId: response.razorpay_order_id,
+              razorpayPaymentId: response.razorpay_payment_id,
+              razorpaySignature: response.razorpay_signature,
+            });
+            applyRide(ride);
+            toast.success("Payment successful");
+          } catch (error) {
+            toast.error(
+              error?.response?.data?.message || "Payment verification failed",
+            );
+          } finally {
+            setPaymentBusy(false);
+          }
+        },
+        onError: (error) => {
+          toast.error(error?.description || "Payment failed");
+          setPaymentBusy(false);
+        },
+        onClose: () => {
+          setPaymentBusy(false);
+        },
+      });
+    } catch (err) {
+      toast.error(err?.response?.data?.message || err?.message || "Could not start payment");
+      setPaymentBusy(false);
     }
   };
 
@@ -684,7 +832,9 @@ export default function TaxiHome({ embedded = false }) {
               >
                 {rideStatus === "assigned" || rideStatus === "arriving"
                   ? "Back to live tracking"
-                  : "Open ride details"}
+                  : rideStatus === "awaiting_payment"
+                    ? "Open payment"
+                    : "Open ride details"}
               </button>
             </div>
           ) : null}
@@ -696,6 +846,8 @@ export default function TaxiHome({ embedded = false }) {
           >
             <DestinationSearch
               value={destination}
+              placeSelected={Boolean(destinationPlace) || isLiveRide}
+              disabled={isLiveRide}
               onChange={(next) => {
                 if (isLiveRide) return;
                 setDestination(next);
@@ -744,6 +896,7 @@ export default function TaxiHome({ embedded = false }) {
                   : "Move the pin, then confirm pickup"
               }
               initialLocation={pickupCoords}
+              locked={isLiveRide}
               onPickupChange={(payload) => {
                 if (isLiveRide) {
                   toast.message("Finish your current ride first");
@@ -867,6 +1020,9 @@ export default function TaxiHome({ embedded = false }) {
         onSelectVehicle={handleSelectVehicle}
         onConfirmBook={handleConfirmBook}
         onCancelRide={handleCancelRide}
+        onPayWallet={handlePayWallet}
+        onPayRazorpay={handlePayRazorpay}
+        paymentBusy={paymentBusy}
         pickupLabel={activeRide?.pickup?.address || pickupPayload?.address}
         dropLabel={activeRide?.drop?.address || dropPayload?.address}
         vehicles={vehicles}
